@@ -17,35 +17,60 @@ export interface Listing {
 }
 
 export function validateListing(listing: Listing) {
-  if (!listing.id) {
+  if (typeof listing.id !== 'string' || listing.id.length === 0) {
     throw new Error('Listing requires id.');
   }
 
-  if (!listing.sellerId) {
+  if (typeof listing.sellerId !== 'string' || listing.sellerId.length === 0) {
     throw new Error('Listing requires sellerId.');
   }
 
-  if (!listing.cardId) {
+  if (typeof listing.cardId !== 'string' || listing.cardId.length === 0) {
     throw new Error('Listing requires cardId.');
   }
 
-  if (listing.imageUrls.length < 1 || listing.imageUrls.length > 3) {
+  if (
+    !Array.isArray(listing.imageUrls) ||
+    listing.imageUrls.length < 1 ||
+    listing.imageUrls.length > 3 ||
+    listing.imageUrls.some((imageUrl) => typeof imageUrl !== 'string')
+  ) {
     throw new Error('Listing requires 1 to 3 image URLs.');
   }
 
-  if (listing.listingPrice <= 0) {
+  if (!Number.isFinite(listing.listingPrice) || listing.listingPrice <= 0) {
     throw new Error('Listing price must be greater than 0.');
   }
 
-  if (listing.originalQuantity <= 0) {
+  if (!Number.isInteger(listing.originalQuantity) || listing.originalQuantity <= 0) {
     throw new Error('Listing originalQuantity must be greater than 0.');
   }
 
-  if (listing.remainingQuantity < 0 || listing.remainingQuantity > listing.originalQuantity) {
+  if (
+    !Number.isInteger(listing.remainingQuantity) ||
+    listing.remainingQuantity < 0 ||
+    listing.remainingQuantity > listing.originalQuantity
+  ) {
     throw new Error('Listing remainingQuantity must be between 0 and originalQuantity.');
+  }
+
+  if (typeof listing.hasSleeve !== 'boolean' || typeof listing.supportsMyShip !== 'boolean') {
+    throw new Error('Listing sleeve and shipping flags must be booleans.');
+  }
+
+  if (listing.note !== undefined && typeof listing.note !== 'string') {
+    throw new Error('Listing note must be a string when provided.');
   }
 
   if (listing.status !== 'active' && listing.status !== 'sold_out') {
     throw new Error('Listing status must be active or sold_out.');
+  }
+
+  if (!(listing.createdAt instanceof Date) || Number.isNaN(listing.createdAt.valueOf())) {
+    throw new Error('Listing requires a valid createdAt date.');
+  }
+
+  if (!(listing.updatedAt instanceof Date) || Number.isNaN(listing.updatedAt.valueOf())) {
+    throw new Error('Listing requires a valid updatedAt date.');
   }
 }

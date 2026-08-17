@@ -12,11 +12,11 @@ export interface SellerProfile {
 const contactTypes: ContactType[] = ['line', 'discord', 'threads', 'facebook'];
 
 export function validateSellerProfile(profile: SellerProfile) {
-  if (!profile.uid) {
+  if (typeof profile.uid !== 'string' || profile.uid.length === 0) {
     throw new Error('Seller profile requires uid.');
   }
 
-  if (!profile.displayName) {
+  if (typeof profile.displayName !== 'string' || profile.displayName.length === 0) {
     throw new Error('Seller profile requires displayName.');
   }
 
@@ -24,7 +24,15 @@ export function validateSellerProfile(profile: SellerProfile) {
     throw new Error('Seller profile requires a supported contactType.');
   }
 
-  if (!profile.contactValue) {
+  if (typeof profile.contactValue !== 'string' || profile.contactValue.length === 0) {
     throw new Error('Seller profile requires contactValue.');
+  }
+
+  if (!(profile.createdAt instanceof Date) || Number.isNaN(profile.createdAt.valueOf())) {
+    throw new Error('Seller profile requires a valid createdAt date.');
+  }
+
+  if (!(profile.updatedAt instanceof Date) || Number.isNaN(profile.updatedAt.valueOf())) {
+    throw new Error('Seller profile requires a valid updatedAt date.');
   }
 }

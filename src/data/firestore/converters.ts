@@ -37,7 +37,16 @@ export const cardConverter: FirestoreDataConverter<Card> = {
   toFirestore(card) {
     const cardData = card as Card;
     validateCard(cardData);
-    const { id: _id, ...data } = cardData;
+    const data: FirestoreData = { rarity: cardData.rarity };
+
+    if (cardData.nameZh !== undefined) {
+      data.nameZh = cardData.nameZh;
+    }
+
+    if (cardData.nameJa !== undefined) {
+      data.nameJa = cardData.nameJa;
+    }
+
     return data;
   },
   fromFirestore(snapshot, options) {
@@ -58,13 +67,25 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
   toFirestore(listing) {
     const listingData = listing as Listing;
     validateListing(listingData);
-    const { id: _id, createdAt, updatedAt, ...data } = listingData;
-
-    return {
-      ...data,
-      createdAt: dateToTimestamp(createdAt),
-      updatedAt: dateToTimestamp(updatedAt),
+    const data: FirestoreData = {
+      sellerId: listingData.sellerId,
+      cardId: listingData.cardId,
+      imageUrls: listingData.imageUrls,
+      listingPrice: listingData.listingPrice,
+      originalQuantity: listingData.originalQuantity,
+      remainingQuantity: listingData.remainingQuantity,
+      hasSleeve: listingData.hasSleeve,
+      supportsMyShip: listingData.supportsMyShip,
+      status: listingData.status,
+      createdAt: dateToTimestamp(listingData.createdAt),
+      updatedAt: dateToTimestamp(listingData.updatedAt),
     };
+
+    if (listingData.note !== undefined) {
+      data.note = listingData.note;
+    }
+
+    return data;
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
@@ -93,12 +114,13 @@ export const sellerProfileConverter: FirestoreDataConverter<SellerProfile> = {
   toFirestore(profile) {
     const profileData = profile as SellerProfile;
     validateSellerProfile(profileData);
-    const { uid: _uid, createdAt, updatedAt, ...data } = profileData;
 
     return {
-      ...data,
-      createdAt: dateToTimestamp(createdAt),
-      updatedAt: dateToTimestamp(updatedAt),
+      displayName: profileData.displayName,
+      contactType: profileData.contactType,
+      contactValue: profileData.contactValue,
+      createdAt: dateToTimestamp(profileData.createdAt),
+      updatedAt: dateToTimestamp(profileData.updatedAt),
     };
   },
   fromFirestore(snapshot, options) {
@@ -121,11 +143,15 @@ export const saleConverter: FirestoreDataConverter<Sale> = {
   toFirestore(sale) {
     const saleData = sale as Sale;
     validateSale(saleData);
-    const { id: _id, soldAt, ...data } = saleData;
 
     return {
-      ...data,
-      soldAt: dateToTimestamp(soldAt),
+      listingId: saleData.listingId,
+      sellerId: saleData.sellerId,
+      cardId: saleData.cardId,
+      quantity: saleData.quantity,
+      listingUnitPrice: saleData.listingUnitPrice,
+      soldUnitPrice: saleData.soldUnitPrice,
+      soldAt: dateToTimestamp(saleData.soldAt),
     };
   },
   fromFirestore(snapshot, options) {

@@ -33,16 +33,54 @@ describe('Firestore converters', () => {
     });
   });
 
-  it('omits model ids when writing document data', () => {
+  it('writes only allowlisted card fields and omits undefined optional fields', () => {
     expect(
       cardConverter.toFirestore({
         id: 'CT-P01-001',
         nameZh: '諸伏景光',
+        nameJa: undefined,
         rarity: 'CP',
-      }),
+        officialImageUrl: 'https://example.com/official.jpg',
+        effectText: 'private card text',
+        unknown: 'unknown',
+      } as never),
     ).toEqual({
       nameZh: '諸伏景光',
       rarity: 'CP',
+    });
+  });
+
+  it('writes only allowlisted listing fields and omits an undefined note', () => {
+    const result = listingConverter.toFirestore({
+      id: 'listing-1',
+      sellerId: 'seller-1',
+      cardId: 'CT-P01-001',
+      imageUrls: ['https://example.com/card.jpg'],
+      listingPrice: 500,
+      originalQuantity: 2,
+      remainingQuantity: 2,
+      hasSleeve: true,
+      supportsMyShip: false,
+      note: undefined,
+      status: 'active',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+      email: 'seller@example.com',
+      unknown: 'unknown',
+    } as never);
+
+    expect(result).toEqual({
+      sellerId: 'seller-1',
+      cardId: 'CT-P01-001',
+      imageUrls: ['https://example.com/card.jpg'],
+      listingPrice: 500,
+      originalQuantity: 2,
+      remainingQuantity: 2,
+      hasSleeve: true,
+      supportsMyShip: false,
+      status: 'active',
+      createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+      updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
     });
   });
 
@@ -64,6 +102,27 @@ describe('Firestore converters', () => {
     });
   });
 
+  it('writes only allowlisted seller profile fields', () => {
+    expect(
+      sellerProfileConverter.toFirestore({
+        uid: 'seller-1',
+        displayName: 'Seller',
+        contactType: 'line',
+        contactValue: 'seller-line',
+        createdAt: new Date('2026-08-17T00:00:00.000Z'),
+        updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+        email: 'seller@example.com',
+        unknown: 'unknown',
+      } as never),
+    ).toEqual({
+      displayName: 'Seller',
+      contactType: 'line',
+      contactValue: 'seller-line',
+      createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+      updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
+    });
+  });
+
   it('converts sale timestamps to Date values', () => {
     const snapshot = {
       id: 'sale-1',
@@ -82,5 +141,60 @@ describe('Firestore converters', () => {
       id: 'sale-1',
       soldAt: new Date('2026-08-17T00:00:00.000Z'),
     });
+  });
+
+  it('writes only allowlisted sale fields', () => {
+    expect(
+      saleConverter.toFirestore({
+        id: 'sale-1',
+        listingId: 'listing-1',
+        sellerId: 'seller-1',
+        cardId: 'CT-P01-001',
+        quantity: 2,
+        listingUnitPrice: 500,
+        soldUnitPrice: 450,
+        soldAt: new Date('2026-08-17T00:00:00.000Z'),
+        email: 'seller@example.com',
+        unknown: 'unknown',
+      } as never),
+    ).toEqual({
+      listingId: 'listing-1',
+      sellerId: 'seller-1',
+      cardId: 'CT-P01-001',
+      quantity: 2,
+      listingUnitPrice: 500,
+      soldUnitPrice: 450,
+      soldAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+    });
+  });
+
+  it('rejects malformed Firestore listing data', () => {
+    const snapshot = {
+      id: 'listing-1',
+      data: () => ({
+        sellerId: 'seller-1',
+        cardId: 'CT-P01-001',
+        imageUrls: [123],
+        listingPrice: Number.POSITIVE_INFINITY,
+        originalQuantity: 1.5,
+        remainingQuantity: 1,
+        hasSleeve: 'true',
+        supportsMyShip: true,
+        status: 'invalid',
+        createdAt: new Date(),
+        updatedAt: Timestamp.now(),
+      }),
+    };
+
+    expect(() => listingConverter.fromFirestore(snapshot as never)).toThrow();
+  });
+
+  it('rejects malformed Firestore card optional fields', () => {
+    const snapshot = {
+      id: 'CT-P01-001',
+      data: () => ({ nameZh: 123, rarity: 'CP' }),
+    };
+
+    expect(() => cardConverter.fromFirestore(snapshot as never)).toThrow();
   });
 });

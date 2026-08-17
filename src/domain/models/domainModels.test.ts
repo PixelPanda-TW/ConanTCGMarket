@@ -85,4 +85,23 @@ describe('domain model validation', () => {
 
     expect(() => validateSale(sale)).toThrow('Sale quantity must be greater than 0.');
   });
+
+  it('rejects non-finite listing prices and non-integer quantities', () => {
+    const listing: Listing = {
+      id: 'listing-1',
+      sellerId: 'seller-1',
+      cardId: 'CT-P01-001',
+      imageUrls: ['https://example.com/card.jpg'],
+      listingPrice: Number.POSITIVE_INFINITY,
+      originalQuantity: 1.5,
+      remainingQuantity: 1,
+      hasSleeve: true,
+      supportsMyShip: true,
+      status: 'active',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateListing(listing)).toThrow();
+  });
 });
