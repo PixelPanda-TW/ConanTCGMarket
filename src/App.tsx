@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { AuthStatus } from './features/auth/AuthStatus';
 import { filterListings } from './listingFilters';
 
 const sampleListings = [
@@ -33,6 +34,7 @@ function App() {
   return (
     <main className="app-shell">
       <section className="marketplace">
+        <AuthStatus />
         <div className="masthead">
           <p className="eyebrow">Conan TCG Marketplace</p>
           <h1>搜尋正在販售的柯南 TCG 卡牌</h1>
