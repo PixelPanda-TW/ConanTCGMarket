@@ -47,6 +47,8 @@ Connect the app to Firebase and support Google sign-in state.
 
 Define stable data boundaries before building more UI behavior.
 
+Status: implemented as model, converter, and repository foundations. Firestore security rules and UI integration are covered by later milestones.
+
 ### Deliverables
 
 - `Card` model.
