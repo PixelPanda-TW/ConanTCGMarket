@@ -1,0 +1,147 @@
+import {
+  Timestamp,
+  type FirestoreDataConverter,
+  type QueryDocumentSnapshot,
+  type SnapshotOptions,
+} from 'firebase/firestore';
+import {
+  validateCard,
+  validateListing,
+  validateSale,
+  validateSellerProfile,
+  type Card,
+  type Listing,
+  type Sale,
+  type SellerProfile,
+} from '../../domain/models';
+
+type FirestoreData = Record<string, unknown>;
+
+function readData(snapshot: QueryDocumentSnapshot, options?: SnapshotOptions): FirestoreData {
+  return snapshot.data(options);
+}
+
+function timestampToDate(value: unknown, fieldName: string): Date {
+  if (!(value instanceof Timestamp)) {
+    throw new Error(`Expected Firestore Timestamp for ${fieldName}.`);
+  }
+
+  return value.toDate();
+}
+
+function dateToTimestamp(value: Date): Timestamp {
+  return Timestamp.fromDate(value);
+}
+
+export const cardConverter: FirestoreDataConverter<Card> = {
+  toFirestore(card) {
+    const cardData = card as Card;
+    validateCard(cardData);
+    const { id: _id, ...data } = cardData;
+    return data;
+  },
+  fromFirestore(snapshot, options) {
+    const data = readData(snapshot, options);
+    const card: Card = {
+      id: snapshot.id,
+      nameZh: data.nameZh as string | undefined,
+      nameJa: data.nameJa as string | undefined,
+      rarity: data.rarity as string,
+    };
+
+    validateCard(card);
+    return card;
+  },
+};
+
+export const listingConverter: FirestoreDataConverter<Listing> = {
+  toFirestore(listing) {
+    const listingData = listing as Listing;
+    validateListing(listingData);
+    const { id: _id, createdAt, updatedAt, ...data } = listingData;
+
+    return {
+      ...data,
+      createdAt: dateToTimestamp(createdAt),
+      updatedAt: dateToTimestamp(updatedAt),
+    };
+  },
+  fromFirestore(snapshot, options) {
+    const data = readData(snapshot, options);
+    const listing: Listing = {
+      id: snapshot.id,
+      sellerId: data.sellerId as string,
+      cardId: data.cardId as string,
+      imageUrls: data.imageUrls as string[],
+      listingPrice: data.listingPrice as number,
+      originalQuantity: data.originalQuantity as number,
+      remainingQuantity: data.remainingQuantity as number,
+      hasSleeve: data.hasSleeve as boolean,
+      supportsMyShip: data.supportsMyShip as boolean,
+      note: data.note as string | undefined,
+      status: data.status as Listing['status'],
+      createdAt: timestampToDate(data.createdAt, 'createdAt'),
+      updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
+    };
+
+    validateListing(listing);
+    return listing;
+  },
+};
+
+export const sellerProfileConverter: FirestoreDataConverter<SellerProfile> = {
+  toFirestore(profile) {
+    const profileData = profile as SellerProfile;
+    validateSellerProfile(profileData);
+    const { uid: _uid, createdAt, updatedAt, ...data } = profileData;
+
+    return {
+      ...data,
+      createdAt: dateToTimestamp(createdAt),
+      updatedAt: dateToTimestamp(updatedAt),
+    };
+  },
+  fromFirestore(snapshot, options) {
+    const data = readData(snapshot, options);
+    const profile: SellerProfile = {
+      uid: snapshot.id,
+      displayName: data.displayName as string,
+      contactType: data.contactType as SellerProfile['contactType'],
+      contactValue: data.contactValue as string,
+      createdAt: timestampToDate(data.createdAt, 'createdAt'),
+      updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
+    };
+
+    validateSellerProfile(profile);
+    return profile;
+  },
+};
+
+export const saleConverter: FirestoreDataConverter<Sale> = {
+  toFirestore(sale) {
+    const saleData = sale as Sale;
+    validateSale(saleData);
+    const { id: _id, soldAt, ...data } = saleData;
+
+    return {
+      ...data,
+      soldAt: dateToTimestamp(soldAt),
+    };
+  },
+  fromFirestore(snapshot, options) {
+    const data = readData(snapshot, options);
+    const sale: Sale = {
+      id: snapshot.id,
+      listingId: data.listingId as string,
+      sellerId: data.sellerId as string,
+      cardId: data.cardId as string,
+      quantity: data.quantity as number,
+      listingUnitPrice: data.listingUnitPrice as number,
+      soldUnitPrice: data.soldUnitPrice as number,
+      soldAt: timestampToDate(data.soldAt, 'soldAt'),
+    };
+
+    validateSale(sale);
+    return sale;
+  },
+};
