@@ -48,7 +48,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     setError(null);
-    await signOutUser();
+
+    try {
+      await signOutUser();
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Sign-out failed.');
+    }
   }, []);
 
   const value = useMemo(
