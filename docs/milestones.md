@@ -27,6 +27,7 @@ Connect the app to Firebase and support Google sign-in state.
 ### Deliverables
 
 - Firebase config and environment variable setup.
+- Firebase setup instructions in `docs/firebase-setup.md`.
 - Firebase app initialization.
 - Google sign-in and sign-out.
 - Auth state provider.
