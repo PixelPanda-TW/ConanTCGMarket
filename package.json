@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "firebase": "^12.17.1",
     "react": "latest",
     "react-dom": "latest"
   },
