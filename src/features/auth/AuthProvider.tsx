@@ -33,6 +33,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onAuthUserChanged((nextUser) => {
       setUser(nextUser);
       setIsLoading(false);
+    }, (caughtError) => {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Authentication state could not be loaded.',
+      );
+      setIsLoading(false);
     });
   }, []);
 

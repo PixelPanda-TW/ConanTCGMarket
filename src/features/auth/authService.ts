@@ -21,10 +21,13 @@ function toAuthUser(user: User): AuthUser {
   };
 }
 
-export function onAuthUserChanged(callback: (user: AuthUser | null) => void) {
+export function onAuthUserChanged(
+  callback: (user: AuthUser | null) => void,
+  errorCallback?: (error: Error) => void,
+) {
   return onAuthStateChanged(auth, (user) => {
     callback(user ? toAuthUser(user) : null);
-  });
+  }, errorCallback);
 }
 
 export async function signInWithGoogle() {

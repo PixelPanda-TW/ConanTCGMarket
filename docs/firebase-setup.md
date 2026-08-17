@@ -25,4 +25,4 @@ Add these authorized domains for Authentication:
 
 ## GitHub Pages Deployment
 
-Add the same values as repository variables or secrets before deploying with GitHub Actions. The workflow must expose them to the Vite build as `VITE_FIREBASE_*` values.
+Add the same values as repository variables before deploying with GitHub Actions. The workflow reads these repository variables as `VITE_FIREBASE_*` values during the Vite build.

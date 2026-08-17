@@ -4,6 +4,8 @@ dist-ssr
 .worktrees
 .superpowers
 *.local
+.env
+!.env.example
 
 .DS_Store
 
