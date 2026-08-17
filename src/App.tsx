@@ -1,3 +1,6 @@
+import { useMemo, useState } from 'react';
+import { filterListings } from './listingFilters';
+
 const sampleListings = [
   {
     cardName: '諸伏景光',
@@ -20,6 +23,13 @@ const sampleListings = [
 ];
 
 function App() {
+  const [filters, setFilters] = useState({
+    hasSleeve: false,
+    supportsMyShip: false,
+  });
+
+  const visibleListings = useMemo(() => filterListings(sampleListings, filters), [filters]);
+
   return (
     <main className="app-shell">
       <section className="marketplace">
@@ -32,11 +42,29 @@ function App() {
           </div>
           <div className="filters" aria-label="篩選條件">
             <label>
-              <input type="checkbox" />
+              <input
+                type="checkbox"
+                checked={filters.hasSleeve}
+                onChange={(event) =>
+                  setFilters((currentFilters) => ({
+                    ...currentFilters,
+                    hasSleeve: event.target.checked,
+                  }))
+                }
+              />
               包手
             </label>
             <label>
-              <input type="checkbox" />
+              <input
+                type="checkbox"
+                checked={filters.supportsMyShip}
+                onChange={(event) =>
+                  setFilters((currentFilters) => ({
+                    ...currentFilters,
+                    supportsMyShip: event.target.checked,
+                  }))
+                }
+              />
               賣貨便
             </label>
             <select aria-label="價格排序" defaultValue="price-asc">
@@ -47,7 +75,7 @@ function App() {
         </div>
 
         <section className="listings" aria-label="商品列表">
-          {sampleListings.map((listing) => (
+          {visibleListings.map((listing) => (
             <article className="listing-card" key={`${listing.cardName}-${listing.rarity}`}>
               <div className="card-photo" aria-hidden="true">
                 CARD
