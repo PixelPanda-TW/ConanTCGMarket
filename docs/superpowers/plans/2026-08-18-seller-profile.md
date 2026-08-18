@@ -32,11 +32,11 @@
 - `saveSellerProfile(profile: SellerProfile): Promise<void>`
 
 **Steps:**
-- [ ] Write repository tests for the seller profile document path, converter usage, missing document handling, and save operation.
-- [ ] Run the focused tests and confirm they fail because the repository does not exist.
-- [ ] Implement the document reference and get/set operations using `sellerProfileConverter` and `collections.sellerProfiles`.
-- [ ] Run the focused tests, then the full test suite.
-- [ ] Commit the repository and tests.
+- [x] Write repository tests for the seller profile document path, converter usage, missing document handling, and save operation.
+- [x] Run the focused tests and confirm they fail because the repository does not exist.
+- [x] Implement the document reference and get/set operations using `sellerProfileConverter` and `collections.sellerProfiles`.
+- [x] Run the focused tests, then the full test suite.
+- [x] Commit the repository and tests.
 
 ### Task 2: Hash route foundation and profile form
 
@@ -53,13 +53,13 @@
 - `/profile` is selected from `window.location.hash`; the marketplace remains the default route.
 
 **Steps:**
-- [ ] Write validation and normalization tests for required fields, supported contact types, and whitespace trimming.
-- [ ] Run the focused tests and confirm they fail before the helper exists.
-- [ ] Implement the profile form helper and page with loading, unauthenticated, save, and error states.
-- [ ] Add hash route navigation from the auth area and a profile link for signed-in users.
-- [ ] Add responsive form styles that match the existing restrained marketplace UI.
-- [ ] Run focused tests, full tests, and the production build.
-- [ ] Commit the route and profile UI.
+- [x] Write validation and normalization tests for required fields, supported contact types, and whitespace trimming.
+- [x] Run the focused tests and confirm they fail before the helper exists.
+- [x] Implement the profile form helper and page with loading, unauthenticated, save, and error states.
+- [x] Add hash route navigation from the auth area and a profile link for signed-in users.
+- [x] Add responsive form styles that match the existing restrained marketplace UI.
+- [x] Run focused tests, full tests, and the production build.
+- [x] Commit the route and profile UI.
 
 ### Task 3: Integration review and milestone documentation
 
@@ -67,10 +67,10 @@
 - Modify: `docs/milestones.md`
 
 **Steps:**
-- [ ] Verify profile repository exports and app imports are stable.
-- [ ] Update Milestone 3 status to record the implemented scope and remaining dependency on later security rules.
-- [ ] Run `git diff --check`, the full test suite, and the production build.
-- [ ] Commit the documentation update.
+- [x] Verify profile repository exports and app imports are stable.
+- [x] Update Milestone 3 status to record the implemented scope and remaining dependency on later security rules.
+- [x] Run `git diff --check`, the full test suite, and the production build.
+- [x] Commit the documentation update.
 
 ### Verification
 
