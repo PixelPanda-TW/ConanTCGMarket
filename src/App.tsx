@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AuthStatus } from './features/auth/AuthStatus';
+import { CardMasterPage } from './features/cards/CardMasterPage';
 import { SellerProfilePage } from './features/profile/SellerProfilePage';
 import { filterListings } from './listingFilters';
 import { getAppRoute } from './route';
@@ -112,7 +113,15 @@ function App() {
     return () => window.removeEventListener('hashchange', updateRoute);
   }, []);
 
-  return route === 'profile' ? <SellerProfilePage /> : <Marketplace />;
+  if (route === 'profile') {
+    return <SellerProfilePage />;
+  }
+
+  if (route === 'cards') {
+    return <CardMasterPage />;
+  }
+
+  return <Marketplace />;
 }
 
 export default App;
