@@ -68,6 +68,8 @@ Status: implemented as model, converter, and repository foundations. Firestore s
 
 ## Milestone 3: Seller Profile
 
+Status: implemented. Added a GitHub Pages-compatible `#/profile` route, seller-scoped Firestore profile repository, profile create/update form, validation, and authenticated access checks. UI-level async flow tests remain a follow-up test-hardening item; pure validation, route, and request-lifecycle guards are covered.
+
 ### Goal
 
 Allow signed-in sellers to create and manage their public seller identity and contact method.

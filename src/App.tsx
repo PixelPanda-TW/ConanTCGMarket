@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AuthStatus } from './features/auth/AuthStatus';
+import { SellerProfilePage } from './features/profile/SellerProfilePage';
 import { filterListings } from './listingFilters';
+import { getAppRoute } from './route';
 
 const sampleListings = [
   {
@@ -23,7 +25,7 @@ const sampleListings = [
   },
 ];
 
-function App() {
+function Marketplace() {
   const [filters, setFilters] = useState({
     hasSleeve: false,
     supportsMyShip: false,
@@ -99,6 +101,18 @@ function App() {
       </section>
     </main>
   );
+}
+
+function App() {
+  const [route, setRoute] = useState(() => getAppRoute(window.location.hash));
+
+  useEffect(() => {
+    const updateRoute = () => setRoute(getAppRoute(window.location.hash));
+    window.addEventListener('hashchange', updateRoute);
+    return () => window.removeEventListener('hashchange', updateRoute);
+  }, []);
+
+  return route === 'profile' ? <SellerProfilePage /> : <Marketplace />;
 }
 
 export default App;

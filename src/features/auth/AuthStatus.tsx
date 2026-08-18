@@ -10,9 +10,12 @@ export function AuthStatus() {
       ) : user ? (
         <>
           <span>賣家登入中：{user.displayName ?? user.uid}</span>
-          <button type="button" onClick={signOut}>
-            登出
-          </button>
+          <div className="auth-actions">
+            <a href="#/profile">個人檔案</a>
+            <button type="button" onClick={signOut}>
+              登出
+            </button>
+          </div>
         </>
       ) : (
         <>

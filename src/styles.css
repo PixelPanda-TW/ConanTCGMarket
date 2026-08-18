@@ -56,6 +56,20 @@ select {
   cursor: pointer;
 }
 
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.auth-actions a,
+.back-link,
+.text-link {
+  color: #0969da;
+  font-weight: 700;
+}
+
 .auth-error {
   flex-basis: 100%;
   margin: 0;
@@ -190,6 +204,94 @@ h1 {
   font-weight: 700;
 }
 
+.profile-page {
+  width: min(640px, 100%);
+  margin: 0 auto;
+}
+
+.profile-page .eyebrow {
+  margin-top: 28px;
+}
+
+.back-link {
+  display: inline-block;
+}
+
+.profile-state,
+.profile-form {
+  margin-top: 24px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  padding: 20px;
+}
+
+.profile-state p {
+  margin: 0;
+}
+
+.profile-state button,
+.profile-form button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: #0969da;
+  color: #fff;
+  padding: 0 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.profile-state button {
+  margin-top: 14px;
+}
+
+.profile-form {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-form label {
+  display: grid;
+  gap: 6px;
+  color: #24292f;
+  font-weight: 700;
+}
+
+.profile-form input,
+.profile-form select {
+  min-height: 42px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  color: #1f2328;
+}
+
+.field-error,
+.save-success {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.field-error {
+  color: #cf222e;
+}
+
+.save-success {
+  color: #116329;
+}
+
+.profile-form button {
+  justify-self: start;
+}
+
+.profile-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 @media (max-width: 640px) {
   .app-shell {
     padding: 20px;
@@ -201,5 +303,14 @@ h1 {
 
   .listing-card {
     grid-template-columns: 80px minmax(0, 1fr);
+  }
+
+  .auth-status {
+    align-items: flex-start;
+  }
+
+  .profile-state,
+  .profile-form {
+    padding: 16px;
   }
 }
