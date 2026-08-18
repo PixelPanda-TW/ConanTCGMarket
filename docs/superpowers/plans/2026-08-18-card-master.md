@@ -34,12 +34,12 @@
 - `developmentCards: readonly Card[]`
 
 **Steps:**
-- [ ] Write repository and search tests for converter usage, card collection path, Chinese/Japanese matching, rarity preservation, and empty queries.
-- [ ] Run focused tests and confirm they fail before the repository/search implementation exists.
-- [ ] Implement the repository, normalized matching, and a small seed dataset containing multiple `諸伏` cards with different rarities.
-- [ ] Keep the seed data free of images and effect text.
-- [ ] Run focused tests, full tests, and build.
-- [ ] Commit the repository and seed data.
+- [x] Write repository and search tests for converter usage, card collection path, Chinese/Japanese matching, rarity preservation, and empty queries.
+- [x] Run focused tests and confirm they fail before the repository/search implementation exists.
+- [x] Implement the repository, normalized matching, and a small seed dataset containing multiple `諸伏` cards with different rarities.
+- [x] Keep the seed data free of images and effect text.
+- [x] Run focused tests, full tests, and build.
+- [x] Commit the repository and seed data.
 
 ### Task 2: Card selector and card master route
 
@@ -58,13 +58,13 @@
 - `#/cards` displays the selector using development seed data and shows the selected card.
 
 **Steps:**
-- [ ] Write selector behavior tests for query filtering, card selection, and clearing the selection.
-- [ ] Run focused tests and confirm they fail before the selector exists.
-- [ ] Implement the selector and card master page with loading and error-ready structure.
-- [ ] Add `#/cards` hash routing without changing the default marketplace or profile route.
-- [ ] Add responsive styles for the selector results and selected state.
-- [ ] Run focused tests, full tests, build, and `git diff --check`.
-- [ ] Commit the selector and route.
+- [x] Write selector behavior tests for query filtering, card selection, and clearing the selection.
+- [x] Run focused tests and confirm they fail before the selector exists.
+- [x] Implement the selector and card master page with loading and error-ready structure.
+- [x] Add `#/cards` hash routing without changing the default marketplace or profile route.
+- [x] Add responsive styles for the selector results and selected state.
+- [x] Run focused tests, full tests, build, and `git diff --check`.
+- [x] Commit the selector and route.
 
 ### Task 3: Documentation and verification
 
@@ -72,10 +72,10 @@
 - Modify: `docs/milestones.md`
 
 **Steps:**
-- [ ] Mark Milestone 4 status and record the deliberate client-side search limitation for the small MVP seed set.
-- [ ] Verify the card master route, repository exports, and privacy field boundary.
-- [ ] Run the full test suite, production build, and `git diff --check` on the merged `main` result.
-- [ ] Commit and push the documentation update.
+- [x] Mark Milestone 4 status and record the deliberate client-side search limitation for the small MVP seed set.
+- [x] Verify the card master route, repository exports, and privacy field boundary.
+- [x] Run the full test suite, production build, and `git diff --check` on the merged `main` result.
+- [x] Commit and push the documentation update.
 
 ### Verification
 

@@ -92,6 +92,8 @@ Allow signed-in sellers to create and manage their public seller identity and co
 
 ## Milestone 4: Minimal Card Master
 
+Status: implemented. Added public card repository/converter usage, development seed cards, Chinese/Japanese normalized client-side search for the small MVP dataset, a reusable selector, and a `#/cards` validation page. The selector is ready for `/sell`; production-scale search can move to a dedicated index later.
+
 ### Goal
 
 Create a searchable card master that supports listing creation without seller-entered final card names.
