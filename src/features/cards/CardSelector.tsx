@@ -9,7 +9,7 @@ interface CardSelectorProps {
 }
 
 function cardName(card: Card): string {
-  return card.nameZh ?? card.nameJa ?? card.id;
+  return card.characterName ?? card.nameZh ?? card.nameJa ?? '未提供角色／人名';
 }
 
 export function CardSelector({ cards, value, onChange }: CardSelectorProps) {

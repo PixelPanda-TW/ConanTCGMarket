@@ -15,7 +15,7 @@ interface CardMasterPageProps {
 const loadDevelopmentCards = async (): Promise<readonly Card[]> => developmentCards;
 
 function cardName(card: Card): string {
-  return card.nameZh ?? card.nameJa ?? card.id;
+  return card.characterName ?? card.nameZh ?? card.nameJa ?? '未提供角色／人名';
 }
 
 export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterPageProps) {
@@ -75,12 +75,8 @@ export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterP
                     <dd>{selectedCard.id}</dd>
                   </div>
                   <div>
-                    <dt>中文卡名</dt>
-                    <dd>{selectedCard.nameZh ?? '未提供'}</dd>
-                  </div>
-                  <div>
-                    <dt>日文卡名</dt>
-                    <dd>{selectedCard.nameJa ?? '未提供'}</dd>
+                    <dt>角色／人名</dt>
+                    <dd>{cardName(selectedCard)}</dd>
                   </div>
                   <div>
                     <dt>稀有度</dt>

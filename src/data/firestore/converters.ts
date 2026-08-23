@@ -37,24 +37,14 @@ export const cardConverter: FirestoreDataConverter<Card> = {
   toFirestore(card) {
     const cardData = card as Card;
     validateCard(cardData);
-    const data: FirestoreData = { rarity: cardData.rarity };
-
-    if (cardData.nameZh !== undefined) {
-      data.nameZh = cardData.nameZh;
-    }
-
-    if (cardData.nameJa !== undefined) {
-      data.nameJa = cardData.nameJa;
-    }
-
-    return data;
+    return { characterName: cardData.characterName, rarity: cardData.rarity };
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
+    const characterName = data.characterName ?? data.nameZh ?? data.nameJa;
     const card: Card = {
       id: snapshot.id,
-      nameZh: data.nameZh as string | undefined,
-      nameJa: data.nameJa as string | undefined,
+      characterName: characterName as string,
       rarity: data.rarity as string,
     };
 
@@ -70,6 +60,8 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
     const data: FirestoreData = {
       sellerId: listingData.sellerId,
       cardId: listingData.cardId,
+      characterName: listingData.characterName,
+      rarity: listingData.rarity,
       imageUrls: listingData.imageUrls,
       listingPrice: listingData.listingPrice,
       originalQuantity: listingData.originalQuantity,
@@ -93,6 +85,8 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
       id: snapshot.id,
       sellerId: data.sellerId as string,
       cardId: data.cardId as string,
+      characterName: data.characterName as string | undefined,
+      rarity: data.rarity as string | undefined,
       imageUrls: data.imageUrls as string[],
       listingPrice: data.listingPrice as number,
       originalQuantity: data.originalQuantity as number,
@@ -105,7 +99,7 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
       updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
     };
 
-    validateListing(listing);
+    validateListing(listing, true);
     return listing;
   },
 };

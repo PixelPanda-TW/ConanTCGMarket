@@ -13,7 +13,9 @@ describe('Firestore converters', () => {
       id: 'listing-1',
       data: () => ({
         sellerId: 'seller-1',
-        cardId: 'CT-P01-001',
+        cardId: '1096',
+        characterName: '鈴木園子',
+        rarity: 'SR',
         imageUrls: ['https://example.com/card.jpg'],
         listingPrice: 500,
         originalQuantity: 5,
@@ -33,19 +35,18 @@ describe('Firestore converters', () => {
     });
   });
 
-  it('writes only allowlisted card fields and omits undefined optional fields', () => {
+  it('writes only allowlisted Card Master fields', () => {
     expect(
       cardConverter.toFirestore({
-        id: 'CT-P01-001',
-        nameZh: '諸伏景光',
-        nameJa: undefined,
+        id: '1096',
+        characterName: '鈴木園子',
         rarity: 'CP',
         officialImageUrl: 'https://example.com/official.jpg',
         effectText: 'private card text',
         unknown: 'unknown',
       } as never),
     ).toEqual({
-      nameZh: '諸伏景光',
+      characterName: '鈴木園子',
       rarity: 'CP',
     });
   });
@@ -54,7 +55,9 @@ describe('Firestore converters', () => {
     const result = listingConverter.toFirestore({
       id: 'listing-1',
       sellerId: 'seller-1',
-      cardId: 'CT-P01-001',
+      cardId: '1096',
+      characterName: '鈴木園子',
+      rarity: 'SR',
       imageUrls: ['https://example.com/card.jpg'],
       listingPrice: 500,
       originalQuantity: 2,
@@ -71,7 +74,9 @@ describe('Firestore converters', () => {
 
     expect(result).toEqual({
       sellerId: 'seller-1',
-      cardId: 'CT-P01-001',
+      cardId: '1096',
+      characterName: '鈴木園子',
+      rarity: 'SR',
       imageUrls: ['https://example.com/card.jpg'],
       listingPrice: 500,
       originalQuantity: 2,
@@ -129,7 +134,9 @@ describe('Firestore converters', () => {
       data: () => ({
         listingId: 'listing-1',
         sellerId: 'seller-1',
-        cardId: 'CT-P01-001',
+        cardId: '1096',
+        characterName: '鈴木園子',
+        rarity: 'SR',
         quantity: 2,
         listingUnitPrice: 500,
         soldUnitPrice: 450,
@@ -191,8 +198,8 @@ describe('Firestore converters', () => {
 
   it('rejects malformed Firestore card optional fields', () => {
     const snapshot = {
-      id: 'CT-P01-001',
-      data: () => ({ nameZh: 123, rarity: 'CP' }),
+      id: '1096',
+      data: () => ({ characterName: 123, rarity: 'CP' }),
     };
 
     expect(() => cardConverter.fromFirestore(snapshot as never)).toThrow();

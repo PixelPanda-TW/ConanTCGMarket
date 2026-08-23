@@ -38,9 +38,9 @@ describe('App routes', () => {
     const option = await screen.findByRole('button', { name: '諸伏景光 · SEC' });
     await user.click(option);
 
-    expect(developmentCards.some((card) => card.id === 'BT-005')).toBe(true);
+    expect(developmentCards.some((card) => card.id === '0005')).toBe(true);
     expect(listCards).not.toHaveBeenCalled();
-    expect(screen.getByText('BT-005')).toBeTruthy();
+    expect(screen.getByText('0005')).toBeTruthy();
     expect(screen.getAllByText('SEC').length).toBeGreaterThan(0);
   });
 

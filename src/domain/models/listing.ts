@@ -4,6 +4,8 @@ export interface Listing {
   id: string;
   sellerId: string;
   cardId: string;
+  characterName?: string;
+  rarity?: string;
   imageUrls: string[];
   listingPrice: number;
   originalQuantity: number;
@@ -16,7 +18,7 @@ export interface Listing {
   updatedAt: Date;
 }
 
-export function validateListing(listing: Listing) {
+export function validateListing(listing: Listing, allowLegacyCardMetadata = false) {
   if (typeof listing.id !== 'string' || listing.id.length === 0) {
     throw new Error('Listing requires id.');
   }
@@ -27,6 +29,12 @@ export function validateListing(listing: Listing) {
 
   if (typeof listing.cardId !== 'string' || listing.cardId.length === 0) {
     throw new Error('Listing requires cardId.');
+  }
+
+  const hasCharacterName = typeof listing.characterName === 'string' && listing.characterName.trim().length > 0;
+  const hasRarity = typeof listing.rarity === 'string' && listing.rarity.trim().length > 0;
+  if ((!hasCharacterName || !hasRarity) && !allowLegacyCardMetadata) {
+    throw new Error('Listing requires characterName and rarity snapshots.');
   }
 
   if (

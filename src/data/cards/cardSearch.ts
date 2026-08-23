@@ -11,7 +11,7 @@ export function searchCards(cards: readonly Card[], query: string): Card[] {
   }
 
   return cards.filter((card) =>
-    [card.nameZh, card.nameJa]
+    [card.characterName, card.nameZh, card.nameJa]
       .filter((name): name is string => name !== undefined)
       .some((name) => normalizeSearchText(name).includes(normalizedQuery)),
   );
