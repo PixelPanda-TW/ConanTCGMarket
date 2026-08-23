@@ -6,5 +6,6 @@ export default defineConfig({
   base: '/ConanTCGMarket/',
   test: {
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['src/rules/**'],
   },
 });

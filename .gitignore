@@ -10,6 +10,7 @@ dist-ssr
 .DS_Store
 
 npm-debug.log*
+firestore-debug.log
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*

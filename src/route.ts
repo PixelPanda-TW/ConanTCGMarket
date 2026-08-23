@@ -1,4 +1,4 @@
-export type AppRoute = 'marketplace' | 'profile' | 'cards' | 'sell';
+export type AppRoute = 'marketplace' | 'profile' | 'cards' | 'sell' | 'dashboard';
 
 export function getAppRoute(hash: string): AppRoute {
   switch (hash.replace(/^#/, '')) {
@@ -8,6 +8,8 @@ export function getAppRoute(hash: string): AppRoute {
       return 'cards';
     case '/sell':
       return 'sell';
+    case '/dashboard':
+      return 'dashboard';
     default:
       return 'marketplace';
   }
