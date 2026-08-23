@@ -6,4 +6,10 @@
 [{"cardId":"CP-001","nameZh":"諸伏景光","nameJa":"諸伏景光","rarity":"CP"}]
 ```
 
+先設定含 Firebase Web config 的 `FIREBASE_CONFIG`，再執行：
+
+```sh
+FIREBASE_CONFIG='{"apiKey":"…","projectId":"…","appId":"…"}' npm run import:cards -- docs/card-master.example.json
+```
+
 不得匯入或保存官方卡圖、卡牌效果文字，或任何其他欄位。驗證會在批次寫入前完成，驗證或連線失敗時不會刪除既有 Card Master。
