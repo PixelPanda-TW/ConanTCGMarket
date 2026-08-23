@@ -56,6 +56,21 @@ describe('sale repository', () => {
     await expect(recordSale('listing-1', 3, 500)).rejects.toThrow('Sale quantity exceeds remaining inventory.');
   });
 
+  it('rejects a sale attempt from a non-owner before writing', async () => {
+    auth.currentUser = { uid: 'seller-2' };
+    const listingRef = { withConverter: vi.fn(function (this: object) { return this; }) };
+    const transaction = {
+      get: vi.fn().mockResolvedValue({ exists: () => true, data: () => ({ sellerId: 'seller-1', remainingQuantity: 2 }) }),
+      set: vi.fn(), update: vi.fn(),
+    };
+    firestore.doc.mockReturnValueOnce(listingRef);
+    firestore.runTransaction.mockImplementation((_db: unknown, operation: (value: typeof transaction) => unknown) => operation(transaction));
+
+    await expect(recordSale('listing-1', 1, 500)).rejects.toThrow('Only the listing owner can record sales.');
+    expect(transaction.set).not.toHaveBeenCalled();
+    expect(transaction.update).not.toHaveBeenCalled();
+  });
+
   it('filters seller sale records by sellerId', () => {
     expect(sellerSalesQueryConstraints('seller-1')).toEqual([
       { field: 'sellerId', operator: '==', value: 'seller-1' },
