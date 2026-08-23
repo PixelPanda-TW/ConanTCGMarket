@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { developmentCards } from './data/cards/developmentCards';
 import App from './App';
 
-const { listCards } = vi.hoisted(() => ({ listCards: vi.fn() }));
-vi.mock('./data/firestore/repositories', () => ({ listCards }));
+const { listCards, listActiveListings, getPublicSellerProfile } = vi.hoisted(() => ({ listCards: vi.fn(), listActiveListings: vi.fn().mockResolvedValue([]), getPublicSellerProfile: vi.fn() }));
+vi.mock('./data/firestore/repositories', () => ({ listCards, listActiveListings, getPublicSellerProfile }));
 
 vi.mock('./features/auth/AuthStatus', () => ({
   AuthStatus: () => <div>auth status</div>,

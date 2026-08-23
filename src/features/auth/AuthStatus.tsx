@@ -12,6 +12,7 @@ export function AuthStatus() {
           <span>賣家登入中：{user.displayName ?? user.uid}</span>
           <div className="auth-actions">
             <a href="#/profile">個人檔案</a>
+            <a href="#/sell">我要上架</a>
             <button type="button" onClick={signOut}>
               登出
             </button>

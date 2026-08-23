@@ -10,6 +10,10 @@ describe('app routes', () => {
     expect(getAppRoute('#/cards')).toBe('cards');
   });
 
+  it('maps the sell hash to the sell route', () => {
+    expect(getAppRoute('#/sell')).toBe('sell');
+  });
+
   it('keeps unknown and empty hashes on the marketplace route', () => {
     expect(getAppRoute('')).toBe('marketplace');
     expect(getAppRoute('#/unknown')).toBe('marketplace');

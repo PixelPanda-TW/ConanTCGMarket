@@ -20,6 +20,13 @@ export async function getSellerProfile(uid: string): Promise<SellerProfile | nul
   return snapshot.exists() ? snapshot.data() : null;
 }
 
+export async function getPublicSellerProfile(uid: string): Promise<Pick<SellerProfile, 'displayName' | 'contactType' | 'contactValue'> | null> {
+  const snapshot = await getDoc(sellerProfileDocument(uid));
+  if (!snapshot.exists()) return null;
+  const profile = snapshot.data();
+  return { displayName: profile.displayName, contactType: profile.contactType, contactValue: profile.contactValue };
+}
+
 export async function saveSellerProfile(profile: SellerProfile): Promise<void> {
   assertAuthenticatedSeller(profile.uid);
   await setDoc(sellerProfileDocument(profile.uid), profile);
