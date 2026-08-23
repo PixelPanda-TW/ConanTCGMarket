@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getAppRoute } from './route';
+import { canonicalHomeHash, getAppRoute } from './route';
 
 describe('app routes', () => {
   it('maps the profile hash to the profile route', () => {
@@ -17,5 +17,10 @@ describe('app routes', () => {
   it('keeps unknown and empty hashes on the marketplace route', () => {
     expect(getAppRoute('')).toBe('marketplace');
     expect(getAppRoute('#/unknown')).toBe('marketplace');
+  });
+
+  it('canonicalizes the legacy home hash without a slash', () => {
+    expect(canonicalHomeHash('#/')).toBe('#');
+    expect(canonicalHomeHash('#/sell')).toBe('#/sell');
   });
 });

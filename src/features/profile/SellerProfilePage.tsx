@@ -161,7 +161,7 @@ export function SellerProfilePage() {
         <section className="profile-page profile-state">
           <h1>賣家個人檔案</h1>
           <p>請先使用 Google 登入，才能設定你的賣家聯絡方式。</p>
-          <a className="text-link" href="#/">
+          <a className="text-link" href="#">
             返回市集
           </a>
         </section>
@@ -172,7 +172,7 @@ export function SellerProfilePage() {
   return (
     <main className="app-shell">
       <section className="profile-page">
-        <a className="back-link" href="#/">
+        <a className="back-link" href="#">
           返回市集
         </a>
         <p className="eyebrow">Seller profile</p>

@@ -1,11 +1,15 @@
 export interface FilterableListing {
   hasSleeve: boolean;
   supportsMyShip: boolean;
+  cardId?: string;
+  rarity?: string;
 }
 
 export interface ListingFilters {
   hasSleeve: boolean;
   supportsMyShip: boolean;
+  cardId?: string;
+  rarity?: string;
 }
 
 export function filterListings<TListing extends FilterableListing>(
@@ -20,6 +24,8 @@ export function filterListings<TListing extends FilterableListing>(
     if (filters.supportsMyShip && !listing.supportsMyShip) {
       return false;
     }
+    if (filters.cardId && listing.cardId !== filters.cardId) return false;
+    if (filters.rarity && listing.rarity !== filters.rarity) return false;
 
     return true;
   });

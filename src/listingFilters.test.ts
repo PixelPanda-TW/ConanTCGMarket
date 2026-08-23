@@ -12,4 +12,13 @@ describe('filterListings', () => {
       { id: 'with-myship', hasSleeve: false, supportsMyShip: true },
     ]);
   });
+
+  it('filters by selected card and rarity when present', () => {
+    const listings = [
+      { id: 'cp', cardId: 'BT-003', rarity: 'CP', hasSleeve: false, supportsMyShip: true },
+      { id: 'sr', cardId: 'BT-004', rarity: 'SR', hasSleeve: false, supportsMyShip: true },
+    ];
+
+    expect(filterListings(listings, { hasSleeve: false, supportsMyShip: false, cardId: 'BT-003', rarity: 'CP' })).toEqual([listings[0]]);
+  });
 });

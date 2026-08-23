@@ -49,7 +49,7 @@ export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterP
   return (
     <main className="app-shell">
       <section className="card-master-page">
-        <a className="back-link" href="#/">
+        <a className="back-link" href="#">
           返回市集
         </a>
         <p className="eyebrow">Card master</p>

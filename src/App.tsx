@@ -8,17 +8,19 @@ import { ListingPage } from './features/listings/ListingPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { ListingEditPage } from './features/listings/ListingEditPage';
 import { filterListings } from './listingFilters';
-import { getAppRoute } from './route';
+import { canonicalHomeHash, getAppRoute } from './route';
 import { getPublicSellerProfile, listActiveListings, listCards } from './data/firestore/repositories';
 import { developmentCards } from './data/cards/developmentCards';
 import { resolveListingCard } from './features/marketplace/marketplaceCatalog';
 
-interface MarketplaceListing extends Listing { card: Card; seller: string; }
+interface MarketplaceListing extends Listing { card: Card; seller: string; rarity: string; }
 
 function Marketplace() {
   const [filters, setFilters] = useState({
     hasSleeve: false,
     supportsMyShip: false,
+    cardId: '',
+    rarity: '',
   });
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<'price-asc' | 'price-desc'>('price-asc');
@@ -27,11 +29,13 @@ function Marketplace() {
 
   useEffect(() => { void Promise.all([listActiveListings(), listCards()]).then(async ([active, cards]) => {
     const records = await Promise.all(active.filter((listing) => listing.status === 'active').map(async (listing) => ({ listing, card: resolveListingCard(listing.cardId, cards, developmentCards), profile: await getPublicSellerProfile(listing.sellerId) })));
-    setListings(records.filter((record): record is { listing: Listing; card: Card; profile: Awaited<ReturnType<typeof getPublicSellerProfile>> } => Boolean(record.card)).map(({ listing, card, profile }) => ({ ...listing, card, seller: profile?.displayName ?? '賣家' })));
+    setListings(records.filter((record): record is { listing: Listing; card: Card; profile: Awaited<ReturnType<typeof getPublicSellerProfile>> } => Boolean(record.card)).map(({ listing, card, profile }) => ({ ...listing, card, rarity: card.rarity, seller: profile?.displayName ?? '賣家' })));
     setState('ready');
   }).catch(() => setState('error')); }, []);
 
   const visibleListings = useMemo(() => filterListings(listings, filters).filter((listing) => `${listing.card.nameZh ?? ''} ${listing.card.nameJa ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).sort((a, b) => sort === 'price-asc' ? a.listingPrice - b.listingPrice : b.listingPrice - a.listingPrice), [filters, listings, query, sort]);
+  const cards = useMemo(() => Array.from(new Map(listings.map((listing) => [listing.card.id, listing.card])).values()), [listings]);
+  const rarities = useMemo(() => Array.from(new Set(listings.map((listing) => listing.card.rarity))).sort(), [listings]);
 
   return (
     <main className="app-shell">
@@ -74,6 +78,14 @@ function Marketplace() {
               <option value="price-asc">價格低到高</option>
               <option value="price-desc">價格高到低</option>
             </select>
+            <select aria-label="卡名篩選" value={filters.cardId} onChange={(event) => setFilters((current) => ({ ...current, cardId: event.target.value }))}>
+              <option value="">全部卡名</option>
+              {cards.map((card) => <option value={card.id} key={card.id}>{card.nameZh ?? card.nameJa ?? card.id}</option>)}
+            </select>
+            <select aria-label="稀有度篩選" value={filters.rarity} onChange={(event) => setFilters((current) => ({ ...current, rarity: event.target.value }))}>
+              <option value="">全部稀有度</option>
+              {rarities.map((rarity) => <option value={rarity} key={rarity}>{rarity}</option>)}
+            </select>
           </div>
         </div>
 
@@ -107,6 +119,9 @@ function App() {
   const [route, setRoute] = useState(() => getAppRoute(window.location.hash));
 
   useEffect(() => {
+    if (canonicalHomeHash(window.location.hash) !== window.location.hash) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#`);
+    }
     const updateRoute = () => setRoute(getAppRoute(window.location.hash));
     window.addEventListener('hashchange', updateRoute);
     return () => window.removeEventListener('hashchange', updateRoute);
