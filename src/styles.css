@@ -163,6 +163,8 @@ h1 {
   color: #57606a;
   font-size: 13px;
   font-weight: 800;
+  object-fit: cover;
+  width: 100%;
 }
 
 .listing-details h2,
@@ -256,6 +258,61 @@ h1 {
   gap: 6px;
   color: #24292f;
   font-weight: 700;
+}
+
+.listing-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.listing-images img {
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.dashboard-summary p,
+.modal {
+  margin: 0;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.modal {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  z-index: 10;
+  display: grid;
+  gap: 12px;
+  width: min(420px, calc(100% - 32px));
+  transform: translate(-50%, -50%);
+  box-shadow: 0 12px 36px rgb(31 35 40 / 24%);
+}
+
+.modal label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .app-shell { padding: 18px; }
+  .search-row { grid-template-columns: 1fr; }
+  .listing-card { grid-template-columns: 76px minmax(0, 1fr); }
+  .dashboard-summary { grid-template-columns: 1fr; }
+  h1 { font-size: 34px; }
 }
 
 .profile-form input,
