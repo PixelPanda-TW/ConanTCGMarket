@@ -25,6 +25,13 @@ describe('Firebase rules', () => {
   it('rejects a seller modifying another seller listing', async () => {
     await assertFails(setDoc(doc(environment.authenticatedContext('seller-b').firestore(), 'listings', 'active'), { ...activeListing, listingPrice: 1 }));
   });
+  it('keeps Card Master client-write protected and profiles owner-write only', async () => {
+    const sellerA = environment.authenticatedContext('seller-a').firestore();
+    const sellerB = environment.authenticatedContext('seller-b').firestore();
+    await assertFails(setDoc(doc(sellerA, 'cards', 'CP-001'), { rarity: 'CP', nameZh: '諸伏景光' }));
+    await assertSucceeds(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'A', contactType: 'line', contactValue: 'a' }));
+    await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), { displayName: 'B', contactType: 'line', contactValue: 'b' }));
+  });
   it('allows a seller image only within that seller path', async () => {
     const storage = environment.authenticatedContext('seller-a').storage();
     await assertSucceeds(uploadBytes(ref(storage, 'listings/seller-a/listing-1/card.jpg'), new Blob(['image'], { type: 'image/jpeg' })));
