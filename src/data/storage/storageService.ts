@@ -1,4 +1,4 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, storage } from '../../lib/firebase/app';
 
 function assertOwner(sellerId: string) { if (auth.currentUser?.uid !== sellerId) throw new Error('Listing access requires the authenticated seller.'); }
@@ -8,8 +8,14 @@ export async function uploadListingImages(sellerId: string, listingId: string, f
   if (!sellerId || !listingId || sellerId.includes('/') || listingId.includes('/')) throw new Error('Listing path segments must be safe identifiers.');
   if (files.length < 1 || files.length > 3) throw new Error('Listing images require 1 to 3 image files.');
   if (files.some((file) => !file.type.startsWith('image/'))) throw new Error('Listing images must be image files.');
+  const uploadBatchId = Date.now().toString(36);
   return Promise.all(files.map(async (file, index) => {
-    const result = await uploadBytes(ref(storage, `listings/${sellerId}/${listingId}/${index}-${safeName(file.name)}`), file);
+    const result = await uploadBytes(ref(storage, `listings/${sellerId}/${listingId}/${uploadBatchId}-${index}-${safeName(file.name)}`), file);
     return getDownloadURL(result.ref);
   }));
+}
+
+export async function deleteListingImages(sellerId: string, imageUrls: readonly string[]): Promise<void> {
+  assertOwner(sellerId);
+  await Promise.all(imageUrls.map((url) => deleteObject(ref(storage, url))));
 }
