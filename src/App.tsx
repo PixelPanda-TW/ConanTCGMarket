@@ -10,6 +10,8 @@ import { ListingEditPage } from './features/listings/ListingEditPage';
 import { filterListings } from './listingFilters';
 import { getAppRoute } from './route';
 import { getPublicSellerProfile, listActiveListings, listCards } from './data/firestore/repositories';
+import { developmentCards } from './data/cards/developmentCards';
+import { resolveListingCard } from './features/marketplace/marketplaceCatalog';
 
 interface MarketplaceListing extends Listing { card: Card; seller: string; }
 
@@ -24,8 +26,7 @@ function Marketplace() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => { void Promise.all([listActiveListings(), listCards()]).then(async ([active, cards]) => {
-    const cardsById = new Map(cards.map((card) => [card.id, card]));
-    const records = await Promise.all(active.filter((listing) => listing.status === 'active').map(async (listing) => ({ listing, card: cardsById.get(listing.cardId), profile: await getPublicSellerProfile(listing.sellerId) })));
+    const records = await Promise.all(active.filter((listing) => listing.status === 'active').map(async (listing) => ({ listing, card: resolveListingCard(listing.cardId, cards, developmentCards), profile: await getPublicSellerProfile(listing.sellerId) })));
     setListings(records.filter((record): record is { listing: Listing; card: Card; profile: Awaited<ReturnType<typeof getPublicSellerProfile>> } => Boolean(record.card)).map(({ listing, card, profile }) => ({ ...listing, card, seller: profile?.displayName ?? '賣家' })));
     setState('ready');
   }).catch(() => setState('error')); }, []);
