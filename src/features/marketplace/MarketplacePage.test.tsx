@@ -66,10 +66,8 @@ describe('MarketplacePage', () => {
     expect(screen.queryByText('sold-out')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
-    expect(screen.getByRole('button', { name: '諸伏景光' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '諸伏高明' })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: '諸伏景光' }));
+    expect([...document.querySelectorAll('datalist option')].map((option) => option.getAttribute('value'))).toEqual(['諸伏景光', '諸伏高明']);
+    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏景光' } });
     expect((screen.getByLabelText('角色／人名') as HTMLInputElement).value).toBe('諸伏景光');
     expect([...screen.getByLabelText('稀有度').querySelectorAll('option')].map((option) => option.value)).toEqual(['', 'CP', 'R']);
 

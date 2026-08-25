@@ -13,12 +13,16 @@ const cards = [
 afterEach(() => cleanup());
 
 describe('CardMetadataSelector', () => {
-  it('shows clickable character candidates and clears dependent values on selection', () => {
+  it('uses native datalist candidates and clears dependent values when the character changes', () => {
     const onChange = vi.fn();
-    render(<CardMetadataSelector cards={cards} value={{ characterName: '諸伏', rarity: 'SR', cardId: '1010' }} onChange={onChange} requireCardId />);
+    const { container } = render(<CardMetadataSelector cards={cards} value={{ characterName: '諸伏', rarity: 'SR', cardId: '1010' }} onChange={onChange} requireCardId />);
 
-    fireEvent.focus(screen.getByLabelText('角色／人名'));
-    fireEvent.click(screen.getByRole('button', { name: '諸伏景光' }));
+    const input = screen.getByLabelText('角色／人名');
+    expect(input.getAttribute('list')).toBe('card-metadata-character-options');
+    expect([...container.querySelectorAll('datalist option')].map((option) => option.getAttribute('value'))).toEqual(['諸伏景光', '諸伏高明']);
+    expect(screen.queryByRole('button', { name: '諸伏景光' })).toBeNull();
+
+    fireEvent.change(input, { target: { value: '諸伏景光' } });
 
     expect(onChange).toHaveBeenCalledWith({ characterName: '諸伏景光', rarity: '', cardId: '' });
   });

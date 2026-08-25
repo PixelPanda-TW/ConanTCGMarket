@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { Card } from '../domain/models';
 import {
   getCardIdsForMetadata,
@@ -30,7 +29,6 @@ export function CardMetadataSelector({
   required = false,
   className,
 }: CardMetadataSelectorProps) {
-  const [showCharacterSuggestions, setShowCharacterSuggestions] = useState(false);
   const characterSuggestions = getCharacterNameSuggestions(cards, value.characterName);
   const rarityOptions = getRaritiesForCharacter(cards, value.characterName);
   const cardIdOptions = getCardIdsForMetadata(cards, value.characterName, value.rarity);
@@ -38,41 +36,25 @@ export function CardMetadataSelector({
 
   function updateCharacterName(characterName: string) {
     onChange({ characterName, rarity: '', cardId: '' });
-    setShowCharacterSuggestions(true);
   }
 
   return (
     <div className={selectorClassName}>
-      <div className="card-metadata-selector__character">
-        <label>
-          <FieldLabel required={required}>角色／人名</FieldLabel>
-          <input
-            aria-label="角色／人名"
-            value={value.characterName}
-            onChange={(event) => updateCharacterName(event.target.value)}
-            onFocus={() => setShowCharacterSuggestions(true)}
-            autoComplete="off"
-            placeholder="輸入角色／人名"
-            aria-controls="card-metadata-character-options"
-            aria-expanded={showCharacterSuggestions && characterSuggestions.length > 0}
-            required={required}
-          />
-        </label>
-        {showCharacterSuggestions && characterSuggestions.length > 0 && (
-          <ul className="character-suggestions" id="card-metadata-character-options" aria-label="角色／人名候選">
-            {characterSuggestions.map((name) => (
-              <li key={name}>
-                <button type="button" onClick={() => {
-                  onChange({ characterName: name, rarity: '', cardId: '' });
-                  setShowCharacterSuggestions(false);
-                }}>
-                  {name}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <label className="card-metadata-selector__character">
+        <FieldLabel required={required}>角色／人名</FieldLabel>
+        <input
+          aria-label="角色／人名"
+          list="card-metadata-character-options"
+          value={value.characterName}
+          onChange={(event) => updateCharacterName(event.target.value)}
+          autoComplete="off"
+          placeholder="輸入角色／人名"
+          required={required}
+        />
+        <datalist id="card-metadata-character-options">
+          {characterSuggestions.map((name) => <option key={name} value={name} />)}
+        </datalist>
+      </label>
 
       <label>
         <FieldLabel required={required}>稀有度</FieldLabel>

@@ -692,14 +692,12 @@ h1 {
   gap: 16px;
 }
 
-.card-metadata-selector > label,
-.card-metadata-selector__character > label {
+.card-metadata-selector > label {
   display: grid;
   gap: 6px;
 }
 
 .card-metadata-selector__character {
-  position: relative;
   min-width: 0;
 }
 
@@ -722,9 +720,6 @@ h1 {
   }
 }
 
-.character-suggestions { position: absolute; z-index: 10; top: calc(100% + 8px); right: 0; left: 0; display: grid; gap: 4px; max-height: 224px; overflow-y: auto; margin: 0; padding: 6px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--popover)); box-shadow: 0 16px 32px hsl(220 30% 15% / .16); list-style: none; }
-.character-suggestions button { display: block; width: 100%; min-height: 36px; border: 0; border-radius: calc(var(--radius) - .125rem); background: transparent; color: hsl(var(--popover-foreground)); padding: 0 10px; text-align: left; font: inherit; cursor: pointer; }
-.character-suggestions button:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
 .listings { grid-template-columns: repeat(5, 150px); justify-content: start; align-items: start; gap: 16px; }
 .listings > p { grid-column: 1 / -1; margin: 0; }
 .marketplace .listing-card { display: block; overflow: hidden; border-color: #e9d5ff; border-radius: 12px; padding: 0; background: var(--surface); }
