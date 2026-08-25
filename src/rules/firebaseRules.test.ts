@@ -40,6 +40,15 @@ describe('Firebase rules', () => {
     await assertFails(getDoc(doc(buyerB, 'notificationSubscriptions', 'buyer-a')));
     await assertFails(setDoc(doc(buyerB, 'notificationSubscriptions', 'buyer-a'), subscriptionData));
   });
+  it('rejects an owner subscription write with an email field', async () => {
+    const buyer = environment.authenticatedContext('buyer-a').firestore();
+    await assertFails(setDoc(doc(buyer, 'notificationSubscriptions', 'buyer-a'), {
+      characterKeys: ['suzuki-sonoko'],
+      emailDailyEnabled: true,
+      updatedAt: new Date(),
+      email: 'buyer@example.com',
+    }));
+  });
   it('rejects all browser reads and writes of notification events and delivery state', async () => {
     const buyer = environment.authenticatedContext('buyer-a').firestore();
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
