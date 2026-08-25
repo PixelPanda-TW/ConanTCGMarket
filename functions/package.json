@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:listing-events": "vitest run src/listingEvents.test.ts src/discordClient.test.ts",
     "lint": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

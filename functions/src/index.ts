@@ -1,0 +1,95 @@
+import { getApps, initializeApp } from 'firebase-admin/app';
+import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
+import type { ListingEvent, ListingSnapshot } from './domain.js';
+import {
+  captureListingEvent as captureListingEventData,
+  deliverDiscordEvent as deliverDiscordEventData,
+  retryFailedDiscordEvents as retryFailedDiscordEventsData,
+  type ListingEventDependencies,
+  type ListingEventStore,
+} from './listingEvents.js';
+
+if (getApps().length === 0) {
+  initializeApp();
+}
+
+const firestore = getFirestore();
+
+const eventStore: ListingEventStore = {
+  async create(event) {
+    await firestore.collection('listingEvents').doc(event.id).create(event);
+  },
+  async markSent(listingId, sentAt) {
+    await firestore.collection('listingEvents').doc(listingId).update({
+      discordStatus: 'sent',
+      discordSentAt: Timestamp.fromDate(sentAt),
+      nextAttemptAt: FieldValue.delete(),
+    });
+  },
+  async markFailed(listingId, attempts, nextAttemptAt) {
+    await firestore.collection('listingEvents').doc(listingId).update({
+      discordStatus: 'failed',
+      attempts,
+      nextAttemptAt: Timestamp.fromDate(nextAttemptAt),
+    });
+  },
+  async findDueFailed(now, maxAttempts) {
+    const snapshot = await firestore.collection('listingEvents')
+      .where('discordStatus', '==', 'failed')
+      .where('attempts', '<', maxAttempts)
+      .where('nextAttemptAt', '<=', Timestamp.fromDate(now))
+      .get();
+
+    return snapshot.docs.map((document) => document.data() as ListingEvent);
+  },
+};
+
+const dependencies: ListingEventDependencies = {
+  events: eventStore,
+  discord: createDiscordClient(),
+  now: () => new Date(),
+};
+
+export const captureListingEvent = onDocumentCreated(
+  'listings/{listingId}',
+  async (source) => {
+    if (!source.data) {
+      return;
+    }
+
+    await captureListingEventData({
+      params: { listingId: source.params.listingId },
+      data: source.data.data() as ListingSnapshot,
+    }, dependencies);
+  },
+);
+
+export const deliverDiscordEvent = onDocumentCreated(
+  {
+    document: 'listingEvents/{listingId}',
+    secrets: [discordListingsWebhookUrl],
+  },
+  async (source) => {
+    if (!source.data) {
+      return;
+    }
+
+    const current = await source.data.ref.get();
+    if (!current.exists) {
+      return;
+    }
+
+    await deliverDiscordEventData(current.data() as ListingEvent, dependencies);
+  },
+);
+
+export const retryFailedDiscordEvents = onSchedule(
+  {
+    schedule: 'every 15 minutes',
+    secrets: [discordListingsWebhookUrl],
+  },
+  async () => retryFailedDiscordEventsData(new Date(), dependencies),
+);
