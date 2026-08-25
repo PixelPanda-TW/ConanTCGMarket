@@ -37,7 +37,10 @@ export const cardConverter: FirestoreDataConverter<Card> = {
   toFirestore(card) {
     const cardData = card as Card;
     validateCard(cardData);
-    return { characterName: cardData.characterName, rarity: cardData.rarity };
+    return {
+      characterName: cardData.characterName,
+      rarities: cardData.rarities ?? [cardData.rarity as string],
+    };
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
@@ -45,7 +48,8 @@ export const cardConverter: FirestoreDataConverter<Card> = {
     const card: Card = {
       id: snapshot.id,
       characterName: characterName as string,
-      rarity: data.rarity as string,
+      rarities: Array.isArray(data.rarities) ? data.rarities as string[] : undefined,
+      rarity: data.rarity as string | undefined,
     };
 
     validateCard(card);

@@ -21,4 +21,13 @@ describe('filterListings', () => {
 
     expect(filterListings(listings, { hasSleeve: false, supportsMyShip: false, cardId: 'BT-003', rarity: 'CP' })).toEqual([listings[0]]);
   });
+
+  it('filters by a selected character name and four-digit card ID independently', () => {
+    const listings = [
+      { id: 'sonoko', cardId: '1096', characterName: '鈴木園子', rarity: 'SR', hasSleeve: false, supportsMyShip: true },
+      { id: 'conan', cardId: '0164', characterName: '江戶川柯南', rarity: 'R', hasSleeve: false, supportsMyShip: true },
+    ];
+
+    expect(filterListings(listings, { hasSleeve: false, supportsMyShip: false, characterName: '鈴木園子' })).toEqual([listings[0]]);
+  });
 });

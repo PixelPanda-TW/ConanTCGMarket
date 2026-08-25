@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { developmentCards } from '../../data/cards/developmentCards';
 import type { Card } from '../../domain/models';
 import { CardSelector } from './CardSelector';
+import { BackToMarketplaceLink } from '../../components/BackToMarketplaceLink';
 
 type CardMasterState =
   | { status: 'loading' }
@@ -48,10 +49,8 @@ export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterP
 
   return (
     <main className="app-shell">
+      <BackToMarketplaceLink />
       <section className="card-master-page">
-        <a className="back-link" href="#">
-          返回市集
-        </a>
         <p className="eyebrow">Card master</p>
         <h1>卡牌資料庫</h1>
 

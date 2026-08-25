@@ -7,6 +7,11 @@ import { SellPage } from './features/sell/SellPage';
 import { ListingPage } from './features/listings/ListingPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { ListingEditPage } from './features/listings/ListingEditPage';
+import {
+  getCardIdsForMetadata,
+  getCharacterNameSuggestions,
+  getRaritiesForCharacter,
+} from './features/sell/sellForm';
 import { filterListings } from './listingFilters';
 import { canonicalHomeHash, getAppRoute } from './route';
 import { getPublicSellerProfile, listActiveListings, listCards } from './data/firestore/repositories';
@@ -20,14 +25,16 @@ function Marketplace() {
     hasSleeve: false,
     supportsMyShip: false,
     cardId: '',
+    characterName: '',
     rarity: '',
   });
-  const [query, setQuery] = useState('');
-  const [sort, setSort] = useState<'price-asc' | 'price-desc'>('price-asc');
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [cards, setCards] = useState<readonly Card[]>([]);
+  const [showCharacterSuggestions, setShowCharacterSuggestions] = useState(false);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => { void Promise.all([listActiveListings(), listCards()]).then(async ([active, cards]) => {
+    setCards(cards);
     const records = await Promise.all(active.filter((listing) => listing.status === 'active').map(async (listing) => ({ listing, card: resolveListingCard(listing.cardId, cards, developmentCards), profile: await getPublicSellerProfile(listing.sellerId) })));
     setListings(records.map(({ listing, card, profile }) => ({
       ...listing,
@@ -39,9 +46,19 @@ function Marketplace() {
     setState('ready');
   }).catch(() => setState('error')); }, []);
 
-  const visibleListings = useMemo(() => filterListings(listings, filters).filter((listing) => listing.characterName.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).sort((a, b) => sort === 'price-asc' ? a.listingPrice - b.listingPrice : b.listingPrice - a.listingPrice), [filters, listings, query, sort]);
-  const cards = useMemo(() => Array.from(new Map(listings.map((listing) => [listing.cardId, listing])).values()), [listings]);
-  const rarities = useMemo(() => Array.from(new Set(listings.map((listing) => listing.rarity))).sort(), [listings]);
+  const visibleListings = useMemo(() => filterListings(listings, filters), [filters, listings]);
+  const characterSuggestions = useMemo(() => getCharacterNameSuggestions(cards, filters.characterName), [cards, filters.characterName]);
+  const rarities = useMemo(() => getRaritiesForCharacter(cards, filters.characterName), [cards, filters.characterName]);
+  const cardIds = useMemo(() => getCardIdsForMetadata(cards, filters.characterName, filters.rarity), [cards, filters.characterName, filters.rarity]);
+
+  function updateCharacterName(characterName: string) {
+    setFilters((current) => ({ ...current, characterName, rarity: '', cardId: '' }));
+    setShowCharacterSuggestions(true);
+  }
+
+  function updateRarity(rarity: string) {
+    setFilters((current) => ({ ...current, rarity, cardId: '' }));
+  }
 
   return (
     <main className="app-shell">
@@ -50,9 +67,6 @@ function Marketplace() {
         <div className="masthead">
           <p className="eyebrow">Conan TCG Marketplace</p>
           <h1>搜尋正在販售的柯南 TCG 卡牌</h1>
-          <div className="search-row">
-            <input aria-label="搜尋卡牌" placeholder="搜尋中文或日文卡名" value={query} onChange={(event) => setQuery(event.target.value)} />
-          </div>
           <div className="filters" aria-label="篩選條件">
             <label>
               <input
@@ -80,17 +94,30 @@ function Marketplace() {
               />
               賣貨便
             </label>
-            <select aria-label="價格排序" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
-              <option value="price-asc">價格低到高</option>
-              <option value="price-desc">價格高到低</option>
-            </select>
-            <select aria-label="卡名篩選" value={filters.cardId} onChange={(event) => setFilters((current) => ({ ...current, cardId: event.target.value }))}>
-              <option value="">全部卡名</option>
-              {cards.map((card) => <option value={card.cardId} key={card.cardId}>{card.characterName}</option>)}
-            </select>
-            <select aria-label="稀有度篩選" value={filters.rarity} onChange={(event) => setFilters((current) => ({ ...current, rarity: event.target.value }))}>
+            <div className="filter-autocomplete">
+              <input aria-label="角色或人名篩選" value={filters.characterName} onChange={(event) => updateCharacterName(event.target.value)} onFocus={() => setShowCharacterSuggestions(true)} autoComplete="off" placeholder="輸入角色／人名" aria-controls="marketplace-character-options" aria-expanded={showCharacterSuggestions && characterSuggestions.length > 0} />
+              {showCharacterSuggestions && characterSuggestions.length > 0 && (
+                <ul className="character-suggestions" id="marketplace-character-options" aria-label="角色／人名候選">
+                  {characterSuggestions.map((name) => (
+                    <li key={name}>
+                      <button type="button" onClick={() => {
+                        setFilters((current) => ({ ...current, characterName: name, rarity: '', cardId: '' }));
+                        setShowCharacterSuggestions(false);
+                      }}>
+                        {name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <select aria-label="稀有度篩選" value={filters.rarity} onChange={(event) => updateRarity(event.target.value)} disabled={!filters.characterName}>
               <option value="">全部稀有度</option>
               {rarities.map((rarity) => <option value={rarity} key={rarity}>{rarity}</option>)}
+            </select>
+            <select aria-label="卡片 ID 篩選" value={filters.cardId} onChange={(event) => setFilters((current) => ({ ...current, cardId: event.target.value }))} disabled={!filters.rarity}>
+              <option value="">全部卡片 ID</option>
+              {cardIds.map((cardId) => <option value={cardId} key={cardId}>{cardId}</option>)}
             </select>
           </div>
         </div>
@@ -122,20 +149,25 @@ function Marketplace() {
 }
 
 function App() {
-  const [route, setRoute] = useState(() => getAppRoute(window.location.hash));
+  const [hash, setHash] = useState(() => canonicalHomeHash(window.location.hash));
 
   useEffect(() => {
-    if (canonicalHomeHash(window.location.hash) !== window.location.hash) {
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#`);
-    }
-    const updateRoute = () => setRoute(getAppRoute(window.location.hash));
-    window.addEventListener('hashchange', updateRoute);
-    return () => window.removeEventListener('hashchange', updateRoute);
+    const updateHash = () => {
+      const nextHash = canonicalHomeHash(window.location.hash);
+      if (nextHash !== window.location.hash) {
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+      }
+      setHash(nextHash);
+    };
+    updateHash();
+    window.addEventListener('hashchange', updateHash);
+    return () => window.removeEventListener('hashchange', updateHash);
   }, []);
 
-  const listingEditMatch = window.location.hash.match(/^#\/listing\/([^/]+)\/edit$/);
+  const route = getAppRoute(hash);
+  const listingEditMatch = hash.match(/^#\/listing\/([^/]+)\/edit$/);
   if (listingEditMatch) return <ListingEditPage id={listingEditMatch[1]} />;
-  const listingMatch = window.location.hash.match(/^#\/listing\/([^/]+)$/);
+  const listingMatch = hash.match(/^#\/listing\/([^/]+)$/);
   if (listingMatch) return <ListingPage id={listingMatch[1]} />;
 
   if (route === 'profile') {

@@ -40,14 +40,14 @@ describe('Firestore converters', () => {
       cardConverter.toFirestore({
         id: '1096',
         characterName: '鈴木園子',
-        rarity: 'CP',
+        rarities: ['SR', 'CP'],
         officialImageUrl: 'https://example.com/official.jpg',
         effectText: 'private card text',
         unknown: 'unknown',
       } as never),
     ).toEqual({
       characterName: '鈴木園子',
-      rarity: 'CP',
+      rarities: ['SR', 'CP'],
     });
   });
 

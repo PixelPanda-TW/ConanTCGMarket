@@ -1,7 +1,9 @@
 export interface Card {
   id: string;
   characterName?: string;
-  rarity: string;
+  rarities?: readonly string[];
+  /** @deprecated Read-only compatibility for Card Master documents imported before multiple rarities were supported. */
+  rarity?: string;
   /** @deprecated Read-only compatibility for pre-migration fixtures and documents. */
   nameZh?: string;
   /** @deprecated Read-only compatibility for pre-migration fixtures and documents. */
@@ -17,7 +19,10 @@ export function validateCard(card: Card) {
     throw new Error('Card requires characterName.');
   }
 
-  if (typeof card.rarity !== 'string' || card.rarity.length === 0) {
+  const hasRarities = Array.isArray(card.rarities) && card.rarities.length > 0
+    && card.rarities.every((rarity) => typeof rarity === 'string' && rarity.trim().length > 0);
+  const hasLegacyRarity = typeof card.rarity === 'string' && card.rarity.trim().length > 0;
+  if (!hasRarities && !hasLegacyRarity) {
     throw new Error('Card requires rarity.');
   }
 }

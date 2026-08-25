@@ -2,6 +2,7 @@ export interface FilterableListing {
   hasSleeve: boolean;
   supportsMyShip: boolean;
   cardId?: string;
+  characterName?: string;
   rarity?: string;
 }
 
@@ -9,6 +10,7 @@ export interface ListingFilters {
   hasSleeve: boolean;
   supportsMyShip: boolean;
   cardId?: string;
+  characterName?: string;
   rarity?: string;
 }
 
@@ -25,6 +27,7 @@ export function filterListings<TListing extends FilterableListing>(
       return false;
     }
     if (filters.cardId && listing.cardId !== filters.cardId) return false;
+    if (filters.characterName && listing.characterName !== filters.characterName) return false;
     if (filters.rarity && listing.rarity !== filters.rarity) return false;
 
     return true;

@@ -3,8 +3,8 @@ import { validateCardImport } from './cardImport';
 
 describe('validateCardImport', () => {
   it('accepts only supported card-master fields', () => {
-    expect(validateCardImport([{ cardId: '1096', characterName: '鈴木園子', rarity: 'SR' }])).toEqual([
-      { cardId: '1096', characterName: '鈴木園子', rarity: 'SR' },
+    expect(validateCardImport([{ cardId: '1096', characterName: '鈴木園子', rarities: ['SR', 'CP'] }])).toEqual([
+      { cardId: '1096', characterName: '鈴木園子', rarities: ['SR', 'CP'] },
     ]);
   });
   it('rejects duplicate IDs, blank rarity, missing names, and unknown fields before any write', () => {
