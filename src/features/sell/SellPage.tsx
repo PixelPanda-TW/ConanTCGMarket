@@ -5,6 +5,7 @@ import { uploadListingImages } from '../../data/storage/storageService';
 import { useAuth } from '../auth/AuthProvider';
 import { BackToMarketplaceLink } from '../../components/BackToMarketplaceLink';
 import { CardMetadataSelector } from '../../components/CardMetadataSelector';
+import { ListingForm } from '../listings/ListingForm';
 import {
   hasKnownCardMetadata,
   validateSellForm,
@@ -71,12 +72,27 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
     />
     {(errors.characterName || errors.rarity || errors.cardId) && <p className="field-error" role="alert">{errors.characterName ?? errors.rarity ?? errors.cardId}</p>}
     {cardLoadError && <p className="field-error" role="alert">{cardLoadError}</p>}
-    <label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 商品圖片（必填）</span><input aria-label="商品圖片" aria-invalid={Boolean(errors.files)} type="file" accept="image/*" multiple onChange={(e) => setForm({ ...form, files: Array.from(e.target.files ?? []) })} required /></label>{errors.files && <p className="field-error" role="alert">{errors.files}</p>}
-    <div className="listing-price-fields"><div><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 價格（必填）</span><input aria-label="價格" inputMode="numeric" value={form.listingPrice} onChange={(e) => setForm({ ...form, listingPrice: e.target.value })} required /></label>{errors.listingPrice && <p className="field-error" role="alert">{errors.listingPrice}</p>}</div><div><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 數量（必填）</span><input aria-label="數量" inputMode="numeric" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required /></label>{errors.quantity && <p className="field-error" role="alert">{errors.quantity}</p>}</div></div>
-    <div className="listing-service-row"><label className="checkbox-field"><input aria-label="包手" type="checkbox" checked={form.hasSleeve} onChange={(e) => setForm({ ...form, hasSleeve: e.target.checked, sleeveFee: e.target.checked ? form.sleeveFee : '' })} />包手</label>{form.hasSleeve && <label className="service-fee"><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 包材費（必填）</span><input aria-label="包材費" inputMode="numeric" min="0" value={form.sleeveFee} onChange={(e) => setForm({ ...form, sleeveFee: e.target.value })} placeholder="可填 0" required /></label>}{errors.sleeveFee && <p className="field-error" role="alert">{errors.sleeveFee}</p>}</div>
-    <div className="listing-service-row"><label className="checkbox-field"><input aria-label="支援賣貨便" type="checkbox" checked={form.supportsMyShip} onChange={(e) => setForm({ ...form, supportsMyShip: e.target.checked, myShipFee: e.target.checked ? form.myShipFee : '' })} />賣貨便</label>{form.supportsMyShip && <label className="service-fee"><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 賣貨便加價（必填）</span><input aria-label="賣貨便加價" inputMode="numeric" min="0" value={form.myShipFee} onChange={(e) => setForm({ ...form, myShipFee: e.target.value })} placeholder="可填 0" required /></label>}{errors.myShipFee && <p className="field-error" role="alert">{errors.myShipFee}</p>}</div>
-    <aside className="listing-requirements" aria-label="其他交易需求提醒">若有其他交易需求，請在備註中說明，例如：有賣貨便連結下單請回報、賣場未滿指定金額不出貨。</aside>
-    <label>備註（選填）<textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
-    <button type="submit" disabled={saving}>{saving ? '上架中' : '建立刊登'}</button>{message && <p role="status">{message}</p>}
+    <ListingForm
+      price={form.listingPrice}
+      quantity={form.quantity}
+      files={form.files}
+      hasSleeve={form.hasSleeve}
+      sleeveFee={form.sleeveFee}
+      supportsMyShip={form.supportsMyShip}
+      myShipFee={form.myShipFee}
+      note={form.note}
+      errors={errors}
+      onPriceChange={(listingPrice) => setForm((current) => ({ ...current, listingPrice }))}
+      onQuantityChange={(quantity) => setForm((current) => ({ ...current, quantity }))}
+      onFilesChange={(files) => setForm((current) => ({ ...current, files }))}
+      onHasSleeveChange={(hasSleeve) => setForm((current) => ({ ...current, hasSleeve, sleeveFee: hasSleeve ? current.sleeveFee : '' }))}
+      onSleeveFeeChange={(sleeveFee) => setForm((current) => ({ ...current, sleeveFee }))}
+      onSupportsMyShipChange={(supportsMyShip) => setForm((current) => ({ ...current, supportsMyShip, myShipFee: supportsMyShip ? current.myShipFee : '' }))}
+      onMyShipFeeChange={(myShipFee) => setForm((current) => ({ ...current, myShipFee }))}
+      onNoteChange={(note) => setForm((current) => ({ ...current, note }))}
+      submitLabel={saving ? '上架中' : '建立刊登'}
+      submitDisabled={saving}
+    />
+    {message && <p role="status">{message}</p>}
   </form></section></main>;
 }
