@@ -38,16 +38,25 @@ describe('CharacterSubscriptionControl', () => {
     subscriptions.saveNotificationSubscription.mockResolvedValue(undefined);
   });
 
-  it('shows subscribe only for a known selected character and persists it for a signed-in buyer', async () => {
+  it('requires explicit email delivery confirmation before persisting a new character subscription', async () => {
     const user = userEvent.setup();
     render(<CharacterSubscriptionControl characterName="諸伏景光" isKnownCharacter />);
 
     await user.click(await screen.findByRole('button', { name: '訂閱諸伏景光' }));
 
+    expect(await screen.findByText('選擇通知方式')).toBeTruthy();
+    expect(screen.getByText('寄送至你的 Google 登入信箱（已驗證）')).toBeTruthy();
+    expect(subscriptions.saveNotificationSubscription).not.toHaveBeenCalled();
+
+    const emailDelivery = screen.getByRole('checkbox', { name: '以 Google 登入信箱接收每日摘要' });
+    expect((emailDelivery as HTMLInputElement).checked).toBe(false);
+    await user.click(emailDelivery);
+    await user.click(screen.getByRole('button', { name: '確認訂閱' }));
+
     await waitFor(() => expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
       uid: 'buyer-1',
       characterKeys: ['諸伏景光'],
-      emailDailyEnabled: false,
+      emailDailyEnabled: true,
       updatedAt: expect.any(Date),
     })));
     expect(await screen.findByRole('button', { name: '取消訂閱諸伏景光' })).toBeTruthy();
@@ -107,6 +116,8 @@ describe('CharacterSubscriptionControl', () => {
     render(<CharacterSubscriptionControl characterName="諸伏景光" isKnownCharacter />);
 
     await user.click(await screen.findByRole('button', { name: '訂閱諸伏景光' }));
+    await user.click(screen.getByRole('checkbox', { name: '以 Google 登入信箱接收每日摘要' }));
+    await user.click(screen.getByRole('button', { name: '確認訂閱' }));
 
     expect((await screen.findByRole('alert')).textContent).toBe('無法更新角色通知，請稍後再試。');
     expect(screen.getByRole('button', { name: '訂閱諸伏景光' })).toBeTruthy();

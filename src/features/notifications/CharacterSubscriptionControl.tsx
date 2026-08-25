@@ -20,6 +20,8 @@ export function CharacterSubscriptionControl({
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [loadedSubscriptionContext, setLoadedSubscriptionContext] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isConfirmingSubscription, setIsConfirmingSubscription] = useState(false);
+  const [emailDeliverySelected, setEmailDeliverySelected] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSignInGuidance, setShowSignInGuidance] = useState(false);
@@ -36,6 +38,8 @@ export function CharacterSubscriptionControl({
     let isCurrent = true;
     setSubscription(null);
     setIsSaving(false);
+    setIsConfirmingSubscription(false);
+    setEmailDeliverySelected(false);
     setLoadError(null);
     setSaveError(null);
     setShowSignInGuidance(false);
@@ -74,13 +78,30 @@ export function CharacterSubscriptionControl({
       return;
     }
 
-    const nextCharacterKeys = isSubscribed
-      ? (subscription?.characterKeys ?? []).filter((key) => key !== characterKey)
-      : [...(subscription?.characterKeys ?? []), characterKey];
+    if (!isSubscribed) {
+      setIsConfirmingSubscription(true);
+      return;
+    }
+
+    await persistSubscription(
+      (subscription?.characterKeys ?? []).filter((key) => key !== characterKey),
+      subscription?.emailDailyEnabled ?? false,
+    );
+  }
+
+  async function confirmSubscription() {
+    if (!user || !emailDeliverySelected) return;
+
+    await persistSubscription([...(subscription?.characterKeys ?? []), characterKey], true);
+  }
+
+  async function persistSubscription(characterKeys: string[], emailDailyEnabled: boolean) {
+    if (!user) return;
+
     const nextSubscription: NotificationSubscription = {
       uid: user.uid,
-      characterKeys: nextCharacterKeys,
-      emailDailyEnabled: subscription?.emailDailyEnabled ?? false,
+      characterKeys,
+      emailDailyEnabled,
       updatedAt: new Date(),
     };
     const requestContext = activeContextRef.current;
@@ -89,7 +110,10 @@ export function CharacterSubscriptionControl({
     setSaveError(null);
     try {
       await saveNotificationSubscription(nextSubscription);
-      if (activeContextRef.current === requestContext) setSubscription(nextSubscription);
+      if (activeContextRef.current === requestContext) {
+        setSubscription(nextSubscription);
+        setIsConfirmingSubscription(false);
+      }
     } catch {
       if (activeContextRef.current === requestContext) {
         setSaveError('無法更新角色通知，請稍後再試。');
@@ -112,6 +136,41 @@ export function CharacterSubscriptionControl({
       <button type="button" onClick={toggleSubscription} disabled={isSaving}>
         {isSubscribed ? `取消訂閱${characterName}` : `訂閱${characterName}`}
       </button>
+      {isConfirmingSubscription && (
+        <section className="subscription-confirmation" aria-labelledby="subscription-confirmation-heading">
+          <h2 id="subscription-confirmation-heading">選擇通知方式</h2>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={emailDeliverySelected}
+              disabled={isSaving}
+              onChange={(event) => setEmailDeliverySelected(event.target.checked)}
+            />
+            以 Google 登入信箱接收每日摘要
+          </label>
+          <p>寄送至你的 Google 登入信箱（已驗證）</p>
+          <div className="subscription-confirmation-actions">
+            <button
+              type="button"
+              onClick={confirmSubscription}
+              disabled={!emailDeliverySelected || isSaving}
+            >
+              確認訂閱
+            </button>
+            <button
+              className="button-secondary"
+              type="button"
+              disabled={isSaving}
+              onClick={() => {
+                setIsConfirmingSubscription(false);
+                setEmailDeliverySelected(false);
+              }}
+            >
+              取消
+            </button>
+          </div>
+        </section>
+      )}
       {showSignInGuidance && (
         <div className="subscription-sign-in-guidance">
           <p>登入後即可訂閱角色通知</p>

@@ -134,11 +134,6 @@ export function NotificationSettingsPage() {
               <p>每日彙整你所訂閱角色的新上架商品。</p>
             </section>
 
-            <aside className="notification-settings-card discord-feed-note" aria-labelledby="discord-feed-heading">
-              <h2 id="discord-feed-heading">Discord 公開通知</h2>
-              <p>Discord 公開頻道會提供所有上架商品通知，不需綁定帳號。</p>
-            </aside>
-
             <div className="subscription-feedback" aria-live="polite">
               {saveError && <p className="field-error" role="alert">無法儲存通知設定，請稍後再試。</p>}
             </div>

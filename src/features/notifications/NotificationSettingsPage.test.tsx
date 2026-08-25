@@ -75,10 +75,11 @@ describe('NotificationSettingsPage', () => {
     expect((checkbox as HTMLInputElement).checked).toBe(false);
   });
 
-  it('explains that Discord is a public all-listings feed without account linking', async () => {
+  it('does not present Discord delivery before Discord account linking is supported', async () => {
     render(<NotificationSettingsPage />);
 
-    expect(await screen.findByText('Discord 公開頻道會提供所有上架商品通知，不需綁定帳號。')).toBeTruthy();
+    await screen.findByRole('checkbox', { name: '每日彙整 Email 通知' });
+    expect(screen.queryByText('Discord 公開頻道會提供所有上架商品通知，不需綁定帳號。')).toBeNull();
     expect(screen.queryByRole('button', { name: /Discord/ })).toBeNull();
   });
 

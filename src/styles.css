@@ -1030,6 +1030,45 @@ textarea:focus-visible {
   padding: 12px 14px;
 }
 
+.subscription-confirmation {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 12px;
+  border: 1px solid hsl(var(--primary) / .28);
+  border-radius: calc(var(--radius) + .25rem);
+  background: hsl(var(--primary) / .08);
+  padding: 16px;
+}
+
+.subscription-confirmation h2,
+.subscription-confirmation p {
+  margin: 0;
+}
+
+.subscription-confirmation h2 {
+  font-size: 16px;
+}
+
+.subscription-confirmation p {
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.subscription-confirmation .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+.subscription-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .subscription-feedback:empty {
   display: none;
 }
@@ -1095,10 +1134,6 @@ textarea:focus-visible {
   background: hsl(var(--secondary));
   color: hsl(var(--secondary-foreground));
   box-shadow: none;
-}
-
-.discord-feed-note {
-  border-left: 4px solid hsl(var(--info));
 }
 
 @media (max-width: 640px) {
