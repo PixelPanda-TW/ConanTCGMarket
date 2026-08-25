@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase-admin/firestore';
+
 export type ListingStatus = 'active' | 'sold_out';
 export type DiscordStatus = 'pending' | 'sent' | 'failed';
 
@@ -8,7 +10,7 @@ export interface ListingSnapshot {
   listingPrice: number;
   remainingQuantity: number;
   status: ListingStatus;
-  createdAt: Date;
+  createdAt: Date | Timestamp;
 }
 
 export interface ListingEvent {
@@ -20,11 +22,11 @@ export interface ListingEvent {
   cardId: string;
   listingPrice: number;
   remainingQuantity: number;
-  createdAt: Date;
+  createdAt: Timestamp;
   discordStatus: DiscordStatus;
-  discordSentAt?: Date;
+  discordSentAt?: Timestamp;
   attempts: number;
-  nextAttemptAt?: Date;
+  nextAttemptAt?: Timestamp;
 }
 
 export interface DigestGroup {
@@ -57,6 +59,10 @@ function normalizeMetadata(value: string | undefined): string {
 }
 
 export function toListingEvent(listingId: string, listing: ListingSnapshot): ListingEvent {
+  if (listing.status !== 'active') {
+    throw new Error('Listing event requires an active listing.');
+  }
+
   const characterName = normalizeMetadata(listing.characterName);
   const rarity = normalizeMetadata(listing.rarity);
 
@@ -73,7 +79,9 @@ export function toListingEvent(listingId: string, listing: ListingSnapshot): Lis
     cardId: listing.cardId,
     listingPrice: listing.listingPrice,
     remainingQuantity: listing.remainingQuantity,
-    createdAt: listing.createdAt,
+    createdAt: listing.createdAt instanceof Timestamp
+      ? listing.createdAt
+      : Timestamp.fromDate(listing.createdAt),
     discordStatus: 'pending',
     attempts: 0,
   };
