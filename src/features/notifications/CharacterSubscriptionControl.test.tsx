@@ -2,7 +2,9 @@
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { NotificationSubscription } from '../../domain/models';
 import { CharacterSubscriptionControl } from './CharacterSubscriptionControl';
 
 const authState = vi.hoisted(() => ({
@@ -68,6 +70,35 @@ describe('CharacterSubscriptionControl', () => {
 
     expect(screen.queryByRole('button')).toBeNull();
     expect(subscriptions.getNotificationSubscription).not.toHaveBeenCalled();
+  });
+
+  it('starts a signed-in render in loading state before the subscription effect runs', () => {
+    const markup = renderToStaticMarkup(
+      <CharacterSubscriptionControl characterName="諸伏景光" isKnownCharacter />,
+    );
+
+    expect(markup).toContain('角色通知載入中');
+    expect(markup).not.toContain('訂閱諸伏景光');
+  });
+
+  it('does not expose a mutation control until a deferred subscription read resolves', async () => {
+    let finishRead: ((subscription: NotificationSubscription | null) => void) | undefined;
+    subscriptions.getNotificationSubscription.mockReturnValue(new Promise((resolve) => {
+      finishRead = resolve;
+    }));
+    render(<CharacterSubscriptionControl characterName="諸伏景光" isKnownCharacter />);
+
+    expect(screen.getByText('角色通知載入中')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /訂閱諸伏景光/ })).toBeNull();
+    expect(subscriptions.saveNotificationSubscription).not.toHaveBeenCalled();
+
+    await act(async () => finishRead?.({
+      uid: 'buyer-1',
+      characterKeys: ['諸伏景光'],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    }));
+    expect(await screen.findByRole('button', { name: '取消訂閱諸伏景光' })).toBeTruthy();
   });
 
   it('announces a save error without changing the subscription state', async () => {

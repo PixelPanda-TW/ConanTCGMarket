@@ -2,6 +2,7 @@
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationSubscription } from '../../domain/models';
 import { NotificationSettingsPage } from './NotificationSettingsPage';
@@ -87,6 +88,17 @@ describe('NotificationSettingsPage', () => {
     render(<NotificationSettingsPage />);
 
     expect(screen.getByText('通知設定載入中')).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: '每日彙整 Email 通知' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /移除.*通知/ })).toBeNull();
+    expect(subscriptions.saveNotificationSubscription).not.toHaveBeenCalled();
+  });
+
+  it('starts a signed-in render in loading state before the settings effect runs', () => {
+    const markup = renderToStaticMarkup(<NotificationSettingsPage />);
+
+    expect(markup).toContain('通知設定載入中');
+    expect(markup).not.toContain('每日彙整 Email 通知');
+    expect(markup).not.toContain('尚未訂閱任何角色');
   });
 
   it('shows an error state when settings cannot be loaded', async () => {

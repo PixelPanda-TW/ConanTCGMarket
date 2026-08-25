@@ -18,13 +18,18 @@ export function CharacterSubscriptionControl({
 }: CharacterSubscriptionControlProps) {
   const { isLoading: isAuthLoading, signIn, user } = useAuth();
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
-  const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
+  const [loadedSubscriptionContext, setLoadedSubscriptionContext] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSignInGuidance, setShowSignInGuidance] = useState(false);
   const activeContextRef = useRef(0);
   const characterKey = isKnownCharacter ? toCharacterKey(characterName) : '';
+  const subscriptionContext = isKnownCharacter && user
+    ? `${user.uid}\u0000${characterKey}`
+    : null;
+  const isSubscriptionLoading = subscriptionContext !== null
+    && loadedSubscriptionContext !== subscriptionContext;
 
   useEffect(() => {
     activeContextRef.current += 1;
@@ -34,15 +39,14 @@ export function CharacterSubscriptionControl({
     setLoadError(null);
     setSaveError(null);
     setShowSignInGuidance(false);
+    setLoadedSubscriptionContext(null);
 
-    if (!isKnownCharacter || !user) {
-      setIsSubscriptionLoading(false);
+    if (!subscriptionContext || !user) {
       return () => {
         isCurrent = false;
       };
     }
 
-    setIsSubscriptionLoading(true);
     void getNotificationSubscription(user.uid)
       .then((loadedSubscription) => {
         if (isCurrent) setSubscription(loadedSubscription);
@@ -51,14 +55,14 @@ export function CharacterSubscriptionControl({
         if (isCurrent) setLoadError('無法讀取角色通知，請稍後再試。');
       })
       .finally(() => {
-        if (isCurrent) setIsSubscriptionLoading(false);
+        if (isCurrent) setLoadedSubscriptionContext(subscriptionContext);
       });
 
     return () => {
       isCurrent = false;
       activeContextRef.current += 1;
     };
-  }, [characterKey, isKnownCharacter, user]);
+  }, [subscriptionContext]);
 
   if (!isKnownCharacter) return null;
 

@@ -10,11 +10,13 @@ import { useAuth } from '../auth/AuthProvider';
 export function NotificationSettingsPage() {
   const { isLoading: isAuthLoading, signIn, user } = useAuth();
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadedUid, setLoadedUid] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const activeContextRef = useRef(0);
+  const currentUid = user?.uid ?? null;
+  const isLoading = currentUid !== null && loadedUid !== currentUid;
 
   useEffect(() => {
     activeContextRef.current += 1;
@@ -23,15 +25,14 @@ export function NotificationSettingsPage() {
     setIsSaving(false);
     setLoadError(false);
     setSaveError(false);
+    setLoadedUid(null);
 
     if (!user) {
-      setIsLoading(false);
       return () => {
         isCurrent = false;
       };
     }
 
-    setIsLoading(true);
     void getNotificationSubscription(user.uid)
       .then((loadedSubscription) => {
         if (isCurrent) setSubscription(loadedSubscription);
@@ -40,14 +41,14 @@ export function NotificationSettingsPage() {
         if (isCurrent) setLoadError(true);
       })
       .finally(() => {
-        if (isCurrent) setIsLoading(false);
+        if (isCurrent) setLoadedUid(user.uid);
       });
 
     return () => {
       isCurrent = false;
       activeContextRef.current += 1;
     };
-  }, [user]);
+  }, [currentUid]);
 
   async function persistSettings(characterKeys: string[], emailDailyEnabled: boolean) {
     if (!user) return;
