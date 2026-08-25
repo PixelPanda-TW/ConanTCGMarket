@@ -123,7 +123,7 @@ export function ListingForm({
         )}
         <FieldError message={errors.myShipFee} />
       </div>
-      <aside className="listing-requirements" aria-label="其他交易需求提醒">若有其他交易需求，請在備註中說明，例如：有賣貨便連結下單請回報、賣場未滿指定金額不出貨。</aside>
+      <aside className="listing-requirements" aria-label="其他交易需求提醒">若有其他交易需求，請在備註中說明，例如：有賣貨便連結放備註，可自己下單並通知回報、賣場未滿指定金額不出貨、可接受 &lt; ... &gt; 角色換物</aside>
       <label>
         <FieldLabel>備註（選填）</FieldLabel>
         <textarea aria-label="備註" value={note} onChange={(event) => onNoteChange(event.target.value)} />
