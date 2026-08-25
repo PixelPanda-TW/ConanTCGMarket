@@ -3,7 +3,7 @@ import type { Card, SellerProfile } from '../../domain/models';
 import { createListing, createListingId, getSellerProfile, listCards } from '../../data/firestore/repositories';
 import { uploadListingImages } from '../../data/storage/storageService';
 import { useAuth } from '../auth/AuthProvider';
-import { BackToMarketplaceLink } from '../../components/BackToMarketplaceLink';
+import { PageShell } from '../../components/PageShell';
 import { CardMetadataSelector } from '../../components/CardMetadataSelector';
 import { ListingForm } from '../listings/ListingForm';
 import {
@@ -55,10 +55,10 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
       setMessage('刊登成功'); window.location.hash = `#/listing/${id}`;
     } catch (error) { setMessage(error instanceof Error ? error.message : '刊登失敗，請稍後再試。'); } finally { setSaving(false); }
   }
-  if (isLoading || profile === undefined) return <main className="app-shell"><p>載入中</p></main>;
-  if (!user) return <main className="app-shell"><h1>刊登商品</h1><p>請先使用 Google 登入，才能刊登商品。</p></main>;
-  if (!profile) return <main className="app-shell"><h1>刊登商品</h1><p>請先完成賣家個人檔案，才能刊登商品。</p><a href="#/profile">前往設定個人檔案</a></main>;
-  return <main className="app-shell"><BackToMarketplaceLink /><section className="profile-page sell-page"><h1>刊登商品</h1><p>同版本、相近卡況才合併刊登。</p><form className="profile-form listing-form" onSubmit={submit} noValidate>
+  if (isLoading || profile === undefined) return <PageShell width="wide-form"><p>載入中</p></PageShell>;
+  if (!user) return <PageShell width="wide-form"><h1>刊登商品</h1><p>請先使用 Google 登入，才能刊登商品。</p></PageShell>;
+  if (!profile) return <PageShell width="wide-form"><h1>刊登商品</h1><p>請先完成賣家個人檔案，才能刊登商品。</p><a href="#/profile">前往設定個人檔案</a></PageShell>;
+  return <PageShell width="wide-form" backToMarketplace><section className="profile-page sell-page"><h1>刊登商品</h1><p>同版本、相近卡況才合併刊登。</p><form className="profile-form listing-form" onSubmit={submit} noValidate>
     <CardMetadataSelector
       cards={cards ?? []}
       value={form}
@@ -94,5 +94,5 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
       submitDisabled={saving}
     />
     {message && <p role="status">{message}</p>}
-  </form></section></main>;
+  </form></section></PageShell>;
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ContactType, SellerProfile } from '../../domain/models';
 import { getSellerProfile, saveSellerProfile } from '../../data/firestore/repositories';
 import { useAuth } from '../auth/AuthProvider';
-import { BackToMarketplaceLink } from '../../components/BackToMarketplaceLink';
+import { PageShell } from '../../components/PageShell';
 import {
   profileContactTypes,
   type ProfileFormErrors,
@@ -148,30 +148,27 @@ export function SellerProfilePage() {
 
   if (isAuthLoading) {
     return (
-      <main className="app-shell">
-        <BackToMarketplaceLink />
+      <PageShell backToMarketplace>
         <section className="profile-page profile-state" aria-live="polite">
           <p>登入狀態確認中</p>
         </section>
-      </main>
+      </PageShell>
     );
   }
 
   if (!user) {
     return (
-      <main className="app-shell">
-        <BackToMarketplaceLink />
+      <PageShell backToMarketplace>
         <section className="profile-page profile-state">
           <h1>賣家個人檔案</h1>
           <p>請先使用 Google 登入，才能設定你的賣家聯絡方式。</p>
         </section>
-      </main>
+      </PageShell>
     );
   }
 
   return (
-    <main className="app-shell">
-      <BackToMarketplaceLink />
+    <PageShell backToMarketplace>
       <section className="profile-page">
         <p className="eyebrow">Seller profile</p>
         <h1>賣家個人檔案</h1>
@@ -265,6 +262,6 @@ export function SellerProfilePage() {
           </form>
         )}
       </section>
-    </main>
+    </PageShell>
   );
 }

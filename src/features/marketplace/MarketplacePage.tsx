@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CardMetadataSelector, type CardMetadataSelection } from '../../components/CardMetadataSelector';
+import { PageShell } from '../../components/PageShell';
 import { developmentCards } from '../../data/cards/developmentCards';
 import { getPublicSellerProfile, listActiveListings, listCards } from '../../data/firestore/repositories';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
@@ -78,7 +79,7 @@ export function MarketplacePage({
   const visibleListings = useMemo(() => filterListings(listings, filters), [filters, listings]);
 
   return (
-    <main className="app-shell">
+    <PageShell width="marketplace">
       <section className="marketplace">
         <AuthStatus />
         <div className="masthead">
@@ -133,6 +134,6 @@ export function MarketplacePage({
           ))}
         </section>
       </section>
-    </main>
+    </PageShell>
   );
 }

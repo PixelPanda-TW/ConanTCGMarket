@@ -54,7 +54,8 @@ a { color: var(--primary-dark); text-decoration: none; }
 a:hover { color: var(--primary-color); }
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
-.app-shell {
+/* Page shell */
+.page-shell {
   min-height: 100vh;
   padding: 32px clamp(20px, 4vw, 56px);
 }
@@ -663,7 +664,6 @@ h1 {
 .filters select, .marketplace-card-metadata-selector > label, .marketplace-card-metadata-selector__character { flex: 0 1 220px; min-width: 160px; }
 .filters select, .marketplace-card-metadata-selector input { border-color: #d8b4fe; }
 .marketplace-card-metadata-selector { display: contents; }
-.sell-character-autocomplete { position: relative; }
 .card-metadata-selector {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
