@@ -370,8 +370,9 @@ function buildHtml(groups: ReturnType<typeof buildGroups>): string {
 }
 
 export async function runDailyDigest(
-  now: Date,
+  scheduledTime: Date,
   deps: DailyDigestDependencies,
+  executionTime = new Date(),
 ): Promise<void> {
   const recipientCap = Math.max(0, Math.floor(deps.recipientCap));
   if (recipientCap === 0) {
@@ -379,7 +380,7 @@ export async function runDailyDigest(
   }
 
   const pageSize = recipientCap;
-  const runDate = dailyDigestRunDate(now);
+  const runDate = dailyDigestRunDate(scheduledTime);
   const run = await deps.runs.getOrCreate(runDate);
   const windowEnd = run.windowEndSequence;
   let scanCursor = await deps.batchState.getCursor();
@@ -413,7 +414,7 @@ export async function runDailyDigest(
       const claim = await deps.deliveryState.claim(
         subscription.uid,
         claimId,
-        now,
+        executionTime,
         windowEnd,
         runDate,
       );

@@ -460,6 +460,24 @@ describe('runDailyDigest', () => {
     await firstRun;
   });
 
+  it('reclaims a stale pre-send reservation on retry despite a historical scheduler time', async () => {
+    const scheduledTime = new Date('2026-08-26T01:00:00.000Z');
+    const retryExecutionTime = new Date('2026-08-26T01:16:00.000Z');
+
+    await deps.deliveryState.claim(
+      'buyer-1',
+      'claim-crashed-worker',
+      scheduledTime,
+      100,
+      '2026-08-26',
+    );
+
+    await runDailyDigest(scheduledTime, deps, retryExecutionTime);
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.beginSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
+  });
+
   it('does not send from a stale worker recovered while paused before send', async () => {
     let resumeFirstBegin: (() => void) | undefined;
     const beginSend = vi.mocked(deps.deliveryState.beginSend);
