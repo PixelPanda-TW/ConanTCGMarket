@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import { PageShell } from './PageShell';
+
+afterEach(cleanup);
 
 describe('PageShell', () => {
   it('renders the marketplace return link before child content', () => {
@@ -16,5 +18,14 @@ describe('PageShell', () => {
   it('applies the wide form variant', () => {
     const { container } = render(<PageShell width="wide-form">內容</PageShell>);
     expect(container.querySelector('.page-shell--wide-form')).toBeTruthy();
+  });
+
+  it('credits Rugia Creation in a footer that opens the source site safely', () => {
+    render(<PageShell>內容</PageShell>);
+
+    const creditLink = screen.getByRole('link', { name: '致謝與致敬路基亞' });
+    expect(creditLink.getAttribute('href')).toBe('https://rugiacreation.com');
+    expect(creditLink.getAttribute('target')).toBe('_blank');
+    expect(creditLink.getAttribute('rel')).toBe('noreferrer');
   });
 });
