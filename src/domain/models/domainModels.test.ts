@@ -2,15 +2,55 @@ import { describe, expect, it } from 'vitest';
 import {
   validateCard,
   validateListing,
+  validateNotificationSubscription,
   validateSale,
   validateSellerProfile,
   type Card,
   type Listing,
+  type NotificationSubscription,
   type Sale,
   type SellerProfile,
 } from './index';
 
 describe('domain model validation', () => {
+  it('accepts a notification subscription for complete normalized character keys', () => {
+    const subscription: NotificationSubscription = {
+      uid: 'buyer-1',
+      characterKeys: ['諸伏 景光'],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    };
+
+    expect(() => validateNotificationSubscription(subscription)).not.toThrow();
+  });
+
+  it('rejects notification subscriptions with an empty character key', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      characterKeys: [''],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    })).toThrow();
+  });
+
+  it('rejects notification subscriptions with duplicate character keys', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      characterKeys: ['諸伏 景光', '諸伏 景光'],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    })).toThrow();
+  });
+
+  it('rejects notification subscriptions with a non-boolean email preference', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      characterKeys: ['諸伏 景光'],
+      emailDailyEnabled: 'true',
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    })).toThrow();
+  });
+
   it('accepts four-digit Card Master IDs with a character name', () => {
     expect(() => validateCard({ id: '1096', characterName: '鈴木園子', rarity: 'SR' } as Card)).not.toThrow();
   });
