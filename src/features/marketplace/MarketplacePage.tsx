@@ -78,6 +78,7 @@ export function MarketplacePage({
   }, [loadCards, loadListings, loadSeller]);
 
   const visibleListings = useMemo(() => filterListings(listings, filters), [filters, listings]);
+  const isKnownCharacter = cards.some((card) => card.characterName === filters.characterName);
 
   return (
     <PageShell width="marketplace">
@@ -110,13 +111,16 @@ export function MarketplacePage({
               requireCardId={false}
               className="marketplace-card-metadata-selector"
             />
-            {cards.some((card) => card.characterName === filters.characterName) && (
+          </div>
+          {isKnownCharacter && (
+            <section className="marketplace-subscription" aria-label="角色通知">
+              <p>想第一時間知道「{filters.characterName}」的新商品？</p>
               <CharacterSubscriptionControl
                 characterName={filters.characterName}
                 isKnownCharacter
               />
-            )}
-          </div>
+            </section>
+          )}
         </div>
 
         <section className="listings" aria-label="商品列表">

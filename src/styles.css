@@ -686,6 +686,19 @@ h1 {
 .filters select { flex: 0 1 220px; min-width: 160px; }
 .filters select, .marketplace-card-metadata-selector input { border-color: #d8b4fe; }
 .filters .marketplace-card-metadata-selector { flex: 1 0 100%; min-width: 0; }
+.marketplace-subscription {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin-top: 14px;
+  border-left: 4px solid hsl(var(--primary));
+  border-radius: var(--radius);
+  background: hsl(var(--primary) / .08);
+  padding: 14px 16px;
+}
+.marketplace-subscription > p { margin: 0; font-weight: 700; }
+.marketplace-subscription .character-subscription-control { flex: 0 0 auto; }
 .card-metadata-selector {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

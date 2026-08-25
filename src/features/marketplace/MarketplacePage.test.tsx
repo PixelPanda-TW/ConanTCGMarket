@@ -24,7 +24,7 @@ vi.mock('../auth/AuthProvider', () => ({
 const cards: Card[] = [
   { id: '0338', characterName: '諸伏景光', rarities: ['R', 'CP'] },
   { id: '0590', characterName: '諸伏景光', rarities: ['R'] },
-  { id: '1010', characterName: '諸伏高明', rarities: ['SR'] },
+  { id: '0501', characterName: '諸伏高明', rarities: ['D'] },
 ];
 
 const activeListing: Listing = {
@@ -100,5 +100,24 @@ describe('MarketplacePage', () => {
 
     fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
     expect(screen.queryByRole('button', { name: /訂閱諸伏/ })).toBeNull();
+  });
+
+  it('shows a dedicated character notification panel after selecting 諸伏高明／D／0501', async () => {
+    render(
+      <MarketplacePage
+        loadListings={async () => [activeListing]}
+        loadCards={async () => cards}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    await screen.findByRole('heading', { name: '諸伏景光' });
+    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏高明' } });
+    fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'D' } });
+    fireEvent.change(screen.getByLabelText('卡片 ID'), { target: { value: '0501' } });
+
+    const panel = screen.getByRole('region', { name: '角色通知' });
+    expect(panel).toBeTruthy();
+    expect(screen.getByRole('button', { name: '訂閱諸伏高明' })).toBeTruthy();
   });
 });
