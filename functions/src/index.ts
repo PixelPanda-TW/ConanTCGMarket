@@ -1,5 +1,6 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { randomUUID } from 'node:crypto';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
@@ -22,18 +23,87 @@ const eventStore: ListingEventStore = {
   async create(event) {
     await firestore.collection('listingEvents').doc(event.id).create(event);
   },
-  async markSent(listingId, sentAt) {
-    await firestore.collection('listingEvents').doc(listingId).update({
-      discordStatus: 'sent',
-      discordSentAt: Timestamp.fromDate(sentAt),
-      nextAttemptAt: FieldValue.delete(),
+  async claim(listingId, claimId, claimedAt, leaseUntil, maxAttempts) {
+    const eventReference = firestore.collection('listingEvents').doc(listingId);
+
+    return firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(eventReference);
+      if (!snapshot.exists) {
+        return null;
+      }
+
+      const current = snapshot.data() as ListingEvent;
+      if (current.discordStatus === 'sent' || current.attempts >= maxAttempts) {
+        return null;
+      }
+
+      if (current.discordClaimId
+        && current.discordLeaseUntil
+        && current.discordLeaseUntil.toDate() > claimedAt) {
+        return null;
+      }
+
+      if (current.discordStatus === 'failed'
+        && current.nextAttemptAt
+        && current.nextAttemptAt.toDate() > claimedAt) {
+        return null;
+      }
+
+      transaction.update(eventReference, {
+        discordStatus: 'failed',
+        discordClaimId: claimId,
+        discordLeaseUntil: Timestamp.fromDate(leaseUntil),
+        nextAttemptAt: Timestamp.fromDate(leaseUntil),
+      });
+      return current;
     });
   },
-  async markFailed(listingId, attempts, nextAttemptAt) {
-    await firestore.collection('listingEvents').doc(listingId).update({
-      discordStatus: 'failed',
-      attempts,
-      nextAttemptAt: Timestamp.fromDate(nextAttemptAt),
+  async markSent(listingId, claimId, sentAt) {
+    const eventReference = firestore.collection('listingEvents').doc(listingId);
+
+    await firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(eventReference);
+      if (!snapshot.exists) {
+        return;
+      }
+
+      const current = snapshot.data() as ListingEvent;
+      if (current.discordStatus === 'sent' || current.discordClaimId !== claimId) {
+        return;
+      }
+
+      transaction.update(eventReference, {
+        discordStatus: 'sent',
+        discordSentAt: Timestamp.fromDate(sentAt),
+        discordClaimId: FieldValue.delete(),
+        discordLeaseUntil: FieldValue.delete(),
+        nextAttemptAt: FieldValue.delete(),
+      });
+    });
+  },
+  async markFailed(listingId, claimId, attempts, nextAttemptAt) {
+    const eventReference = firestore.collection('listingEvents').doc(listingId);
+
+    await firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(eventReference);
+      if (!snapshot.exists) {
+        return;
+      }
+
+      const current = snapshot.data() as ListingEvent;
+      if (current.discordStatus === 'sent' || current.discordClaimId !== claimId) {
+        return;
+      }
+
+      transaction.update(eventReference, {
+        discordStatus: 'failed',
+        attempts,
+        discordClaimId: FieldValue.delete(),
+        discordLeaseUntil: FieldValue.delete(),
+        nextAttemptAt: nextAttemptAt
+          ? Timestamp.fromDate(nextAttemptAt)
+          : FieldValue.delete(),
+      });
     });
   },
   async findDueFailed(now, maxAttempts) {
@@ -51,6 +121,7 @@ const dependencies: ListingEventDependencies = {
   events: eventStore,
   discord: createDiscordClient(),
   now: () => new Date(),
+  createClaimId: randomUUID,
 };
 
 export const captureListingEvent = onDocumentCreated(

@@ -1,0 +1,14 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "listingEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "discordStatus", "order": "ASCENDING" },
+        { "fieldPath": "attempts", "order": "ASCENDING" },
+        { "fieldPath": "nextAttemptAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

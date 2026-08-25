@@ -36,7 +36,10 @@ describe('createDiscordClient', () => {
     expect(init.method).toBe('POST');
     expect(init.headers).toStrictEqual({ 'content-type': 'application/json' });
 
-    const payload = JSON.parse(String(init.body)) as { content: string };
+    const payload = JSON.parse(String(init.body)) as {
+      content: string;
+      allowed_mentions?: { parse: string[] };
+    };
     expect(payload.content).toContain('諸伏景光');
     expect(payload.content).toContain('SR');
     expect(payload.content).toContain('CT-P01-001');
@@ -49,6 +52,7 @@ describe('createDiscordClient', () => {
     expect(payload).not.toHaveProperty('sellerId');
     expect(payload).not.toHaveProperty('contactValue');
     expect(payload).not.toHaveProperty('email');
+    expect(payload.allowed_mentions).toStrictEqual({ parse: [] });
   });
 
   it('throws a sanitized error for a non-success response', async () => {

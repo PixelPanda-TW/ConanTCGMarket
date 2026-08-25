@@ -37,6 +37,7 @@ const event: ListingEvent = {
 function createDependencies(overrides: Partial<ListingEventStore> = {}) {
   const events: ListingEventStore = {
     create: vi.fn().mockResolvedValue(undefined),
+    claim: vi.fn().mockResolvedValue(event),
     markSent: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     findDueFailed: vi.fn().mockResolvedValue([]),
@@ -49,7 +50,13 @@ function createDependencies(overrides: Partial<ListingEventStore> = {}) {
     update: vi.fn().mockResolvedValue(undefined),
   };
 
-  return { events, discord, listings, now: () => new Date(now) };
+  return {
+    events,
+    discord,
+    listings,
+    now: () => new Date(now),
+    createClaimId: vi.fn().mockReturnValue('claim-1'),
+  };
 }
 
 describe('captureListingEvent', () => {
@@ -92,7 +99,7 @@ describe('deliverDiscordEvent', () => {
     await deliverDiscordEvent(event, deps);
 
     expect(deps.discord.publishNewListing).toHaveBeenCalledWith(event);
-    expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', now);
+    expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', 'claim-1', now);
   });
 
   it('marks a Discord failure without changing the Listing', async () => {
@@ -104,6 +111,7 @@ describe('deliverDiscordEvent', () => {
 
     expect(deps.events.markFailed).toHaveBeenCalledWith(
       'listing-1',
+      'claim-1',
       1,
       new Date('2026-08-25T02:01:00.000Z'),
     );
@@ -130,12 +138,69 @@ describe('deliverDiscordEvent', () => {
     expect(deps.events.markSent).not.toHaveBeenCalled();
   });
 
-  it('does not exceed three total delivery attempts', async () => {
-    const deps = createDependencies();
+  it('allows only one of two overlapping invocations to publish', async () => {
+    const deps = createDependencies({
+      claim: vi.fn()
+        .mockResolvedValueOnce(event)
+        .mockResolvedValueOnce(null),
+    });
+    deps.createClaimId
+      .mockReturnValueOnce('claim-1')
+      .mockReturnValueOnce('claim-2');
 
-    await deliverDiscordEvent({ ...event, attempts: 3 }, deps);
+    await Promise.all([
+      deliverDiscordEvent(event, deps),
+      deliverDiscordEvent(event, deps),
+    ]);
 
-    expect(deps.discord.publishNewListing).not.toHaveBeenCalled();
+    expect(deps.discord.publishNewListing).toHaveBeenCalledTimes(1);
+    expect(deps.events.markSent).toHaveBeenCalledTimes(1);
+    expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', 'claim-1', now);
+  });
+
+  it('stops after three failed claims and leaves the terminal failure unscheduled', async () => {
+    const deps = createDependencies({
+      claim: vi.fn()
+        .mockResolvedValueOnce(event)
+        .mockResolvedValueOnce({ ...event, discordStatus: 'failed', attempts: 1 })
+        .mockResolvedValueOnce({ ...event, discordStatus: 'failed', attempts: 2 })
+        .mockResolvedValueOnce(null),
+    });
+    deps.createClaimId
+      .mockReturnValueOnce('claim-1')
+      .mockReturnValueOnce('claim-2')
+      .mockReturnValueOnce('claim-3')
+      .mockReturnValueOnce('claim-4');
+    vi.mocked(deps.discord.publishNewListing)
+      .mockRejectedValue(new Error('Discord unavailable'));
+
+    await deliverDiscordEvent(event, deps);
+    await deliverDiscordEvent(event, deps);
+    await deliverDiscordEvent(event, deps);
+    await deliverDiscordEvent(event, deps);
+
+    expect(deps.discord.publishNewListing).toHaveBeenCalledTimes(3);
+    expect(deps.events.markFailed).toHaveBeenNthCalledWith(
+      1,
+      'listing-1',
+      'claim-1',
+      1,
+      new Date('2026-08-25T02:01:00.000Z'),
+    );
+    expect(deps.events.markFailed).toHaveBeenNthCalledWith(
+      2,
+      'listing-1',
+      'claim-2',
+      2,
+      new Date('2026-08-25T02:02:00.000Z'),
+    );
+    expect(deps.events.markFailed).toHaveBeenNthCalledWith(
+      3,
+      'listing-1',
+      'claim-3',
+      3,
+      undefined,
+    );
   });
 });
 
@@ -149,16 +214,14 @@ describe('retryFailedDiscordEvents', () => {
     };
     const deps = createDependencies({
       findDueFailed: vi.fn().mockResolvedValue([failedEvent]),
+      claim: vi.fn().mockResolvedValue(failedEvent),
     });
 
     await retryFailedDiscordEvents(now, deps);
 
     expect(deps.events.findDueFailed).toHaveBeenCalledWith(now, 3);
-    expect(deps.discord.publishNewListing).toHaveBeenCalledWith({
-      ...failedEvent,
-      discordStatus: 'pending',
-    });
-    expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', now);
+    expect(deps.discord.publishNewListing).toHaveBeenCalledWith(failedEvent);
+    expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', 'claim-1', now);
     expect(deps.listings.update).not.toHaveBeenCalled();
   });
 });

@@ -44,7 +44,10 @@ export function createDiscordClient(
         response = await dependencies.fetch(webhookUrl, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ content: buildMessage(event) }),
+          body: JSON.stringify({
+            content: buildMessage(event),
+            allowed_mentions: { parse: [] },
+          }),
         });
       } catch {
         throw new Error('Discord webhook request failed.');

@@ -2,11 +2,24 @@ import { toListingEvent, type DiscordClient, type ListingEvent, type ListingSnap
 
 const MAX_DISCORD_ATTEMPTS = 3;
 const INITIAL_RETRY_DELAY_MS = 60_000;
+const DELIVERY_LEASE_MS = 5 * 60_000;
 
 export interface ListingEventStore {
   create(event: ListingEvent): Promise<void>;
-  markSent(listingId: string, sentAt: Date): Promise<void>;
-  markFailed(listingId: string, attempts: number, nextAttemptAt: Date): Promise<void>;
+  claim(
+    listingId: string,
+    claimId: string,
+    claimedAt: Date,
+    leaseUntil: Date,
+    maxAttempts: number,
+  ): Promise<ListingEvent | null>;
+  markSent(listingId: string, claimId: string, sentAt: Date): Promise<void>;
+  markFailed(
+    listingId: string,
+    claimId: string,
+    attempts: number,
+    nextAttemptAt: Date | undefined,
+  ): Promise<void>;
   findDueFailed(now: Date, maxAttempts: number): Promise<ListingEvent[]>;
 }
 
@@ -14,6 +27,7 @@ export interface ListingEventDependencies {
   events: ListingEventStore;
   discord: DiscordClient;
   now(): Date;
+  createClaimId(): string;
 }
 
 export interface ListingCreatedEvent {
@@ -45,8 +59,12 @@ export async function captureListingEvent(
   }
 }
 
-function nextAttemptAt(now: Date, previousAttempts: number): Date {
-  const delay = INITIAL_RETRY_DELAY_MS * (2 ** previousAttempts);
+function nextAttemptAt(now: Date, attempts: number): Date | undefined {
+  if (attempts >= MAX_DISCORD_ATTEMPTS) {
+    return undefined;
+  }
+
+  const delay = INITIAL_RETRY_DELAY_MS * (2 ** (attempts - 1));
   return new Date(now.getTime() + delay);
 }
 
@@ -54,25 +72,38 @@ export async function deliverDiscordEvent(
   event: ListingEvent,
   deps: ListingEventDependencies,
 ): Promise<void> {
-  if (event.discordStatus !== 'pending' || event.attempts >= MAX_DISCORD_ATTEMPTS) {
+  if (event.discordStatus === 'sent' || event.attempts >= MAX_DISCORD_ATTEMPTS) {
     return;
   }
 
   const attemptedAt = deps.now();
+  const claimId = deps.createClaimId();
+  const claimedEvent = await deps.events.claim(
+    event.listingId,
+    claimId,
+    attemptedAt,
+    new Date(attemptedAt.getTime() + DELIVERY_LEASE_MS),
+    MAX_DISCORD_ATTEMPTS,
+  );
+
+  if (!claimedEvent) {
+    return;
+  }
 
   try {
-    await deps.discord.publishNewListing(event);
+    await deps.discord.publishNewListing(claimedEvent);
   } catch {
-    const attempts = event.attempts + 1;
+    const attempts = claimedEvent.attempts + 1;
     await deps.events.markFailed(
-      event.listingId,
+      claimedEvent.listingId,
+      claimId,
       attempts,
-      nextAttemptAt(attemptedAt, event.attempts),
+      nextAttemptAt(attemptedAt, attempts),
     );
     return;
   }
 
-  await deps.events.markSent(event.listingId, attemptedAt);
+  await deps.events.markSent(claimedEvent.listingId, claimId, attemptedAt);
 }
 
 export async function retryFailedDiscordEvents(
@@ -82,6 +113,6 @@ export async function retryFailedDiscordEvents(
   const dueEvents = await deps.events.findDueFailed(now, MAX_DISCORD_ATTEMPTS);
 
   for (const event of dueEvents) {
-    await deliverDiscordEvent({ ...event, discordStatus: 'pending' }, deps);
+    await deliverDiscordEvent(event, deps);
   }
 }

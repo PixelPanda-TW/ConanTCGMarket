@@ -25,6 +25,8 @@ export interface ListingEvent {
   createdAt: Timestamp;
   discordStatus: DiscordStatus;
   discordSentAt?: Timestamp;
+  discordClaimId?: string;
+  discordLeaseUntil?: Timestamp;
   attempts: number;
   nextAttemptAt?: Timestamp;
 }
