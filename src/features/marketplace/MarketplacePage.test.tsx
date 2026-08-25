@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { MarketplacePage } from './MarketplacePage';
 
@@ -41,7 +43,16 @@ const seller: SellerProfile = {
   updatedAt: new Date(),
 };
 
+afterEach(cleanup);
+
 describe('MarketplacePage', () => {
+  it('does not flatten the mobile metadata selector with display contents', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+
+    expect(styles).toContain('.filters .marketplace-card-metadata-selector { flex: 1 0 100%; min-width: 0; }');
+    expect(styles).not.toContain('.marketplace-card-metadata-selector { display: contents; }');
+  });
+
   it('shows only active listings and narrows card metadata filters from a selected character', async () => {
     render(
       <MarketplacePage
