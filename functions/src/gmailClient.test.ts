@@ -70,4 +70,24 @@ describe('createRecipientDirectory', () => {
 
     await expect(directory.getVerifiedEmail(user.uid)).resolves.toBeNull();
   });
+
+  it('treats a deleted Firebase Auth user as no recipient', async () => {
+    const directory = createRecipientDirectory({
+      getUser: vi.fn().mockRejectedValue(
+        Object.assign(new Error('No user record'), { code: 'auth/user-not-found' }),
+      ),
+    });
+
+    await expect(directory.getVerifiedEmail('deleted-user')).resolves.toBeNull();
+  });
+
+  it('does not hide unexpected Firebase Auth failures', async () => {
+    const directory = createRecipientDirectory({
+      getUser: vi.fn().mockRejectedValue(
+        Object.assign(new Error('Auth unavailable'), { code: 'auth/internal-error' }),
+      ),
+    });
+
+    await expect(directory.getVerifiedEmail('buyer-1')).rejects.toThrow('Auth unavailable');
+  });
 });

@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import type {
   GmailClient,
   ListingEvent,
@@ -7,6 +8,8 @@ import type {
 const MARKETPLACE_BASE_URL = 'https://pixelpanda-tw.github.io/ConanTCGMarket';
 const CHARACTER_QUERY_LIMIT = 30;
 const EPOCH = new Date(0);
+const DELIVERY_CLAIM_LEASE_MS = 15 * 60_000;
+const INGESTION_SETTLE_MS = 5 * 60_000;
 
 export const DEFAULT_DAILY_RECIPIENT_CAP = 100;
 
@@ -23,7 +26,10 @@ export interface NotificationSubscription {
 }
 
 export interface DailyDigestSubscriptionStore {
-  listEmailDailyEnabled(): Promise<NotificationSubscription[]>;
+  listEmailDailyEnabled(
+    afterUid: string | null,
+    limit: number,
+  ): Promise<NotificationSubscription[]>;
 }
 
 export interface DailyDigestEventStore {
@@ -35,17 +41,85 @@ export interface DailyDigestEventStore {
 }
 
 export interface DailyDigestDeliveryState {
-  getCursor(uid: string): Promise<Date | null>;
-  advance(uid: string, cursor: Date): Promise<void>;
+  claim(
+    uid: string,
+    claimId: string,
+    claimedAt: Date,
+    leaseUntil: Date,
+    windowEnd: Date,
+  ): Promise<DailyDigestClaim | null>;
+  complete(uid: string, claimId: string): Promise<void>;
+  release(uid: string, claimId: string): Promise<void>;
+}
+
+export interface DailyDigestClaim {
+  claimId: string;
+  after: Date;
+  through: Date;
+}
+
+export interface DailyDigestDeliveryRecord {
+  cursor?: Timestamp;
+  claimId?: string;
+  leaseUntil?: Timestamp;
+  windowEnd?: Timestamp;
+}
+
+export interface DailyDigestBatchState {
+  getCursor(): Promise<string | null>;
+  advance(cursor: string | null): Promise<void>;
 }
 
 export interface DailyDigestDependencies {
   subscriptions: DailyDigestSubscriptionStore;
   events: DailyDigestEventStore;
   deliveryState: DailyDigestDeliveryState;
+  batchState: DailyDigestBatchState;
   recipients: RecipientDirectory;
   gmail: GmailClient;
   recipientCap: number;
+  createClaimId(): string;
+}
+
+export function reserveDailyDigestDelivery(
+  current: DailyDigestDeliveryRecord,
+  claimId: string,
+  claimedAt: Date,
+  leaseUntil: Date,
+  windowEnd: Date,
+): DailyDigestDeliveryRecord | null {
+  if (current.claimId && current.leaseUntil && current.leaseUntil.toDate() > claimedAt) {
+    return null;
+  }
+
+  return {
+    ...current,
+    claimId,
+    leaseUntil: Timestamp.fromDate(leaseUntil),
+    windowEnd: Timestamp.fromDate(windowEnd),
+  };
+}
+
+export function completeDailyDigestDelivery(
+  current: DailyDigestDeliveryRecord,
+  claimId: string,
+): DailyDigestDeliveryRecord | null {
+  if (current.claimId !== claimId || !current.windowEnd) {
+    return null;
+  }
+
+  return { cursor: current.windowEnd };
+}
+
+export function releaseDailyDigestDelivery(
+  current: DailyDigestDeliveryRecord,
+  claimId: string,
+): DailyDigestDeliveryRecord | null {
+  if (current.claimId !== claimId) {
+    return null;
+  }
+
+  return current.cursor ? { cursor: current.cursor } : {};
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
@@ -123,50 +197,102 @@ export async function runDailyDigest(
   now: Date,
   deps: DailyDigestDependencies,
 ): Promise<void> {
-  const subscriptions = await deps.subscriptions.listEmailDailyEnabled();
   const recipientCap = Math.max(0, Math.floor(deps.recipientCap));
+  if (recipientCap === 0) {
+    return;
+  }
 
-  for (const subscription of subscriptions.slice(0, recipientCap)) {
-    if (!subscription.emailDailyEnabled || subscription.characterKeys.length === 0) {
-      continue;
+  const pageSize = recipientCap;
+  let scanCursor = await deps.batchState.getCursor();
+  let attemptedRecipients = 0;
+
+  while (attemptedRecipients < recipientCap) {
+    const subscriptions = await deps.subscriptions.listEmailDailyEnabled(scanCursor, pageSize);
+    if (subscriptions.length === 0) {
+      await deps.batchState.advance(null);
+      return;
     }
 
-    const recipient = await deps.recipients.getVerifiedEmail(subscription.uid);
-    if (!recipient) {
-      continue;
-    }
-
-    const cursor = await deps.deliveryState.getCursor(subscription.uid) ?? EPOCH;
-    const eventsByListingId = new Map<string, ListingEvent>();
-
-    for (const characterKeys of chunks(subscription.characterKeys, CHARACTER_QUERY_LIMIT)) {
-      const events = await deps.events.findNewByCharacterKeys(characterKeys, cursor, now);
-      for (const event of events) {
-        eventsByListingId.set(event.listingId, event);
+    for (const subscription of subscriptions) {
+      if (!subscription.emailDailyEnabled || subscription.characterKeys.length === 0) {
+        scanCursor = subscription.uid;
+        await deps.batchState.advance(scanCursor);
+        continue;
       }
+
+      const recipient = await deps.recipients.getVerifiedEmail(subscription.uid);
+      if (!recipient) {
+        scanCursor = subscription.uid;
+        await deps.batchState.advance(scanCursor);
+        continue;
+      }
+
+      const claimId = deps.createClaimId();
+      const windowEnd = new Date(now.getTime() - INGESTION_SETTLE_MS);
+      const claim = await deps.deliveryState.claim(
+        subscription.uid,
+        claimId,
+        now,
+        new Date(now.getTime() + DELIVERY_CLAIM_LEASE_MS),
+        windowEnd,
+      );
+      if (!claim) {
+        scanCursor = subscription.uid;
+        await deps.batchState.advance(scanCursor);
+        continue;
+      }
+
+      const eventsByListingId = new Map<string, ListingEvent>();
+
+      for (const characterKeys of chunks(subscription.characterKeys, CHARACTER_QUERY_LIMIT)) {
+        const events = await deps.events.findNewByCharacterKeys(
+          characterKeys,
+          claim.after ?? EPOCH,
+          claim.through,
+        );
+        for (const event of events) {
+          eventsByListingId.set(event.listingId, event);
+        }
+      }
+
+      const events = Array.from(eventsByListingId.values()).sort((left, right) => (
+        left.createdAt.toMillis() - right.createdAt.toMillis()
+          || left.listingId.localeCompare(right.listingId)
+      ));
+      if (events.length === 0) {
+        await deps.deliveryState.release(subscription.uid, claimId);
+        scanCursor = subscription.uid;
+        await deps.batchState.advance(scanCursor);
+        continue;
+      }
+
+      const groups = buildGroups(events);
+      attemptedRecipients += 1;
+      try {
+        await deps.gmail.sendDigest({
+          to: recipient,
+          subject: '柯南 TCG 新上架摘要',
+          groups,
+          text: buildText(groups),
+          html: buildHtml(groups),
+        });
+      } catch {
+        await deps.deliveryState.release(subscription.uid, claimId);
+        scanCursor = subscription.uid;
+        await deps.batchState.advance(scanCursor);
+        if (attemptedRecipients >= recipientCap) return;
+        continue;
+      }
+
+      await deps.deliveryState.complete(subscription.uid, claimId);
+      scanCursor = subscription.uid;
+      await deps.batchState.advance(scanCursor);
+      if (attemptedRecipients >= recipientCap) return;
     }
 
-    const events = Array.from(eventsByListingId.values()).sort((left, right) => (
-      left.createdAt.toMillis() - right.createdAt.toMillis()
-        || left.listingId.localeCompare(right.listingId)
-    ));
-    if (events.length === 0) {
-      continue;
+    if (subscriptions.length < pageSize) {
+      await deps.batchState.advance(null);
+      return;
     }
-
-    const groups = buildGroups(events);
-    try {
-      await deps.gmail.sendDigest({
-        to: recipient,
-        subject: '柯南 TCG 新上架摘要',
-        groups,
-        text: buildText(groups),
-        html: buildHtml(groups),
-      });
-    } catch {
-      continue;
-    }
-
-    await deps.deliveryState.advance(subscription.uid, now);
   }
 }

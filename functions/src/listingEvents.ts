@@ -47,9 +47,9 @@ function isAlreadyExists(error: unknown): boolean {
 
 export async function captureListingEvent(
   source: ListingCreatedEvent,
-  deps: Pick<ListingEventDependencies, 'events'>,
+  deps: Pick<ListingEventDependencies, 'events' | 'now'>,
 ): Promise<void> {
-  const event = toListingEvent(source.params.listingId, source.data);
+  const event = toListingEvent(source.params.listingId, source.data, deps.now());
 
   try {
     await deps.events.create(event);

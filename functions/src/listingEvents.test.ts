@@ -31,6 +31,7 @@ const event: ListingEvent = {
   listingPrice: 120,
   remainingQuantity: 2,
   createdAt: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
+  capturedAt: Timestamp.fromDate(now),
   discordStatus: 'pending',
   attempts: 0,
 };

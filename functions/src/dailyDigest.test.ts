@@ -2,9 +2,13 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ListingEvent } from './domain.js';
 import {
+  completeDailyDigestDelivery,
   DAILY_DIGEST_SCHEDULE_OPTIONS,
+  releaseDailyDigestDelivery,
+  reserveDailyDigestDelivery,
   runDailyDigest,
   type DailyDigestDependencies,
+  type DailyDigestDeliveryRecord,
   type NotificationSubscription,
 } from './dailyDigest.js';
 
@@ -14,6 +18,7 @@ function listingEvent(
   id: string,
   characterName: string,
   createdAt = '2026-08-25T02:00:00.000Z',
+  capturedAt = createdAt,
 ): ListingEvent {
   return {
     id,
@@ -25,6 +30,7 @@ function listingEvent(
     listingPrice: 120,
     remainingQuantity: 2,
     createdAt: Timestamp.fromDate(new Date(createdAt)),
+    capturedAt: Timestamp.fromDate(new Date(capturedAt)),
     discordStatus: 'sent',
     attempts: 1,
   };
@@ -43,20 +49,63 @@ function createDependencies(
   subscriptions: NotificationSubscription[] = [subscription('buyer-1')],
   events: ListingEvent[] = [listingEvent('listing-1', '諸伏景光')],
 ): DailyDigestDependencies {
+  const sortedSubscriptions = [...subscriptions].sort((left, right) => left.uid.localeCompare(right.uid));
+  const deliveryRecords = new Map<string, DailyDigestDeliveryRecord>();
+  for (const item of subscriptions) {
+    deliveryRecords.set(item.uid, {
+      cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
+    });
+  }
+  let claimSequence = 0;
+  let batchCursor: string | null = null;
+
   return {
     subscriptions: {
-      listEmailDailyEnabled: vi.fn().mockResolvedValue(subscriptions),
+      listEmailDailyEnabled: vi.fn(async (afterUid: string | null, limit: number) => {
+        const start = afterUid
+          ? sortedSubscriptions.findIndex((item) => item.uid === afterUid) + 1
+          : 0;
+        return sortedSubscriptions.slice(start, start + limit);
+      }),
     },
     events: {
       findNewByCharacterKeys: vi.fn(async (characterKeys, after, through) => events.filter((event) => (
         characterKeys.includes(event.characterKey)
-          && event.createdAt.toDate() > after
-          && event.createdAt.toDate() <= through
+          && event.capturedAt.toDate() > after
+          && event.capturedAt.toDate() <= through
       ))),
     },
     deliveryState: {
-      getCursor: vi.fn().mockResolvedValue(new Date('2026-08-25T01:00:00.000Z')),
-      advance: vi.fn().mockResolvedValue(undefined),
+      claim: vi.fn(async (uid, claimId, claimedAt, leaseUntil, windowEnd) => {
+        const claimed = reserveDailyDigestDelivery(
+          deliveryRecords.get(uid) ?? {},
+          claimId,
+          claimedAt,
+          leaseUntil,
+          windowEnd,
+        );
+        if (!claimed) return null;
+        deliveryRecords.set(uid, claimed);
+        return {
+          claimId,
+          after: claimed.cursor?.toDate() ?? new Date(0),
+          through: claimed.windowEnd!.toDate(),
+        };
+      }),
+      complete: vi.fn(async (uid, claimId) => {
+        const completed = completeDailyDigestDelivery(deliveryRecords.get(uid) ?? {}, claimId);
+        if (completed) deliveryRecords.set(uid, completed);
+      }),
+      release: vi.fn(async (uid, claimId) => {
+        const released = releaseDailyDigestDelivery(deliveryRecords.get(uid) ?? {}, claimId);
+        if (released) deliveryRecords.set(uid, released);
+      }),
+    },
+    batchState: {
+      getCursor: vi.fn(async () => batchCursor),
+      advance: vi.fn(async (cursor) => {
+        batchCursor = cursor;
+      }),
     },
     recipients: {
       getVerifiedEmail: vi.fn().mockResolvedValue('buyer@example.com'),
@@ -65,6 +114,7 @@ function createDependencies(
       sendDigest: vi.fn().mockResolvedValue(undefined),
     },
     recipientCap: 100,
+    createClaimId: vi.fn(() => `claim-${++claimSequence}`),
   };
 }
 
@@ -98,7 +148,7 @@ describe('runDailyDigest', () => {
         ],
       }],
     }));
-    expect(deps.deliveryState.advance).toHaveBeenCalledWith('buyer-1', now);
+    expect(deps.deliveryState.complete).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
   it('deduplicates Listing IDs returned by overlapping query chunks', async () => {
@@ -119,7 +169,8 @@ describe('runDailyDigest', () => {
 
     await expect(runDailyDigest(now, deps)).resolves.toBeUndefined();
 
-    expect(deps.deliveryState.advance).not.toHaveBeenCalled();
+    expect(deps.deliveryState.complete).not.toHaveBeenCalled();
+    expect(deps.deliveryState.release).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
   it('skips an unverified or missing Google email without exposing it', async () => {
@@ -128,7 +179,8 @@ describe('runDailyDigest', () => {
     await runDailyDigest(now, deps);
 
     expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
-    expect(deps.deliveryState.advance).not.toHaveBeenCalled();
+    expect(deps.deliveryState.complete).not.toHaveBeenCalled();
+    expect(deps.deliveryState.claim).not.toHaveBeenCalled();
     expect(deps.events.findNewByCharacterKeys).not.toHaveBeenCalled();
   });
 
@@ -144,7 +196,7 @@ describe('runDailyDigest', () => {
     expect(chunks.flat()).toEqual(characterKeys);
   });
 
-  it('leaves recipients beyond the daily cap deferred with unchanged cursors', async () => {
+  it('continues from the persisted scan cursor so capped recipients are eventually processed', async () => {
     deps = createDependencies([
       subscription('buyer-1'),
       subscription('buyer-2'),
@@ -155,8 +207,45 @@ describe('runDailyDigest', () => {
 
     expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledTimes(1);
     expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('buyer-1');
-    expect(deps.deliveryState.advance).toHaveBeenCalledTimes(1);
-    expect(deps.deliveryState.advance).not.toHaveBeenCalledWith('buyer-2', expect.any(Date));
+    expect(deps.deliveryState.complete).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.claim).not.toHaveBeenCalledWith(
+      'buyer-2',
+      expect.any(String),
+      expect.any(Date),
+      expect.any(Date),
+      expect.any(Date),
+    );
+
+    await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
+
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenNthCalledWith(2, 'buyer-2');
+    expect(deps.deliveryState.complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let empty subscriptions or missing recipients consume the cap page', async () => {
+    deps = createDependencies([
+      subscription('buyer-empty', []),
+      subscription('buyer-missing'),
+      subscription('buyer-valid'),
+    ]);
+    deps.recipientCap = 1;
+    vi.mocked(deps.recipients.getVerifiedEmail).mockImplementation(async (uid) => (
+      uid === 'buyer-valid' ? 'valid@example.com' : null
+    ));
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('buyer-missing');
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('buyer-valid');
+    expect(deps.deliveryState.claim).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.claim).toHaveBeenCalledWith(
+      'buyer-valid',
+      expect.any(String),
+      expect.any(Date),
+      expect.any(Date),
+      expect.any(Date),
+    );
   });
 
   it('does not send or advance when no new listing event exists', async () => {
@@ -165,22 +254,59 @@ describe('runDailyDigest', () => {
     await runDailyDigest(now, deps);
 
     expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
-    expect(deps.deliveryState.advance).not.toHaveBeenCalled();
+    expect(deps.deliveryState.complete).not.toHaveBeenCalled();
+    expect(deps.deliveryState.release).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
   it('does not send a duplicate digest after a completed run advances the cursor', async () => {
-    let cursor = new Date(0);
     deps = createDependencies();
-    vi.mocked(deps.deliveryState.getCursor).mockImplementation(async () => cursor);
-    vi.mocked(deps.deliveryState.advance).mockImplementation(async (_uid, nextCursor) => {
-      cursor = nextCursor;
-    });
 
     await runDailyDigest(now, deps);
     await runDailyDigest(now, deps);
 
     expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
-    expect(deps.deliveryState.advance).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers an event captured after a run even when its Listing creation time is older', async () => {
+    const events = [listingEvent(
+      'listing-first',
+      '諸伏景光',
+      '2026-08-25T02:00:00.000Z',
+      '2026-08-25T02:01:00.000Z',
+    )];
+    deps = createDependencies([subscription('buyer-1')], events);
+
+    await runDailyDigest(now, deps);
+    events.push(listingEvent(
+      'listing-captured-late',
+      '諸伏景光',
+      '2026-08-25T03:00:00.000Z',
+      '2026-08-26T00:59:00.000Z',
+    ));
+    await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(deps.gmail.sendDigest).mock.calls[1]?.[0].groups).toEqual([{
+      characterName: '諸伏景光',
+      listings: [expect.objectContaining({ id: 'listing-captured-late' })],
+    }]);
+  });
+
+  it('allows only one overlapping invocation to send a user digest', async () => {
+    let finishSend: (() => void) | undefined;
+    vi.mocked(deps.gmail.sendDigest).mockImplementation(() => new Promise<void>((resolve) => {
+      finishSend = resolve;
+    }));
+
+    const firstRun = runDailyDigest(now, deps);
+    await vi.waitFor(() => expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1));
+    const secondRun = runDailyDigest(now, deps);
+    await secondRun;
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+    finishSend?.();
+    await firstRun;
   });
 
   it('builds text and HTML summaries without image URLs', async () => {
@@ -197,6 +323,49 @@ describe('runDailyDigest', () => {
     expect(message?.html).toContain('/#/listing/listing-1');
     expect(message?.html).toContain('/#/notifications');
     expect(`${message?.text}${message?.html}`).not.toMatch(/<img|imageUrl|firebasestorage/i);
+  });
+});
+
+describe('daily digest delivery claims', () => {
+  it('rejects an overlapping claim while the current lease is active', () => {
+    const first = reserveDailyDigestDelivery(
+      {},
+      'claim-1',
+      now,
+      new Date('2026-08-26T01:15:00.000Z'),
+      now,
+    );
+
+    expect(reserveDailyDigestDelivery(
+      first!,
+      'claim-2',
+      new Date('2026-08-26T01:01:00.000Z'),
+      new Date('2026-08-26T01:16:00.000Z'),
+      new Date('2026-08-26T01:01:00.000Z'),
+    )).toBeNull();
+  });
+
+  it('prevents an expired stale claimant from overwriting a newer cursor', () => {
+    const first = reserveDailyDigestDelivery(
+      { cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')) },
+      'claim-1',
+      now,
+      new Date('2026-08-26T01:15:00.000Z'),
+      now,
+    );
+    const secondWindow = new Date('2026-08-26T02:00:00.000Z');
+    const second = reserveDailyDigestDelivery(
+      first!,
+      'claim-2',
+      new Date('2026-08-26T01:15:00.000Z'),
+      new Date('2026-08-26T01:30:00.000Z'),
+      secondWindow,
+    );
+
+    expect(completeDailyDigestDelivery(second!, 'claim-1')).toBeNull();
+    expect(completeDailyDigestDelivery(second!, 'claim-2')).toEqual({
+      cursor: Timestamp.fromDate(secondWindow),
+    });
   });
 });
 

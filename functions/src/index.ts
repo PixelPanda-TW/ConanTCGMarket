@@ -1,13 +1,23 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
-import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import {
+  FieldPath,
+  FieldValue,
+  Timestamp,
+  getFirestore,
+  type DocumentData,
+} from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   DEFAULT_DAILY_RECIPIENT_CAP,
+  completeDailyDigestDelivery,
+  releaseDailyDigestDelivery,
+  reserveDailyDigestDelivery,
   runDailyDigest as runDailyDigestData,
   type DailyDigestDependencies,
+  type DailyDigestDeliveryRecord,
   type NotificationSubscription,
 } from './dailyDigest.js';
 import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
@@ -34,6 +44,33 @@ if (getApps().length === 0) {
 }
 
 const firestore = getFirestore();
+
+function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDeliveryRecord {
+  return {
+    ...(data?.emailDailyCursor instanceof Timestamp
+      ? { cursor: data.emailDailyCursor }
+      : {}),
+    ...(typeof data?.emailDailyClaimId === 'string'
+      ? { claimId: data.emailDailyClaimId }
+      : {}),
+    ...(data?.emailDailyLeaseUntil instanceof Timestamp
+      ? { leaseUntil: data.emailDailyLeaseUntil }
+      : {}),
+    ...(data?.emailDailyWindowEnd instanceof Timestamp
+      ? { windowEnd: data.emailDailyWindowEnd }
+      : {}),
+  };
+}
+
+function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentData {
+  return {
+    ...(record.cursor ? { emailDailyCursor: record.cursor } : {}),
+    ...(record.claimId ? { emailDailyClaimId: record.claimId } : {}),
+    ...(record.leaseUntil ? { emailDailyLeaseUntil: record.leaseUntil } : {}),
+    ...(record.windowEnd ? { emailDailyWindowEnd: record.windowEnd } : {}),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
 
 const eventStore: ListingEventStore = {
   async create(event) {
@@ -131,11 +168,15 @@ const dependencies: ListingEventDependencies = {
 
 const dailyDigestDependencies: DailyDigestDependencies = {
   subscriptions: {
-    async listEmailDailyEnabled() {
-      const snapshot = await firestore.collection('notificationSubscriptions')
+    async listEmailDailyEnabled(afterUid, limit) {
+      let query = firestore.collection('notificationSubscriptions')
         .where('emailDailyEnabled', '==', true)
-        .limit(DEFAULT_DAILY_RECIPIENT_CAP)
-        .get();
+        .orderBy(FieldPath.documentId())
+        .limit(limit);
+      if (afterUid) {
+        query = query.startAfter(afterUid);
+      }
+      const snapshot = await query.get();
 
       return snapshot.docs.map((document): NotificationSubscription => {
         const data = document.data();
@@ -156,23 +197,79 @@ const dailyDigestDependencies: DailyDigestDependencies = {
 
       const snapshot = await firestore.collection('listingEvents')
         .where('characterKey', 'in', characterKeys)
-        .where('createdAt', '>', Timestamp.fromDate(after))
-        .where('createdAt', '<=', Timestamp.fromDate(through))
-        .orderBy('createdAt', 'asc')
+        .where('capturedAt', '>', Timestamp.fromDate(after))
+        .where('capturedAt', '<=', Timestamp.fromDate(through))
+        .orderBy('capturedAt', 'asc')
         .get();
 
       return snapshot.docs.map((document) => document.data() as ListingEvent);
     },
   },
   deliveryState: {
-    async getCursor(uid) {
-      const snapshot = await firestore.collection('notificationDeliveryState').doc(uid).get();
-      const cursor = snapshot.data()?.emailDailyCursor;
-      return cursor instanceof Timestamp ? cursor.toDate() : null;
+    async claim(uid, claimId, claimedAt, leaseUntil, windowEnd) {
+      const reference = firestore.collection('notificationDeliveryState').doc(uid);
+
+      return firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const current = readDailyDeliveryRecord(snapshot.data());
+        const claimed = reserveDailyDigestDelivery(
+          current,
+          claimId,
+          claimedAt,
+          leaseUntil,
+          windowEnd,
+        );
+        if (!claimed) {
+          return null;
+        }
+
+        transaction.set(reference, writeDailyDeliveryRecord(claimed));
+
+        return {
+          claimId,
+          after: current.cursor?.toDate() ?? new Date(0),
+          through: claimed.windowEnd!.toDate(),
+        };
+      });
     },
-    async advance(uid, cursor) {
-      await firestore.collection('notificationDeliveryState').doc(uid).set({
-        emailDailyCursor: Timestamp.fromDate(cursor),
+    async complete(uid, claimId) {
+      const reference = firestore.collection('notificationDeliveryState').doc(uid);
+
+      await firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const current = readDailyDeliveryRecord(snapshot.data());
+        const completed = completeDailyDigestDelivery(current, claimId);
+        if (!completed) {
+          return;
+        }
+
+        transaction.set(reference, writeDailyDeliveryRecord(completed));
+      });
+    },
+    async release(uid, claimId) {
+      const reference = firestore.collection('notificationDeliveryState').doc(uid);
+
+      await firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const current = readDailyDeliveryRecord(snapshot.data());
+        const released = releaseDailyDigestDelivery(current, claimId);
+        if (!released) {
+          return;
+        }
+
+        transaction.set(reference, writeDailyDeliveryRecord(released));
+      });
+    },
+  },
+  batchState: {
+    async getCursor() {
+      const snapshot = await firestore.collection('notificationDigestRuntime').doc('scan').get();
+      const cursor = snapshot.data()?.subscriptionCursor;
+      return typeof cursor === 'string' ? cursor : null;
+    },
+    async advance(cursor) {
+      await firestore.collection('notificationDigestRuntime').doc('scan').set({
+        subscriptionCursor: cursor ?? FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
     },
@@ -180,6 +277,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
   recipients: createRecipientDirectory(),
   gmail: createGmailClient(),
   recipientCap: DEFAULT_DAILY_RECIPIENT_CAP,
+  createClaimId: randomUUID,
 };
 
 export const captureListingEvent = onDocumentCreated(

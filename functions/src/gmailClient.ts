@@ -118,7 +118,17 @@ export function createRecipientDirectory(
 ): RecipientDirectory {
   return {
     async getVerifiedEmail(uid: string): Promise<string | null> {
-      const user = await dependencies.getUser(uid);
+      let user: AuthUser;
+      try {
+        user = await dependencies.getUser(uid);
+      } catch (error) {
+        if (error && typeof error === 'object'
+          && 'code' in error
+          && error.code === 'auth/user-not-found') {
+          return null;
+        }
+        throw error;
+      }
       return user.emailVerified && user.email ? user.email : null;
     },
   };

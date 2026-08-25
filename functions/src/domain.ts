@@ -23,6 +23,7 @@ export interface ListingEvent {
   listingPrice: number;
   remainingQuantity: number;
   createdAt: Timestamp;
+  capturedAt: Timestamp;
   discordStatus: DiscordStatus;
   discordSentAt?: Timestamp;
   discordClaimId?: string;
@@ -60,7 +61,11 @@ function normalizeMetadata(value: string | undefined): string {
   return value?.normalize('NFKC').trim().replace(/\s+/g, ' ') ?? '';
 }
 
-export function toListingEvent(listingId: string, listing: ListingSnapshot): ListingEvent {
+export function toListingEvent(
+  listingId: string,
+  listing: ListingSnapshot,
+  capturedAt: Date | Timestamp = listing.createdAt,
+): ListingEvent {
   if (listing.status !== 'active') {
     throw new Error('Listing event requires an active listing.');
   }
@@ -84,6 +89,9 @@ export function toListingEvent(listingId: string, listing: ListingSnapshot): Lis
     createdAt: listing.createdAt instanceof Timestamp
       ? listing.createdAt
       : Timestamp.fromDate(listing.createdAt),
+    capturedAt: capturedAt instanceof Timestamp
+      ? capturedAt
+      : Timestamp.fromDate(capturedAt),
     discordStatus: 'pending',
     attempts: 0,
   };
