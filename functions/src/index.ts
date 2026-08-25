@@ -12,6 +12,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   DEFAULT_DAILY_RECIPIENT_CAP,
+  beginDailyDigestSend,
   completeDailyDigestDelivery,
   recoverDailyDigestDelivery,
   releaseDailyDigestDelivery,
@@ -50,12 +51,21 @@ const firestore = getFirestore();
 function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDeliveryRecord {
   const cursorSequence = data?.emailDailyCursorSequence;
   const windowEndSequence = data?.emailDailyWindowEndSequence;
+  const claimId = typeof data?.emailDailyClaimId === 'string'
+    ? data.emailDailyClaimId as string
+    : undefined;
+  const storedClaimState = data?.emailDailyClaimState;
   return {
     ...(Number.isSafeInteger(cursorSequence) && cursorSequence >= 0
       ? { cursorSequence: cursorSequence as number }
       : {}),
-    ...(typeof data?.emailDailyClaimId === 'string'
-      ? { claimId: data.emailDailyClaimId }
+    ...(claimId
+      ? {
+        claimId,
+        claimState: storedClaimState === 'reserved' || storedClaimState === 'sending'
+          ? storedClaimState
+          : 'sending',
+      }
       : {}),
     ...(data?.emailDailyReservedAt instanceof Timestamp
       ? { reservedAt: data.emailDailyReservedAt }
@@ -72,6 +82,7 @@ function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentDa
       ? { emailDailyCursorSequence: record.cursorSequence }
       : {}),
     ...(record.claimId ? { emailDailyClaimId: record.claimId } : {}),
+    ...(record.claimState ? { emailDailyClaimState: record.claimState } : {}),
     ...(record.reservedAt ? { emailDailyReservedAt: record.reservedAt } : {}),
     ...(record.windowEndSequence !== undefined
       ? { emailDailyWindowEndSequence: record.windowEndSequence }
@@ -276,6 +287,21 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         }
 
         transaction.set(reference, writeDailyDeliveryRecord(completed));
+      });
+    },
+    async beginSend(uid, claimId) {
+      const reference = firestore.collection('notificationDeliveryState').doc(uid);
+
+      return firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const current = readDailyDeliveryRecord(snapshot.data());
+        const sending = beginDailyDigestSend(current, claimId);
+        if (!sending) {
+          return false;
+        }
+
+        transaction.set(reference, writeDailyDeliveryRecord(sending));
+        return true;
       });
     },
     async release(uid, claimId) {

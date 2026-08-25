@@ -44,6 +44,7 @@ export interface DailyDigestDeliveryState {
     reservedAt: Date,
     windowEndSequence: number,
   ): Promise<DailyDigestClaim | null>;
+  beginSend(uid: string, claimId: string): Promise<boolean>;
   complete(uid: string, claimId: string): Promise<void>;
   release(uid: string, claimId: string): Promise<void>;
   recover(
@@ -62,11 +63,13 @@ export interface DailyDigestClaim {
 export interface DailyDigestDeliveryRecord {
   cursorSequence?: number;
   claimId?: string;
+  claimState?: DailyDigestClaimState;
   reservedAt?: Timestamp;
   windowEndSequence?: number;
 }
 
 export type DailyDigestRecoveryMode = 'definitely-unsent' | 'sent-or-ambiguous';
+export type DailyDigestClaimState = 'reserved' | 'sending';
 
 export interface DailyDigestBatchState {
   getCursor(): Promise<string | null>;
@@ -102,16 +105,32 @@ export function reserveDailyDigestDelivery(
   return {
     ...current,
     claimId,
+    claimState: 'reserved',
     reservedAt: Timestamp.fromDate(reservedAt),
     windowEndSequence,
   };
+}
+
+export function beginDailyDigestSend(
+  current: DailyDigestDeliveryRecord,
+  claimId: string,
+): DailyDigestDeliveryRecord | null {
+  if (current.claimId !== claimId || current.claimState !== 'reserved') {
+    return null;
+  }
+
+  return { ...current, claimState: 'sending' };
 }
 
 export function completeDailyDigestDelivery(
   current: DailyDigestDeliveryRecord,
   claimId: string,
 ): DailyDigestDeliveryRecord | null {
-  if (current.claimId !== claimId || current.windowEndSequence === undefined) {
+  if (
+    current.claimId !== claimId
+      || current.claimState !== 'sending'
+      || current.windowEndSequence === undefined
+  ) {
     return null;
   }
 
@@ -122,7 +141,7 @@ export function releaseDailyDigestDelivery(
   current: DailyDigestDeliveryRecord,
   claimId: string,
 ): DailyDigestDeliveryRecord | null {
-  if (current.claimId !== claimId) {
+  if (current.claimId !== claimId || current.claimState !== 'reserved') {
     return null;
   }
 
@@ -148,6 +167,9 @@ export function recoverDailyDigestDelivery(
   }
 
   if (mode === 'definitely-unsent') {
+    if (current.claimState !== 'reserved') {
+      return null;
+    }
     return current.cursorSequence === undefined
       ? {}
       : { cursorSequence: current.cursorSequence };
@@ -300,15 +322,23 @@ export async function runDailyDigest(
       }
 
       const groups = buildGroups(events);
+      const message = {
+        to: recipient,
+        subject: '柯南 TCG 新上架摘要',
+        groups,
+        text: buildText(groups),
+        html: buildHtml(groups),
+      };
+      const maySend = await deps.deliveryState.beginSend(subscription.uid, claimId);
+      if (!maySend) {
+        scanCursor = subscription.uid;
+        await deps.batchState.advance(scanCursor);
+        continue;
+      }
+
       attemptedRecipients += 1;
       try {
-        await deps.gmail.sendDigest({
-          to: recipient,
-          subject: '柯南 TCG 新上架摘要',
-          groups,
-          text: buildText(groups),
-          html: buildHtml(groups),
-        });
+        await deps.gmail.sendDigest(message);
       } catch {
         scanCursor = subscription.uid;
         await deps.batchState.advance(scanCursor);

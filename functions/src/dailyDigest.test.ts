@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ListingEvent } from './domain.js';
 import {
+  beginDailyDigestSend,
   completeDailyDigestDelivery,
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   recoverDailyDigestDelivery,
@@ -99,6 +100,12 @@ function createDependencies(
         const completed = completeDailyDigestDelivery(deliveryRecords.get(uid) ?? {}, claimId);
         if (completed) deliveryRecords.set(uid, completed);
       }),
+      beginSend: vi.fn(async (uid, claimId) => {
+        const sending = beginDailyDigestSend(deliveryRecords.get(uid) ?? {}, claimId);
+        if (!sending) return false;
+        deliveryRecords.set(uid, sending);
+        return true;
+      }),
       release: vi.fn(async (uid, claimId) => {
         const released = releaseDailyDigestDelivery(deliveryRecords.get(uid) ?? {}, claimId);
         if (released) deliveryRecords.set(uid, released);
@@ -171,6 +178,7 @@ describe('runDailyDigest', () => {
       }],
     }));
     expect(deps.deliveryState.complete).toHaveBeenCalledWith('buyer-1', 'claim-1');
+    expect(deps.deliveryState.beginSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
   it('deduplicates Listing IDs returned by overlapping query chunks', async () => {
@@ -379,6 +387,34 @@ describe('runDailyDigest', () => {
     await firstRun;
   });
 
+  it('does not send from a stale worker recovered while paused before send', async () => {
+    let resumeFirstBegin: (() => void) | undefined;
+    const beginSend = vi.mocked(deps.deliveryState.beginSend);
+    const beginSendImplementation = beginSend.getMockImplementation()!;
+    beginSend.mockImplementationOnce(async (uid, claimId) => {
+      await new Promise<void>((resolve) => {
+        resumeFirstBegin = resolve;
+      });
+      return beginSendImplementation(uid, claimId);
+    });
+
+    const firstRun = runDailyDigest(now, deps);
+    await vi.waitFor(() => expect(deps.deliveryState.beginSend).toHaveBeenCalledTimes(1));
+    await expect(deps.deliveryState.recover(
+      'buyer-1',
+      'claim-1',
+      'definitely-unsent',
+    )).resolves.toBe(true);
+
+    await runDailyDigest(now, deps);
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+    expect(beginSend).toHaveBeenNthCalledWith(2, 'buyer-1', 'claim-2');
+
+    resumeFirstBegin?.();
+    await firstRun;
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+  });
+
   it('builds text and HTML summaries without image URLs', async () => {
     await runDailyDigest(now, deps);
 
@@ -432,6 +468,7 @@ describe('daily digest delivery claims', () => {
     const recovered: DailyDigestDeliveryRecord = {
       cursorSequence: 7,
       claimId: 'claim-2',
+      claimState: 'sending',
       reservedAt: Timestamp.fromDate(new Date('2026-08-26T02:00:00.000Z')),
       windowEndSequence: 12,
     };
@@ -446,6 +483,7 @@ describe('daily digest delivery claims', () => {
     const reserved: DailyDigestDeliveryRecord = {
       cursorSequence: 7,
       claimId: 'claim-1',
+      claimState: 'reserved',
       reservedAt: Timestamp.fromDate(now),
       windowEndSequence: 12,
     };
@@ -464,6 +502,7 @@ describe('daily digest delivery claims', () => {
     const reserved: DailyDigestDeliveryRecord = {
       cursorSequence: 7,
       claimId: 'claim-1',
+      claimState: 'sending',
       reservedAt: Timestamp.fromDate(now),
       windowEndSequence: 12,
     };
@@ -483,6 +522,7 @@ describe('daily digest delivery claims', () => {
     const reserved: DailyDigestDeliveryRecord = {
       cursorSequence: 7,
       claimId: 'claim-2',
+      claimState: 'reserved',
       reservedAt: Timestamp.fromDate(now),
       windowEndSequence: 12,
     };
@@ -498,6 +538,7 @@ describe('daily digest delivery claims', () => {
     const reserved: DailyDigestDeliveryRecord = {
       cursorSequence: 7,
       claimId: 'claim-1',
+      claimState: 'reserved',
       reservedAt: Timestamp.fromDate(now),
       windowEndSequence: 12,
     };
@@ -507,6 +548,44 @@ describe('daily digest delivery claims', () => {
       'claim-1',
       'unknown' as never,
     )).toBeNull();
+  });
+
+  it('moves only the matching reserved claim into sending state', () => {
+    const reserved = reserveDailyDigestDelivery(
+      { cursorSequence: 7 },
+      'claim-1',
+      now,
+      12,
+    );
+
+    expect(beginDailyDigestSend(reserved!, 'claim-1')).toEqual({
+      ...reserved,
+      claimState: 'sending',
+    });
+    expect(beginDailyDigestSend(reserved!, 'claim-2')).toBeNull();
+    expect(beginDailyDigestSend({ ...reserved!, claimState: 'sending' }, 'claim-1'))
+      .toBeNull();
+  });
+
+  it('requires sent-or-ambiguous recovery after a claim starts sending', () => {
+    const sending: DailyDigestDeliveryRecord = {
+      cursorSequence: 7,
+      claimId: 'claim-1',
+      claimState: 'sending',
+      reservedAt: Timestamp.fromDate(now),
+      windowEndSequence: 12,
+    };
+
+    expect(recoverDailyDigestDelivery(
+      sending,
+      'claim-1',
+      'definitely-unsent',
+    )).toBeNull();
+    expect(recoverDailyDigestDelivery(
+      sending,
+      'claim-1',
+      'sent-or-ambiguous',
+    )).toEqual({ cursorSequence: 12 });
   });
 });
 
