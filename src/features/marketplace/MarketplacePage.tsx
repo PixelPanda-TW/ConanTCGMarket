@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CardMetadataSelector, type CardMetadataSelection } from '../../components/CardMetadataSelector';
 import { PageShell } from '../../components/PageShell';
+import { WelcomeNoticeDialog } from '../../components/WelcomeNoticeDialog';
 import { developmentCards } from '../../data/cards/developmentCards';
 import { getPublicSellerProfile, listActiveListings, listCards } from '../../data/firestore/repositories';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
@@ -82,6 +83,7 @@ export function MarketplacePage({
 
   return (
     <PageShell width="marketplace">
+      <WelcomeNoticeDialog />
       <section className="marketplace">
         <AuthStatus />
         <div className="masthead">

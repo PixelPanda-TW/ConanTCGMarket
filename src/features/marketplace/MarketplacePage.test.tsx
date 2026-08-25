@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -53,9 +53,33 @@ const seller: SellerProfile = {
   updatedAt: new Date(),
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  window.localStorage.clear();
+  cleanup();
+});
 
 describe('MarketplacePage', () => {
+  it('shows the welcome notice once per browser after acknowledgement', async () => {
+    const props = {
+      loadListings: async () => [activeListing],
+      loadCards: async () => cards,
+      loadSeller: async () => seller,
+    };
+    const firstVisit = render(<MarketplacePage {...props} />);
+
+    const dialog = screen.getByRole('dialog', { name: '網站使用與安全提醒' });
+    const rugiaLinks = within(dialog).getAllByRole('link', { name: 'rugiacreation.com' });
+    expect(rugiaLinks).toHaveLength(2);
+    expect(rugiaLinks.every((link) => link.getAttribute('href') === 'https://rugiacreation.com/conan/search')).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: '我知道了' }));
+    expect(screen.queryByRole('dialog', { name: '網站使用與安全提醒' })).toBeNull();
+
+    firstVisit.unmount();
+    render(<MarketplacePage {...props} />);
+    expect(screen.queryByRole('dialog', { name: '網站使用與安全提醒' })).toBeNull();
+  });
+
   it('does not flatten the mobile metadata selector with display contents', () => {
     const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
