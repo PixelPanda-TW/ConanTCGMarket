@@ -3,4 +3,7 @@ export const collections = {
   listings: 'listings',
   sellerProfiles: 'sellerProfiles',
   sales: 'sales',
+  notificationSubscriptions: 'notificationSubscriptions',
+  notificationDeliveryState: 'notificationDeliveryState',
+  listingEvents: 'listingEvents',
 } as const;

@@ -5,6 +5,7 @@ import {
   listingConverter,
   saleConverter,
   sellerProfileConverter,
+  notificationSubscriptionConverter,
 } from './converters';
 
 describe('Firestore converters', () => {
@@ -172,6 +173,41 @@ describe('Firestore converters', () => {
       listingUnitPrice: 500,
       soldUnitPrice: 450,
       soldAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+    });
+  });
+
+  it('writes only character subscription fields with an updatedAt Timestamp', () => {
+    expect(
+      notificationSubscriptionConverter.toFirestore({
+        uid: 'buyer-1',
+        characterKeys: ['suzuki-sonoko', 'mouri-ran'],
+        emailDailyEnabled: true,
+        updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+        email: 'buyer@example.com',
+        unknown: 'unknown',
+      } as never),
+    ).toEqual({
+      characterKeys: ['suzuki-sonoko', 'mouri-ran'],
+      emailDailyEnabled: true,
+      updatedAt: Timestamp.fromDate(new Date('2026-08-25T00:00:00.000Z')),
+    });
+  });
+
+  it('converts a character subscription Timestamp to a Date value', () => {
+    const snapshot = {
+      id: 'buyer-1',
+      data: () => ({
+        characterKeys: ['suzuki-sonoko'],
+        emailDailyEnabled: false,
+        updatedAt: Timestamp.fromDate(new Date('2026-08-25T00:00:00.000Z')),
+      }),
+    };
+
+    expect(notificationSubscriptionConverter.fromFirestore(snapshot as never)).toEqual({
+      uid: 'buyer-1',
+      characterKeys: ['suzuki-sonoko'],
+      emailDailyEnabled: false,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
     });
   });
 

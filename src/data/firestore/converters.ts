@@ -7,10 +7,12 @@ import {
 import {
   validateCard,
   validateListing,
+  validateNotificationSubscription,
   validateSale,
   validateSellerProfile,
   type Card,
   type Listing,
+  type NotificationSubscription,
   type Sale,
   type SellerProfile,
 } from '../../domain/models';
@@ -171,5 +173,30 @@ export const saleConverter: FirestoreDataConverter<Sale> = {
 
     validateSale(sale);
     return sale;
+  },
+};
+
+export const notificationSubscriptionConverter: FirestoreDataConverter<NotificationSubscription> = {
+  toFirestore(subscription) {
+    const subscriptionData = subscription as NotificationSubscription;
+    validateNotificationSubscription(subscriptionData);
+
+    return {
+      characterKeys: subscriptionData.characterKeys,
+      emailDailyEnabled: subscriptionData.emailDailyEnabled,
+      updatedAt: dateToTimestamp(subscriptionData.updatedAt),
+    };
+  },
+  fromFirestore(snapshot, options) {
+    const data = readData(snapshot, options);
+    const subscription: NotificationSubscription = {
+      uid: snapshot.id,
+      characterKeys: data.characterKeys as string[],
+      emailDailyEnabled: data.emailDailyEnabled as boolean,
+      updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
+    };
+
+    validateNotificationSubscription(subscription);
+    return subscription;
   },
 };

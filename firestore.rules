@@ -9,5 +9,10 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == request.resource.data.sellerId;
       allow update, delete: if false;
     }
+    match /notificationSubscriptions/{uid} {
+      allow read, create, update, delete: if request.auth != null && request.auth.uid == uid;
+    }
+    match /notificationDeliveryState/{id} { allow read, write: if false; }
+    match /listingEvents/{id} { allow read, write: if false; }
   }
 }

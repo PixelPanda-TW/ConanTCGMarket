@@ -32,6 +32,19 @@ describe('Firebase rules', () => {
     await assertSucceeds(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'A', contactType: 'line', contactValue: 'a' }));
     await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), { displayName: 'B', contactType: 'line', contactValue: 'b' }));
   });
+  it('rejects another buyer reading or writing a subscription', async () => {
+    const buyerA = environment.authenticatedContext('buyer-a').firestore();
+    const buyerB = environment.authenticatedContext('buyer-b').firestore();
+    const subscriptionData = { characterKeys: ['suzuki-sonoko'], emailDailyEnabled: true, updatedAt: new Date() };
+    await assertSucceeds(setDoc(doc(buyerA, 'notificationSubscriptions', 'buyer-a'), subscriptionData));
+    await assertFails(getDoc(doc(buyerB, 'notificationSubscriptions', 'buyer-a')));
+    await assertFails(setDoc(doc(buyerB, 'notificationSubscriptions', 'buyer-a'), subscriptionData));
+  });
+  it('rejects all browser reads and writes of notification events and delivery state', async () => {
+    const buyer = environment.authenticatedContext('buyer-a').firestore();
+    await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
+    await assertFails(setDoc(doc(buyer, 'notificationDeliveryState', 'buyer-a'), {}));
+  });
   it('allows a seller image only within that seller path', async () => {
     const storage = environment.authenticatedContext('seller-a').storage();
     await assertSucceeds(uploadBytes(ref(storage, 'listings/seller-a/listing-1/card.jpg'), new Blob(['image'], { type: 'image/jpeg' })));
