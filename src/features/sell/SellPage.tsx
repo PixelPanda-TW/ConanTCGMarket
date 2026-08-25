@@ -4,10 +4,8 @@ import { createListing, createListingId, getSellerProfile, listCards } from '../
 import { uploadListingImages } from '../../data/storage/storageService';
 import { useAuth } from '../auth/AuthProvider';
 import { BackToMarketplaceLink } from '../../components/BackToMarketplaceLink';
+import { CardMetadataSelector } from '../../components/CardMetadataSelector';
 import {
-  getCardIdsForMetadata,
-  getCharacterNameSuggestions,
-  getRaritiesForCharacter,
   hasKnownCardMetadata,
   validateSellForm,
   type SellFormErrors,
@@ -20,7 +18,6 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
   const [profile, setProfile] = useState<SellerProfile | null | undefined>();
   const [cards, setCards] = useState<readonly Card[] | null>(null);
   const [cardLoadError, setCardLoadError] = useState<string | null>(null);
-  const [showCharacterSuggestions, setShowCharacterSuggestions] = useState(false);
   const [form, setForm] = useState(initial); const [errors, setErrors] = useState<SellFormErrors>({});
   const [message, setMessage] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   useEffect(() => { if (user) void loadSellerProfile(user.uid).then(setProfile).catch(() => setProfile(null)); }, [loadSellerProfile, user]);
@@ -39,20 +36,6 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
     return () => { isCurrent = false; };
   }, [user]);
 
-  const characterSuggestions = cards ? getCharacterNameSuggestions(cards, form.characterName) : [];
-  const rarityOptions = cards ? getRaritiesForCharacter(cards, form.characterName) : [];
-  const cardIdOptions = cards ? getCardIdsForMetadata(cards, form.characterName, form.rarity) : [];
-
-  function updateCharacterName(characterName: string) {
-    setForm((current) => ({ ...current, characterName, rarity: '', cardId: '' }));
-    setErrors((current) => ({ ...current, characterName: undefined, rarity: undefined, cardId: undefined }));
-    setShowCharacterSuggestions(true);
-  }
-
-  function updateRarity(rarity: string) {
-    setForm((current) => ({ ...current, rarity, cardId: '' }));
-    setErrors((current) => ({ ...current, rarity: undefined, cardId: undefined }));
-  }
   async function submit(event: FormEvent) {
     event.preventDefault(); setMessage(null); const result = validateSellForm(form); setForm(result.values); setErrors(result.errors);
     if (Object.keys(result.errors).length || !user) return;
@@ -75,11 +58,18 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
   if (!user) return <main className="app-shell"><h1>刊登商品</h1><p>請先使用 Google 登入，才能刊登商品。</p></main>;
   if (!profile) return <main className="app-shell"><h1>刊登商品</h1><p>請先完成賣家個人檔案，才能刊登商品。</p><a href="#/profile">前往設定個人檔案</a></main>;
   return <main className="app-shell"><BackToMarketplaceLink /><section className="profile-page sell-page"><h1>刊登商品</h1><p>同版本、相近卡況才合併刊登。</p><form className="profile-form listing-form" onSubmit={submit} noValidate>
-    <div className="listing-card-fields">
-      <div className="sell-character-autocomplete"><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 角色／人名（必填）</span><input aria-label="角色／人名" aria-invalid={Boolean(errors.characterName)} value={form.characterName} onChange={(e) => updateCharacterName(e.target.value)} onFocus={() => setShowCharacterSuggestions(true)} autoComplete="off" placeholder="輸入角色／人名" aria-controls="sell-character-options" aria-expanded={showCharacterSuggestions && characterSuggestions.length > 0} required /></label>{showCharacterSuggestions && characterSuggestions.length > 0 && <ul className="character-suggestions" id="sell-character-options" aria-label="角色／人名候選">{characterSuggestions.map((name) => <li key={name}><button type="button" onClick={() => { setForm((current) => ({ ...current, characterName: name, rarity: '', cardId: '' })); setErrors((current) => ({ ...current, characterName: undefined, rarity: undefined, cardId: undefined })); setShowCharacterSuggestions(false); }}>{name}</button></li>)}</ul>}{errors.characterName && <p className="field-error" role="alert">{errors.characterName}</p>}</div>
-      <div><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 稀有度（必填）</span><select aria-label="稀有度" aria-invalid={Boolean(errors.rarity)} value={form.rarity} onChange={(e) => updateRarity(e.target.value)} disabled={!form.characterName || Boolean(cardLoadError)} required><option value="">請選擇稀有度</option>{rarityOptions.map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}</select></label>{errors.rarity && <p className="field-error" role="alert">{errors.rarity}</p>}</div>
-      <div><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 卡片 ID（必填）</span><select aria-label="卡片 ID" aria-invalid={Boolean(errors.cardId)} value={form.cardId} onChange={(e) => setForm({ ...form, cardId: e.target.value })} disabled={!form.rarity || Boolean(cardLoadError)} required><option value="">請選擇卡片 ID</option>{cardIdOptions.map((cardId) => <option key={cardId} value={cardId}>{cardId}</option>)}</select></label>{errors.cardId && <p className="field-error" role="alert">{errors.cardId}</p>}</div>
-    </div>
+    <CardMetadataSelector
+      cards={cards ?? []}
+      value={form}
+      onChange={(metadata) => {
+        setForm((current) => ({ ...current, ...metadata }));
+        setErrors((current) => ({ ...current, characterName: undefined, rarity: undefined, cardId: undefined }));
+      }}
+      requireCardId
+      required
+      className="listing-card-fields"
+    />
+    {(errors.characterName || errors.rarity || errors.cardId) && <p className="field-error" role="alert">{errors.characterName ?? errors.rarity ?? errors.cardId}</p>}
     {cardLoadError && <p className="field-error" role="alert">{cardLoadError}</p>}
     <label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 商品圖片（必填）</span><input aria-label="商品圖片" aria-invalid={Boolean(errors.files)} type="file" accept="image/*" multiple onChange={(e) => setForm({ ...form, files: Array.from(e.target.files ?? []) })} required /></label>{errors.files && <p className="field-error" role="alert">{errors.files}</p>}
     <div className="listing-price-fields"><div><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 價格（必填）</span><input aria-label="價格" inputMode="numeric" value={form.listingPrice} onChange={(e) => setForm({ ...form, listingPrice: e.target.value })} required /></label>{errors.listingPrice && <p className="field-error" role="alert">{errors.listingPrice}</p>}</div><div><label><span className="field-label"><span className="required-mark" aria-hidden="true">*</span> 數量（必填）</span><input aria-label="數量" inputMode="numeric" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required /></label>{errors.quantity && <p className="field-error" role="alert">{errors.quantity}</p>}</div></div>

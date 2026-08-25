@@ -43,6 +43,7 @@ describe('SellPage', () => {
     render(<SellPage loadSellerProfile={async () => ({ uid: 'seller-1', displayName: 'Seller', contactType: 'line', contactValue: 'seller-line', createdAt: new Date(), updatedAt: new Date() })} />);
 
     await waitFor(() => expect(listCardsMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText('角色／人名').closest('.card-metadata-selector')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
     expect(screen.getByRole('button', { name: '諸伏景光' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '諸伏高明' })).toBeTruthy();
