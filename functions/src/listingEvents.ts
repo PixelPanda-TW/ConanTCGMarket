@@ -1,3 +1,4 @@
+import { Timestamp } from 'firebase-admin/firestore';
 import { toListingEvent, type DiscordClient, type ListingEvent, type ListingSnapshot } from './domain.js';
 
 const MAX_DISCORD_ATTEMPTS = 3;
@@ -68,6 +69,47 @@ function nextAttemptAt(now: Date, attempts: number): Date | undefined {
   return new Date(now.getTime() + delay);
 }
 
+export function reserveDiscordDeliveryAttempt(
+  current: ListingEvent,
+  claimId: string,
+  claimedAt: Date,
+  leaseUntil: Date,
+  maxAttempts: number,
+): ListingEvent | null {
+  if (current.discordStatus === 'sent' || current.attempts >= maxAttempts) {
+    return null;
+  }
+
+  if (current.discordClaimId
+    && current.discordLeaseUntil
+    && current.discordLeaseUntil.toDate() > claimedAt) {
+    return null;
+  }
+
+  if (current.discordStatus === 'failed'
+    && current.nextAttemptAt
+    && current.nextAttemptAt.toDate() > claimedAt) {
+    return null;
+  }
+
+  const attempts = current.attempts + 1;
+  const claimed: ListingEvent = {
+    ...current,
+    discordStatus: 'failed',
+    discordClaimId: claimId,
+    discordLeaseUntil: Timestamp.fromDate(leaseUntil),
+    attempts,
+  };
+
+  if (attempts < maxAttempts) {
+    claimed.nextAttemptAt = Timestamp.fromDate(leaseUntil);
+  } else {
+    delete claimed.nextAttemptAt;
+  }
+
+  return claimed;
+}
+
 export async function deliverDiscordEvent(
   event: ListingEvent,
   deps: ListingEventDependencies,
@@ -93,7 +135,7 @@ export async function deliverDiscordEvent(
   try {
     await deps.discord.publishNewListing(claimedEvent);
   } catch {
-    const attempts = claimedEvent.attempts + 1;
+    const attempts = claimedEvent.attempts;
     await deps.events.markFailed(
       claimedEvent.listingId,
       claimId,

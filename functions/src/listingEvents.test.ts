@@ -4,6 +4,7 @@ import type { DiscordClient, ListingEvent, ListingSnapshot } from './domain.js';
 import {
   captureListingEvent,
   deliverDiscordEvent,
+  reserveDiscordDeliveryAttempt,
   retryFailedDiscordEvents,
   type ListingEventStore,
 } from './listingEvents.js';
@@ -34,10 +35,19 @@ const event: ListingEvent = {
   attempts: 0,
 };
 
+const claimedEvent: ListingEvent = {
+  ...event,
+  discordStatus: 'failed',
+  discordClaimId: 'claim-1',
+  discordLeaseUntil: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+  attempts: 1,
+  nextAttemptAt: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+};
+
 function createDependencies(overrides: Partial<ListingEventStore> = {}) {
   const events: ListingEventStore = {
     create: vi.fn().mockResolvedValue(undefined),
-    claim: vi.fn().mockResolvedValue(event),
+    claim: vi.fn().mockResolvedValue(claimedEvent),
     markSent: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     findDueFailed: vi.fn().mockResolvedValue([]),
@@ -92,13 +102,71 @@ describe('captureListingEvent', () => {
   });
 });
 
+describe('reserveDiscordDeliveryAttempt', () => {
+  it('does not reserve a fourth POST after three claimed attempts crash and expire', () => {
+    const firstLease = new Date('2026-08-25T02:05:00.000Z');
+    const first = reserveDiscordDeliveryAttempt(
+      event,
+      'claim-1',
+      now,
+      firstLease,
+      3,
+    );
+    expect(first).toMatchObject({
+      attempts: 1,
+      discordClaimId: 'claim-1',
+      discordStatus: 'failed',
+      discordLeaseUntil: Timestamp.fromDate(firstLease),
+      nextAttemptAt: Timestamp.fromDate(firstLease),
+    });
+
+    const secondLease = new Date('2026-08-25T02:10:00.000Z');
+    const second = reserveDiscordDeliveryAttempt(
+      first!,
+      'claim-2',
+      firstLease,
+      secondLease,
+      3,
+    );
+    expect(second).toMatchObject({
+      attempts: 2,
+      discordClaimId: 'claim-2',
+      discordLeaseUntil: Timestamp.fromDate(secondLease),
+      nextAttemptAt: Timestamp.fromDate(secondLease),
+    });
+
+    const thirdLease = new Date('2026-08-25T02:15:00.000Z');
+    const third = reserveDiscordDeliveryAttempt(
+      second!,
+      'claim-3',
+      secondLease,
+      thirdLease,
+      3,
+    );
+    expect(third).toMatchObject({
+      attempts: 3,
+      discordClaimId: 'claim-3',
+      discordLeaseUntil: Timestamp.fromDate(thirdLease),
+    });
+    expect(third).not.toHaveProperty('nextAttemptAt');
+
+    expect(reserveDiscordDeliveryAttempt(
+      third!,
+      'claim-4',
+      thirdLease,
+      new Date('2026-08-25T02:20:00.000Z'),
+      3,
+    )).toBeNull();
+  });
+});
+
 describe('deliverDiscordEvent', () => {
   it('posts the approved public Discord event and marks it sent', async () => {
     const deps = createDependencies();
 
     await deliverDiscordEvent(event, deps);
 
-    expect(deps.discord.publishNewListing).toHaveBeenCalledWith(event);
+    expect(deps.discord.publishNewListing).toHaveBeenCalledWith(claimedEvent);
     expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', 'claim-1', now);
   });
 
@@ -125,11 +193,11 @@ describe('deliverDiscordEvent', () => {
 
     await expect(deliverDiscordEvent(event, deps)).rejects.toThrow('Firestore unavailable');
 
-    expect(deps.discord.publishNewListing).toHaveBeenCalledWith(event);
+    expect(deps.discord.publishNewListing).toHaveBeenCalledWith(claimedEvent);
     expect(deps.events.markFailed).not.toHaveBeenCalled();
   });
 
-  it('does not publish an event that is not pending', async () => {
+  it('does not publish an event that is already sent', async () => {
     const deps = createDependencies();
 
     await deliverDiscordEvent({ ...event, discordStatus: 'sent' }, deps);
@@ -141,7 +209,7 @@ describe('deliverDiscordEvent', () => {
   it('allows only one of two overlapping invocations to publish', async () => {
     const deps = createDependencies({
       claim: vi.fn()
-        .mockResolvedValueOnce(event)
+        .mockResolvedValueOnce(claimedEvent)
         .mockResolvedValueOnce(null),
     });
     deps.createClaimId
@@ -161,9 +229,14 @@ describe('deliverDiscordEvent', () => {
   it('stops after three failed claims and leaves the terminal failure unscheduled', async () => {
     const deps = createDependencies({
       claim: vi.fn()
-        .mockResolvedValueOnce(event)
-        .mockResolvedValueOnce({ ...event, discordStatus: 'failed', attempts: 1 })
-        .mockResolvedValueOnce({ ...event, discordStatus: 'failed', attempts: 2 })
+        .mockResolvedValueOnce(claimedEvent)
+        .mockResolvedValueOnce({ ...claimedEvent, discordClaimId: 'claim-2', attempts: 2 })
+        .mockResolvedValueOnce({
+          ...claimedEvent,
+          discordClaimId: 'claim-3',
+          attempts: 3,
+          nextAttemptAt: undefined,
+        })
         .mockResolvedValueOnce(null),
     });
     deps.createClaimId
@@ -214,13 +287,25 @@ describe('retryFailedDiscordEvents', () => {
     };
     const deps = createDependencies({
       findDueFailed: vi.fn().mockResolvedValue([failedEvent]),
-      claim: vi.fn().mockResolvedValue(failedEvent),
+      claim: vi.fn().mockResolvedValue({
+        ...failedEvent,
+        discordClaimId: 'claim-1',
+        discordLeaseUntil: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+        attempts: 2,
+        nextAttemptAt: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+      }),
     });
 
     await retryFailedDiscordEvents(now, deps);
 
     expect(deps.events.findDueFailed).toHaveBeenCalledWith(now, 3);
-    expect(deps.discord.publishNewListing).toHaveBeenCalledWith(failedEvent);
+    expect(deps.discord.publishNewListing).toHaveBeenCalledWith({
+      ...failedEvent,
+      discordClaimId: 'claim-1',
+      discordLeaseUntil: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+      attempts: 2,
+      nextAttemptAt: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+    });
     expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', 'claim-1', now);
     expect(deps.listings.update).not.toHaveBeenCalled();
   });

@@ -8,6 +8,7 @@ import type { ListingEvent, ListingSnapshot } from './domain.js';
 import {
   captureListingEvent as captureListingEventData,
   deliverDiscordEvent as deliverDiscordEventData,
+  reserveDiscordDeliveryAttempt,
   retryFailedDiscordEvents as retryFailedDiscordEventsData,
   type ListingEventDependencies,
   type ListingEventStore,
@@ -32,30 +33,19 @@ const eventStore: ListingEventStore = {
         return null;
       }
 
-      const current = snapshot.data() as ListingEvent;
-      if (current.discordStatus === 'sent' || current.attempts >= maxAttempts) {
+      const claimed = reserveDiscordDeliveryAttempt(
+        snapshot.data() as ListingEvent,
+        claimId,
+        claimedAt,
+        leaseUntil,
+        maxAttempts,
+      );
+      if (!claimed) {
         return null;
       }
 
-      if (current.discordClaimId
-        && current.discordLeaseUntil
-        && current.discordLeaseUntil.toDate() > claimedAt) {
-        return null;
-      }
-
-      if (current.discordStatus === 'failed'
-        && current.nextAttemptAt
-        && current.nextAttemptAt.toDate() > claimedAt) {
-        return null;
-      }
-
-      transaction.update(eventReference, {
-        discordStatus: 'failed',
-        discordClaimId: claimId,
-        discordLeaseUntil: Timestamp.fromDate(leaseUntil),
-        nextAttemptAt: Timestamp.fromDate(leaseUntil),
-      });
-      return current;
+      transaction.set(eventReference, claimed);
+      return claimed;
     });
   },
   async markSent(listingId, claimId, sentAt) {
