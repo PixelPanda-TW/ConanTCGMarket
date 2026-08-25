@@ -13,7 +13,7 @@ import {
 const file = new File(['image'], 'card.png', { type: 'image/png' });
 const form = (overrides: Partial<SellFormState> = {}): SellFormState => ({
   cardId: '1096', characterName: '鈴木園子', rarity: 'SR', files: [file], listingPrice: '1200', quantity: '2', hasSleeve: false,
-  supportsMyShip: false, note: '', ...overrides,
+  sleeveFee: '', supportsMyShip: false, myShipFee: '', note: '', ...overrides,
 });
 
 describe('sell form', () => {
@@ -49,5 +49,12 @@ describe('sell form', () => {
     expect(getRaritiesForCharacter(cards, '諸伏景光')).toEqual(['CP', 'R']);
     expect(getCardIdsForMetadata(cards, '諸伏景光', 'R')).toEqual(['0338', '0590']);
     expect(getCardIdsForMetadata(cards, '諸伏景光', '')).toEqual([]);
+  });
+
+  it('requires a non-negative conditional fee only when the matching service is selected', () => {
+    expect(validateSellForm(form({ hasSleeve: true, sleeveFee: '' })).errors.sleeveFee).toBe('請填寫包材費。');
+    expect(validateSellForm(form({ supportsMyShip: true, myShipFee: '' })).errors.myShipFee).toBe('請填寫賣貨便加價。');
+    expect(validateSellForm(form({ hasSleeve: true, sleeveFee: '0', supportsMyShip: true, myShipFee: '60' })).errors).not.toHaveProperty('sleeveFee');
+    expect(validateSellForm(form({ hasSleeve: true, sleeveFee: '-1' })).errors.sleeveFee).toBe('包材費不可小於 0。');
   });
 });

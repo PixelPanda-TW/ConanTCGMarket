@@ -6,14 +6,16 @@ export interface SellFormState {
   listingPrice: string;
   quantity: string;
   hasSleeve: boolean;
+  sleeveFee: string;
   supportsMyShip: boolean;
+  myShipFee: string;
   note: string;
 }
 
-export type SellFormErrors = Partial<Record<'cardId' | 'characterName' | 'rarity' | 'files' | 'listingPrice' | 'quantity', string>>;
+export type SellFormErrors = Partial<Record<'cardId' | 'characterName' | 'rarity' | 'files' | 'listingPrice' | 'quantity' | 'sleeveFee' | 'myShipFee', string>>;
 
 export function normalizeSellForm(values: SellFormState): SellFormState {
-  return { ...values, cardId: values.cardId.trim(), characterName: values.characterName.trim(), rarity: values.rarity.trim(), listingPrice: values.listingPrice.trim(), quantity: values.quantity.trim(), note: values.note.trim() };
+  return { ...values, cardId: values.cardId.trim(), characterName: values.characterName.trim(), rarity: values.rarity.trim(), listingPrice: values.listingPrice.trim(), quantity: values.quantity.trim(), sleeveFee: values.sleeveFee.trim(), myShipFee: values.myShipFee.trim(), note: values.note.trim() };
 }
 
 export function validateSellForm(values: SellFormState) {
@@ -26,6 +28,14 @@ export function validateSellForm(values: SellFormState) {
   else if (normalizedValues.files.some((file) => !file.type.startsWith('image/'))) errors.files = '商品圖片必須是圖片檔案。';
   if (!Number.isFinite(Number(normalizedValues.listingPrice)) || Number(normalizedValues.listingPrice) <= 0) errors.listingPrice = '價格必須大於 0。';
   if (!Number.isInteger(Number(normalizedValues.quantity)) || Number(normalizedValues.quantity) <= 0) errors.quantity = '數量必須是大於 0 的整數。';
+  if (normalizedValues.hasSleeve) {
+    if (!normalizedValues.sleeveFee) errors.sleeveFee = '請填寫包材費。';
+    else if (!Number.isFinite(Number(normalizedValues.sleeveFee)) || Number(normalizedValues.sleeveFee) < 0) errors.sleeveFee = '包材費不可小於 0。';
+  }
+  if (normalizedValues.supportsMyShip) {
+    if (!normalizedValues.myShipFee) errors.myShipFee = '請填寫賣貨便加價。';
+    else if (!Number.isFinite(Number(normalizedValues.myShipFee)) || Number(normalizedValues.myShipFee) < 0) errors.myShipFee = '賣貨便加價不可小於 0。';
+  }
   return { values: normalizedValues, errors };
 }
 

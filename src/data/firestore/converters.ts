@@ -80,6 +80,8 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
     if (listingData.note !== undefined) {
       data.note = listingData.note;
     }
+    if (listingData.sleeveFee !== undefined) data.sleeveFee = listingData.sleeveFee;
+    if (listingData.myShipFee !== undefined) data.myShipFee = listingData.myShipFee;
 
     return data;
   },
@@ -97,6 +99,8 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
       remainingQuantity: data.remainingQuantity as number,
       hasSleeve: data.hasSleeve as boolean,
       supportsMyShip: data.supportsMyShip as boolean,
+      sleeveFee: data.sleeveFee as number | undefined,
+      myShipFee: data.myShipFee as number | undefined,
       note: data.note as string | undefined,
       status: data.status as Listing['status'],
       createdAt: timestampToDate(data.createdAt, 'createdAt'),

@@ -11,7 +11,9 @@ export interface Listing {
   originalQuantity: number;
   remainingQuantity: number;
   hasSleeve: boolean;
+  sleeveFee?: number;
   supportsMyShip: boolean;
+  myShipFee?: number;
   note?: string;
   status: ListingStatus;
   createdAt: Date;
@@ -64,6 +66,14 @@ export function validateListing(listing: Listing, allowLegacyCardMetadata = fals
 
   if (typeof listing.hasSleeve !== 'boolean' || typeof listing.supportsMyShip !== 'boolean') {
     throw new Error('Listing sleeve and shipping flags must be booleans.');
+  }
+
+  if (listing.sleeveFee !== undefined && (!Number.isFinite(listing.sleeveFee) || listing.sleeveFee < 0)) {
+    throw new Error('Listing sleeveFee must be non-negative when provided.');
+  }
+
+  if (listing.myShipFee !== undefined && (!Number.isFinite(listing.myShipFee) || listing.myShipFee < 0)) {
+    throw new Error('Listing myShipFee must be non-negative when provided.');
   }
 
   if (listing.note !== undefined && typeof listing.note !== 'string') {

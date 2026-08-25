@@ -44,12 +44,13 @@ describe('SellPage', () => {
 
     await waitFor(() => expect(listCardsMock).toHaveBeenCalledTimes(1));
     fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
-    expect([...document.querySelectorAll('#character-name-options option')].map((option) => option.getAttribute('value'))).toEqual(['諸伏景光', '諸伏高明']);
+    expect(screen.getByRole('button', { name: '諸伏景光' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '諸伏高明' })).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏景光' } });
+    fireEvent.click(screen.getByRole('button', { name: '諸伏景光' }));
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
 
-    expect([...document.querySelectorAll('#rarity-options option')].map((option) => option.getAttribute('value'))).toEqual(['CP', 'R']);
-    expect([...document.querySelectorAll('#card-id-options option')].map((option) => option.getAttribute('value'))).toEqual(['0338', '0590']);
+    expect([...screen.getByLabelText('稀有度').querySelectorAll('option')].map((option) => option.getAttribute('value'))).toEqual(['', 'CP', 'R']);
+    expect([...screen.getByLabelText('卡片 ID').querySelectorAll('option')].map((option) => option.getAttribute('value'))).toEqual(['', '0338', '0590']);
   });
 });
