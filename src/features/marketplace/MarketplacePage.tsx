@@ -6,6 +6,7 @@ import { getPublicSellerProfile, listActiveListings, listCards } from '../../dat
 import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { filterListings } from '../../listingFilters';
 import { AuthStatus } from '../auth/AuthStatus';
+import { CharacterSubscriptionControl } from '../notifications/CharacterSubscriptionControl';
 import { resolveListingCard } from './marketplaceCatalog';
 
 interface MarketplaceListing extends Listing {
@@ -109,6 +110,12 @@ export function MarketplacePage({
               requireCardId={false}
               className="marketplace-card-metadata-selector"
             />
+            {cards.some((card) => card.characterName === filters.characterName) && (
+              <CharacterSubscriptionControl
+                characterName={filters.characterName}
+                isKnownCharacter
+              />
+            )}
           </div>
         </div>
 

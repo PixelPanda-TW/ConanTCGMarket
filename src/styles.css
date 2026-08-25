@@ -984,3 +984,117 @@ textarea:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/* Buyer notification controls */
+.character-subscription-control,
+.subscription-sign-in-guidance,
+.notification-settings-content {
+  display: grid;
+  gap: 12px;
+}
+
+.character-subscription-control {
+  justify-items: start;
+}
+
+.character-subscription-control button,
+.notification-settings-card button {
+  min-height: 44px;
+}
+
+.subscription-status,
+.subscription-sign-in-guidance p,
+.subscription-feedback,
+.notification-settings-card p {
+  margin: 0;
+}
+
+.subscription-sign-in-guidance {
+  justify-items: start;
+  border-left: 4px solid hsl(var(--info));
+  border-radius: var(--radius);
+  background: hsl(var(--info) / .1);
+  padding: 12px 14px;
+}
+
+.subscription-feedback:empty {
+  display: none;
+}
+
+.notification-settings-page {
+  width: min(720px, 100%);
+  margin: 0 auto;
+}
+
+.notification-settings-page .eyebrow {
+  margin-top: 28px;
+}
+
+.notification-settings-card {
+  border: 1px solid hsl(var(--border) / .82);
+  border-radius: calc(var(--radius) + .375rem);
+  background: hsl(var(--card) / .82);
+  padding: 20px;
+  box-shadow: 0 16px 40px hsl(220 30% 15% / .1);
+  backdrop-filter: blur(14px);
+}
+
+.notification-settings-card h2 {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+
+.notification-settings-card .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 700;
+}
+
+.notification-settings-card .checkbox-field + p {
+  margin-top: 8px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+
+.subscribed-character-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subscribed-character-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 10px;
+  font-weight: 700;
+}
+
+.subscribed-character-list button {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  box-shadow: none;
+}
+
+.discord-feed-note {
+  border-left: 4px solid hsl(var(--info));
+}
+
+@media (max-width: 640px) {
+  .notification-settings-card {
+    padding: 16px;
+  }
+
+  .subscribed-character-list li,
+  .subscribed-character-list button {
+    width: 100%;
+  }
+}

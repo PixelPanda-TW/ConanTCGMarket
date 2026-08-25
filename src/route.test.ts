@@ -14,6 +14,10 @@ describe('app routes', () => {
     expect(getAppRoute('#/sell')).toBe('sell');
   });
 
+  it('maps the notifications hash to the notification settings route', () => {
+    expect(getAppRoute('#/notifications')).toBe('notifications');
+  });
+
   it('keeps unknown and empty hashes on the marketplace route', () => {
     expect(getAppRoute('')).toBe('marketplace');
     expect(getAppRoute('#/unknown')).toBe('marketplace');

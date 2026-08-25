@@ -1,4 +1,4 @@
-export type AppRoute = 'marketplace' | 'profile' | 'cards' | 'sell' | 'dashboard';
+export type AppRoute = 'marketplace' | 'profile' | 'cards' | 'sell' | 'dashboard' | 'notifications';
 
 export function canonicalHomeHash(hash: string): string {
   return hash === '#/' ? '#' : hash;
@@ -14,6 +14,8 @@ export function getAppRoute(hash: string): AppRoute {
       return 'sell';
     case '/dashboard':
       return 'dashboard';
+    case '/notifications':
+      return 'notifications';
     default:
       return 'marketplace';
   }

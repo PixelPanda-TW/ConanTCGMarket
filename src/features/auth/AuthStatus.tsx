@@ -14,6 +14,7 @@ export function AuthStatus() {
             <a href="#/profile">個人檔案</a>
             <a href="#/sell">我要上架</a>
             <a href="#/dashboard">賣家管理</a>
+            <a href="#/notifications">通知設定</a>
             <button type="button" onClick={signOut}>
               登出
             </button>

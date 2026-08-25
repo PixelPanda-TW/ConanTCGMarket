@@ -7,6 +7,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { ListingEditPage } from './features/listings/ListingEditPage';
 import { canonicalHomeHash, getAppRoute } from './route';
 import { MarketplacePage } from './features/marketplace/MarketplacePage';
+import { NotificationSettingsPage } from './features/notifications/NotificationSettingsPage';
 
 function App() {
   const [hash, setHash] = useState(() => canonicalHomeHash(window.location.hash));
@@ -39,6 +40,7 @@ function App() {
   }
   if (route === 'sell') return <SellPage />;
   if (route === 'dashboard') return <DashboardPage />;
+  if (route === 'notifications') return <NotificationSettingsPage />;
 
   return <MarketplacePage />;
 }

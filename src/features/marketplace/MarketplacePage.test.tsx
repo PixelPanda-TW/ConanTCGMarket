@@ -11,6 +11,16 @@ vi.mock('../auth/AuthStatus', () => ({
   AuthStatus: () => <div>auth status</div>,
 }));
 
+vi.mock('../auth/AuthProvider', () => ({
+  useAuth: () => ({
+    user: null,
+    isLoading: false,
+    error: null,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
+
 const cards: Card[] = [
   { id: '0338', characterName: '諸伏景光', rarities: ['R', 'CP'] },
   { id: '0590', characterName: '諸伏景光', rarities: ['R'] },
@@ -73,5 +83,22 @@ describe('MarketplacePage', () => {
 
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
     expect([...screen.getByLabelText('卡片 ID').querySelectorAll('option')].map((option) => option.value)).toEqual(['', '0338', '0590']);
+  });
+
+  it('shows subscription only for an exact known character, not invalid free text', async () => {
+    render(
+      <MarketplacePage
+        loadListings={async () => [activeListing]}
+        loadCards={async () => cards}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    await screen.findByRole('heading', { name: '諸伏景光' });
+    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏景光' } });
+    expect(screen.getByRole('button', { name: '訂閱諸伏景光' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
+    expect(screen.queryByRole('button', { name: /訂閱諸伏/ })).toBeNull();
   });
 });
