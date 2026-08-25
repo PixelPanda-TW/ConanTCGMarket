@@ -20,11 +20,14 @@ describe('PageShell', () => {
     expect(container.querySelector('.page-shell--wide-form')).toBeTruthy();
   });
 
-  it('credits Rugia Creation in a footer that opens the source site safely', () => {
+  it('credits Rugia Creation with a dedicated link to the Conan search', () => {
     render(<PageShell>內容</PageShell>);
 
-    const creditLink = screen.getByRole('link', { name: '致謝與致敬路基亞' });
-    expect(creditLink.getAttribute('href')).toBe('https://rugiacreation.com');
+    expect(screen.getByText('致謝與致敬路奇亞')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '致謝與致敬路奇亞' })).toBeNull();
+
+    const creditLink = screen.getByRole('link', { name: 'rugiacreation.com' });
+    expect(creditLink.getAttribute('href')).toBe('https://rugiacreation.com/conan/search');
     expect(creditLink.getAttribute('target')).toBe('_blank');
     expect(creditLink.getAttribute('rel')).toBe('noreferrer');
   });

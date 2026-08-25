@@ -17,7 +17,8 @@ export function PageShell({ children, width = 'form', backToMarketplace = false 
         {children}
       </div>
       <footer className="site-footer">
-        <a href="https://rugiacreation.com" target="_blank" rel="noreferrer">致謝與致敬路基亞</a>
+        <span>致謝與致敬路奇亞</span>{' '}
+        <a href="https://rugiacreation.com/conan/search" target="_blank" rel="noreferrer">rugiacreation.com</a>
       </footer>
     </main>
   );
