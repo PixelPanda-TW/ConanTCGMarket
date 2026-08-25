@@ -4,6 +4,7 @@ import type { ListingEvent } from './domain.js';
 import {
   completeDailyDigestDelivery,
   DAILY_DIGEST_SCHEDULE_OPTIONS,
+  recoverDailyDigestDelivery,
   releaseDailyDigestDelivery,
   reserveDailyDigestDelivery,
   runDailyDigest,
@@ -19,6 +20,7 @@ function listingEvent(
   characterName: string,
   createdAt = '2026-08-25T02:00:00.000Z',
   capturedAt = createdAt,
+  capturedSequence = 1,
 ): ListingEvent {
   return {
     id,
@@ -31,6 +33,7 @@ function listingEvent(
     remainingQuantity: 2,
     createdAt: Timestamp.fromDate(new Date(createdAt)),
     capturedAt: Timestamp.fromDate(new Date(capturedAt)),
+    capturedSequence,
     discordStatus: 'sent',
     attempts: 1,
   };
@@ -53,12 +56,12 @@ function createDependencies(
   const deliveryRecords = new Map<string, DailyDigestDeliveryRecord>();
   for (const item of subscriptions) {
     deliveryRecords.set(item.uid, {
-      cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
+      cursorSequence: 0,
     });
   }
   let claimSequence = 0;
   let batchCursor: string | null = null;
-  const createWatermark = vi.fn(async () => new Date(now));
+  const createWatermark = vi.fn(async () => 100);
 
   return {
     subscriptions: {
@@ -70,10 +73,10 @@ function createDependencies(
       }),
     },
     events: {
-      findNewByCharacterKeys: vi.fn(async (characterKeys, after, through) => events.filter((event) => (
+      findNewByCharacterKeys: vi.fn(async (characterKeys, afterSequence, throughSequence) => events.filter((event) => (
         characterKeys.includes(event.characterKey)
-          && event.capturedAt.toDate() > after
-          && event.capturedAt.toDate() <= through
+          && event.capturedSequence > afterSequence
+          && event.capturedSequence <= throughSequence
       ))),
     },
     deliveryState: {
@@ -88,8 +91,8 @@ function createDependencies(
         deliveryRecords.set(uid, claimed);
         return {
           claimId,
-          after: claimed.cursor?.toDate() ?? new Date(0),
-          through: claimed.windowEnd!.toDate(),
+          afterSequence: claimed.cursorSequence ?? 0,
+          throughSequence: claimed.windowEndSequence!,
         };
       }),
       complete: vi.fn(async (uid, claimId) => {
@@ -99,6 +102,16 @@ function createDependencies(
       release: vi.fn(async (uid, claimId) => {
         const released = releaseDailyDigestDelivery(deliveryRecords.get(uid) ?? {}, claimId);
         if (released) deliveryRecords.set(uid, released);
+      }),
+      recover: vi.fn(async (uid, claimId, mode) => {
+        const recovered = recoverDailyDigestDelivery(
+          deliveryRecords.get(uid) ?? {},
+          claimId,
+          mode,
+        );
+        if (!recovered) return false;
+        deliveryRecords.set(uid, recovered);
+        return true;
       }),
     },
     batchState: {
@@ -131,7 +144,13 @@ describe('runDailyDigest', () => {
         listingEvent('listing-late', '諸伏景光', '2026-08-25T03:00:00.000Z'),
         listingEvent('listing-1', '諸伏景光', '2026-08-25T02:00:00.000Z'),
         listingEvent('listing-other', '安室透', '2026-08-25T02:30:00.000Z'),
-        listingEvent('listing-old', '諸伏景光', '2026-08-25T00:30:00.000Z'),
+        listingEvent(
+          'listing-old',
+          '諸伏景光',
+          '2026-08-25T00:30:00.000Z',
+          '2026-08-25T00:30:00.000Z',
+          0,
+        ),
       ],
     );
   });
@@ -167,13 +186,15 @@ describe('runDailyDigest', () => {
     expect(message?.groups[0]?.listings).toHaveLength(1);
   });
 
-  it('does not advance the cursor when Gmail send fails', async () => {
+  it('keeps the reservation when Gmail failure may be ambiguous', async () => {
     vi.mocked(deps.gmail.sendDigest).mockRejectedValue(new Error('mail unavailable'));
 
     await expect(runDailyDigest(now, deps)).resolves.toBeUndefined();
+    await expect(runDailyDigest(now, deps)).resolves.toBeUndefined();
 
     expect(deps.deliveryState.complete).not.toHaveBeenCalled();
-    expect(deps.deliveryState.release).toHaveBeenCalledWith('buyer-1', 'claim-1');
+    expect(deps.deliveryState.release).not.toHaveBeenCalled();
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
   });
 
   it('skips an unverified or missing Google email without exposing it', async () => {
@@ -215,7 +236,7 @@ describe('runDailyDigest', () => {
       'buyer-2',
       expect.any(String),
       expect.any(Date),
-      expect.any(Date),
+      expect.any(Number),
     );
 
     await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
@@ -245,7 +266,7 @@ describe('runDailyDigest', () => {
       'buyer-valid',
       expect.any(String),
       expect.any(Date),
-      expect.any(Date),
+      expect.any(Number),
     );
   });
 
@@ -278,8 +299,8 @@ describe('runDailyDigest', () => {
     )];
     deps = createDependencies([subscription('buyer-1')], events);
     vi.mocked(deps.ingestionWatermarks.create)
-      .mockResolvedValueOnce(now)
-      .mockResolvedValueOnce(new Date('2026-08-27T01:00:00.000Z'));
+      .mockResolvedValueOnce(10)
+      .mockResolvedValueOnce(11);
 
     await runDailyDigest(now, deps);
     events.push(listingEvent(
@@ -287,6 +308,7 @@ describe('runDailyDigest', () => {
       '諸伏景光',
       '2026-08-25T03:00:00.000Z',
       '2026-08-26T01:06:00.000Z',
+      11,
     ));
     await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
 
@@ -298,16 +320,47 @@ describe('runDailyDigest', () => {
   });
 
   it('closes every recipient window at the committed ingestion watermark', async () => {
-    const watermark = new Date('2026-08-26T00:47:30.000Z');
+    const watermark = 47;
     vi.mocked(deps.ingestionWatermarks.create).mockResolvedValue(watermark);
 
     await runDailyDigest(now, deps);
 
     expect(deps.events.findNewByCharacterKeys).toHaveBeenCalledWith(
       ['諸伏景光'],
-      new Date('2026-08-25T01:00:00.000Z'),
+      0,
       watermark,
     );
+  });
+
+  it('delivers a late-visible event sharing the prior watermark timestamp', async () => {
+    const sharedCapturedAt = '2026-08-26T00:50:00.000Z';
+    const events = [listingEvent(
+      'listing-visible-first',
+      '諸伏景光',
+      '2026-08-25T02:00:00.000Z',
+      sharedCapturedAt,
+      10,
+    )];
+    deps = createDependencies([subscription('buyer-1')], events);
+    vi.mocked(deps.ingestionWatermarks.create)
+      .mockResolvedValueOnce(10)
+      .mockResolvedValueOnce(11);
+
+    await runDailyDigest(now, deps);
+    events.push(listingEvent(
+      'listing-visible-late',
+      '諸伏景光',
+      '2026-08-25T03:00:00.000Z',
+      sharedCapturedAt,
+      11,
+    ));
+    await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(deps.gmail.sendDigest).mock.calls[1]?.[0].groups).toEqual([{
+      characterName: '諸伏景光',
+      listings: [expect.objectContaining({ id: 'listing-visible-late' })],
+    }]);
   });
 
   it('allows only one overlapping invocation to send a user digest', async () => {
@@ -349,45 +402,111 @@ describe('daily digest delivery claims', () => {
       {},
       'claim-1',
       now,
-      now,
+      10,
     );
 
     expect(reserveDailyDigestDelivery(
       first!,
       'claim-2',
       new Date('2026-08-26T01:01:00.000Z'),
-      new Date('2026-08-26T01:01:00.000Z'),
+      11,
     )).toBeNull();
   });
 
   it('does not replace a reservation when the first worker is still active a day later', () => {
     const first = reserveDailyDigestDelivery(
-      { cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')) },
+      { cursorSequence: 7 },
       'claim-1',
       now,
-      now,
+      10,
     );
     expect(reserveDailyDigestDelivery(
       first!,
       'claim-2',
       new Date('2026-08-27T01:00:00.000Z'),
-      new Date('2026-08-27T01:00:00.000Z'),
+      11,
     )).toBeNull();
   });
 
   it('prevents a stale claimant from overwriting a manually recovered reservation', () => {
-    const secondWindow = new Date('2026-08-26T02:00:00.000Z');
     const recovered: DailyDigestDeliveryRecord = {
-      cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
+      cursorSequence: 7,
       claimId: 'claim-2',
       reservedAt: Timestamp.fromDate(new Date('2026-08-26T02:00:00.000Z')),
-      windowEnd: Timestamp.fromDate(secondWindow),
+      windowEndSequence: 12,
     };
 
     expect(completeDailyDigestDelivery(recovered, 'claim-1')).toBeNull();
     expect(completeDailyDigestDelivery(recovered, 'claim-2')).toEqual({
-      cursor: Timestamp.fromDate(secondWindow),
+      cursorSequence: 12,
     });
+  });
+
+  it('releases a definitely-unsent reservation without advancing its cursor', () => {
+    const reserved: DailyDigestDeliveryRecord = {
+      cursorSequence: 7,
+      claimId: 'claim-1',
+      reservedAt: Timestamp.fromDate(now),
+      windowEndSequence: 12,
+    };
+
+    const recovered = recoverDailyDigestDelivery(
+      reserved,
+      'claim-1',
+      'definitely-unsent',
+    );
+
+    expect(recovered).toEqual({ cursorSequence: 7 });
+    expect(completeDailyDigestDelivery(recovered!, 'claim-1')).toBeNull();
+  });
+
+  it('advances a sent-or-ambiguous reservation and rejects the hung original worker', () => {
+    const reserved: DailyDigestDeliveryRecord = {
+      cursorSequence: 7,
+      claimId: 'claim-1',
+      reservedAt: Timestamp.fromDate(now),
+      windowEndSequence: 12,
+    };
+
+    const recovered = recoverDailyDigestDelivery(
+      reserved,
+      'claim-1',
+      'sent-or-ambiguous',
+    );
+
+    expect(recovered).toEqual({ cursorSequence: 12 });
+    expect(completeDailyDigestDelivery(recovered!, 'claim-1')).toBeNull();
+    expect(releaseDailyDigestDelivery(recovered!, 'claim-1')).toBeNull();
+  });
+
+  it('does not recover a reservation without the exact current claim ID', () => {
+    const reserved: DailyDigestDeliveryRecord = {
+      cursorSequence: 7,
+      claimId: 'claim-2',
+      reservedAt: Timestamp.fromDate(now),
+      windowEndSequence: 12,
+    };
+
+    expect(recoverDailyDigestDelivery(
+      reserved,
+      'claim-1',
+      'definitely-unsent',
+    )).toBeNull();
+  });
+
+  it('does not clear a reservation for an unknown recovery mode', () => {
+    const reserved: DailyDigestDeliveryRecord = {
+      cursorSequence: 7,
+      claimId: 'claim-1',
+      reservedAt: Timestamp.fromDate(now),
+      windowEndSequence: 12,
+    };
+
+    expect(recoverDailyDigestDelivery(
+      reserved,
+      'claim-1',
+      'unknown' as never,
+    )).toBeNull();
   });
 });
 

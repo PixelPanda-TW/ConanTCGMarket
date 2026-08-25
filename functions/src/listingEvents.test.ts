@@ -32,6 +32,7 @@ const event: ListingEvent = {
   remainingQuantity: 2,
   createdAt: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
   capturedAt: Timestamp.fromDate(now),
+  capturedSequence: 1,
   discordStatus: 'pending',
   attempts: 0,
 };
@@ -45,7 +46,11 @@ const claimedEvent: ListingEvent = {
   nextAttemptAt: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
 };
 
-const eventDraft = (({ capturedAt: _capturedAt, ...draft }) => draft)(event);
+const eventDraft = (({
+  capturedAt: _capturedAt,
+  capturedSequence: _capturedSequence,
+  ...draft
+}) => draft)(event);
 
 function createDependencies(overrides: Partial<ListingEventStore> = {}) {
   const events: ListingEventStore = {
@@ -74,10 +79,10 @@ function createDependencies(overrides: Partial<ListingEventStore> = {}) {
 
 describe('captureListingEvent', () => {
   it('creates one durable pending event from duplicate Listing-created deliveries', async () => {
-    const stored = new Map<string, Omit<ListingEvent, 'capturedAt'>>();
+    const stored = new Map<string, Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>>();
     let successfulCreates = 0;
     const deps = createDependencies({
-      create: vi.fn(async (createdEvent: Omit<ListingEvent, 'capturedAt'>) => {
+      create: vi.fn(async (createdEvent: Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>) => {
         if (stored.has(createdEvent.id)) {
           throw Object.assign(new Error('document already exists'), { code: 6 });
         }

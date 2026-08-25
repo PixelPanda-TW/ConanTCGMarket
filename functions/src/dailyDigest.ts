@@ -7,7 +7,6 @@ import type {
 
 const MARKETPLACE_BASE_URL = 'https://pixelpanda-tw.github.io/ConanTCGMarket';
 const CHARACTER_QUERY_LIMIT = 30;
-const EPOCH = new Date(0);
 
 export const DEFAULT_DAILY_RECIPIENT_CAP = 100;
 
@@ -33,8 +32,8 @@ export interface DailyDigestSubscriptionStore {
 export interface DailyDigestEventStore {
   findNewByCharacterKeys(
     characterKeys: string[],
-    after: Date,
-    through: Date,
+    afterSequence: number,
+    throughSequence: number,
   ): Promise<ListingEvent[]>;
 }
 
@@ -43,24 +42,31 @@ export interface DailyDigestDeliveryState {
     uid: string,
     claimId: string,
     reservedAt: Date,
-    windowEnd: Date,
+    windowEndSequence: number,
   ): Promise<DailyDigestClaim | null>;
   complete(uid: string, claimId: string): Promise<void>;
   release(uid: string, claimId: string): Promise<void>;
+  recover(
+    uid: string,
+    claimId: string,
+    mode: DailyDigestRecoveryMode,
+  ): Promise<boolean>;
 }
 
 export interface DailyDigestClaim {
   claimId: string;
-  after: Date;
-  through: Date;
+  afterSequence: number;
+  throughSequence: number;
 }
 
 export interface DailyDigestDeliveryRecord {
-  cursor?: Timestamp;
+  cursorSequence?: number;
   claimId?: string;
   reservedAt?: Timestamp;
-  windowEnd?: Timestamp;
+  windowEndSequence?: number;
 }
+
+export type DailyDigestRecoveryMode = 'definitely-unsent' | 'sent-or-ambiguous';
 
 export interface DailyDigestBatchState {
   getCursor(): Promise<string | null>;
@@ -68,7 +74,7 @@ export interface DailyDigestBatchState {
 }
 
 export interface DailyDigestIngestionWatermarks {
-  create(): Promise<Date>;
+  create(): Promise<number>;
 }
 
 export interface DailyDigestDependencies {
@@ -87,7 +93,7 @@ export function reserveDailyDigestDelivery(
   current: DailyDigestDeliveryRecord,
   claimId: string,
   reservedAt: Date,
-  windowEnd: Date,
+  windowEndSequence: number,
 ): DailyDigestDeliveryRecord | null {
   if (current.claimId) {
     return null;
@@ -97,7 +103,7 @@ export function reserveDailyDigestDelivery(
     ...current,
     claimId,
     reservedAt: Timestamp.fromDate(reservedAt),
-    windowEnd: Timestamp.fromDate(windowEnd),
+    windowEndSequence,
   };
 }
 
@@ -105,11 +111,11 @@ export function completeDailyDigestDelivery(
   current: DailyDigestDeliveryRecord,
   claimId: string,
 ): DailyDigestDeliveryRecord | null {
-  if (current.claimId !== claimId || !current.windowEnd) {
+  if (current.claimId !== claimId || current.windowEndSequence === undefined) {
     return null;
   }
 
-  return { cursor: current.windowEnd };
+  return { cursorSequence: current.windowEndSequence };
 }
 
 export function releaseDailyDigestDelivery(
@@ -120,7 +126,34 @@ export function releaseDailyDigestDelivery(
     return null;
   }
 
-  return current.cursor ? { cursor: current.cursor } : {};
+  return current.cursorSequence === undefined
+    ? {}
+    : { cursorSequence: current.cursorSequence };
+}
+
+export function recoverDailyDigestDelivery(
+  current: DailyDigestDeliveryRecord,
+  claimId: string,
+  mode: DailyDigestRecoveryMode,
+): DailyDigestDeliveryRecord | null {
+  if (current.claimId !== claimId) {
+    return null;
+  }
+
+  if (mode === 'sent-or-ambiguous') {
+    if (current.windowEndSequence === undefined) {
+      return null;
+    }
+    return { cursorSequence: current.windowEndSequence };
+  }
+
+  if (mode === 'definitely-unsent') {
+    return current.cursorSequence === undefined
+      ? {}
+      : { cursorSequence: current.cursorSequence };
+  }
+
+  return null;
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
@@ -247,8 +280,8 @@ export async function runDailyDigest(
       for (const characterKeys of chunks(subscription.characterKeys, CHARACTER_QUERY_LIMIT)) {
         const events = await deps.events.findNewByCharacterKeys(
           characterKeys,
-          claim.after ?? EPOCH,
-          claim.through,
+          claim.afterSequence,
+          claim.throughSequence,
         );
         for (const event of events) {
           eventsByListingId.set(event.listingId, event);
@@ -277,7 +310,6 @@ export async function runDailyDigest(
           html: buildHtml(groups),
         });
       } catch {
-        await deps.deliveryState.release(subscription.uid, claimId);
         scanCursor = subscription.uid;
         await deps.batchState.advance(scanCursor);
         if (attemptedRecipients >= recipientCap) return;

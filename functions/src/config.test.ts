@@ -37,7 +37,7 @@ describe('Firestore deployment configuration', () => {
       queryScope: 'COLLECTION',
       fields: [
         { fieldPath: 'characterKey', order: 'ASCENDING' },
-        { fieldPath: 'capturedAt', order: 'ASCENDING' },
+        { fieldPath: 'capturedSequence', order: 'ASCENDING' },
       ],
     });
   });

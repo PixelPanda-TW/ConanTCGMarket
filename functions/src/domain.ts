@@ -24,6 +24,7 @@ export interface ListingEvent {
   remainingQuantity: number;
   createdAt: Timestamp;
   capturedAt: Timestamp;
+  capturedSequence: number;
   discordStatus: DiscordStatus;
   discordSentAt?: Timestamp;
   discordClaimId?: string;
@@ -32,7 +33,7 @@ export interface ListingEvent {
   nextAttemptAt?: Timestamp;
 }
 
-export type ListingEventDraft = Omit<ListingEvent, 'capturedAt'>;
+export type ListingEventDraft = Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>;
 
 export interface DigestGroup {
   characterName: string;

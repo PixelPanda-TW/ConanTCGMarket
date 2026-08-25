@@ -13,11 +13,13 @@ import {
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   DEFAULT_DAILY_RECIPIENT_CAP,
   completeDailyDigestDelivery,
+  recoverDailyDigestDelivery,
   releaseDailyDigestDelivery,
   reserveDailyDigestDelivery,
   runDailyDigest as runDailyDigestData,
   type DailyDigestDependencies,
   type DailyDigestDeliveryRecord,
+  type DailyDigestRecoveryMode,
   type NotificationSubscription,
 } from './dailyDigest.js';
 import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
@@ -46,9 +48,11 @@ if (getApps().length === 0) {
 const firestore = getFirestore();
 
 function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDeliveryRecord {
+  const cursorSequence = data?.emailDailyCursorSequence;
+  const windowEndSequence = data?.emailDailyWindowEndSequence;
   return {
-    ...(data?.emailDailyCursor instanceof Timestamp
-      ? { cursor: data.emailDailyCursor }
+    ...(Number.isSafeInteger(cursorSequence) && cursorSequence >= 0
+      ? { cursorSequence: cursorSequence as number }
       : {}),
     ...(typeof data?.emailDailyClaimId === 'string'
       ? { claimId: data.emailDailyClaimId }
@@ -56,27 +60,53 @@ function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDel
     ...(data?.emailDailyReservedAt instanceof Timestamp
       ? { reservedAt: data.emailDailyReservedAt }
       : {}),
-    ...(data?.emailDailyWindowEnd instanceof Timestamp
-      ? { windowEnd: data.emailDailyWindowEnd }
+    ...(Number.isSafeInteger(windowEndSequence) && windowEndSequence >= 0
+      ? { windowEndSequence: windowEndSequence as number }
       : {}),
   };
 }
 
 function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentData {
   return {
-    ...(record.cursor ? { emailDailyCursor: record.cursor } : {}),
+    ...(record.cursorSequence !== undefined
+      ? { emailDailyCursorSequence: record.cursorSequence }
+      : {}),
     ...(record.claimId ? { emailDailyClaimId: record.claimId } : {}),
     ...(record.reservedAt ? { emailDailyReservedAt: record.reservedAt } : {}),
-    ...(record.windowEnd ? { emailDailyWindowEnd: record.windowEnd } : {}),
+    ...(record.windowEndSequence !== undefined
+      ? { emailDailyWindowEndSequence: record.windowEndSequence }
+      : {}),
     updatedAt: FieldValue.serverTimestamp(),
   };
 }
 
 const eventStore: ListingEventStore = {
   async create(event) {
-    await firestore.collection('listingEvents').doc(event.id).create({
-      ...event,
-      capturedAt: FieldValue.serverTimestamp(),
+    const eventReference = firestore.collection('listingEvents').doc(event.id);
+    const sequenceReference = firestore
+      .collection('notificationDigestRuntime')
+      .doc('eventSequence');
+
+    await firestore.runTransaction(async (transaction) => {
+      const sequenceSnapshot = await transaction.get(sequenceReference);
+      const storedSequence = sequenceSnapshot.data()?.lastSequence;
+      const lastSequence = Number.isSafeInteger(storedSequence) && storedSequence >= 0
+        ? storedSequence as number
+        : 0;
+      const capturedSequence = lastSequence + 1;
+      if (!Number.isSafeInteger(capturedSequence)) {
+        throw new Error('Listing event sequence is exhausted.');
+      }
+
+      transaction.create(eventReference, {
+        ...event,
+        capturedAt: FieldValue.serverTimestamp(),
+        capturedSequence,
+      });
+      transaction.set(sequenceReference, {
+        lastSequence: capturedSequence,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
     });
   },
   async claim(listingId, claimId, claimedAt, leaseUntil, maxAttempts) {
@@ -193,23 +223,23 @@ const dailyDigestDependencies: DailyDigestDependencies = {
     },
   },
   events: {
-    async findNewByCharacterKeys(characterKeys, after, through) {
+    async findNewByCharacterKeys(characterKeys, afterSequence, throughSequence) {
       if (characterKeys.length === 0 || characterKeys.length > 30) {
         throw new Error('Daily digest character query requires between 1 and 30 keys.');
       }
 
       const snapshot = await firestore.collection('listingEvents')
         .where('characterKey', 'in', characterKeys)
-        .where('capturedAt', '>', Timestamp.fromDate(after))
-        .where('capturedAt', '<=', Timestamp.fromDate(through))
-        .orderBy('capturedAt', 'asc')
+        .where('capturedSequence', '>', afterSequence)
+        .where('capturedSequence', '<=', throughSequence)
+        .orderBy('capturedSequence', 'asc')
         .get();
 
       return snapshot.docs.map((document) => document.data() as ListingEvent);
     },
   },
   deliveryState: {
-    async claim(uid, claimId, reservedAt, windowEnd) {
+    async claim(uid, claimId, reservedAt, windowEndSequence) {
       const reference = firestore.collection('notificationDeliveryState').doc(uid);
 
       return firestore.runTransaction(async (transaction) => {
@@ -219,7 +249,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
           current,
           claimId,
           reservedAt,
-          windowEnd,
+          windowEndSequence,
         );
         if (!claimed) {
           return null;
@@ -229,8 +259,8 @@ const dailyDigestDependencies: DailyDigestDependencies = {
 
         return {
           claimId,
-          after: current.cursor?.toDate() ?? new Date(0),
-          through: claimed.windowEnd!.toDate(),
+          afterSequence: current.cursorSequence ?? 0,
+          throughSequence: claimed.windowEndSequence!,
         };
       });
     },
@@ -262,6 +292,21 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         transaction.set(reference, writeDailyDeliveryRecord(released));
       });
     },
+    async recover(uid, claimId, mode) {
+      const reference = firestore.collection('notificationDeliveryState').doc(uid);
+
+      return firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const current = readDailyDeliveryRecord(snapshot.data());
+        const recovered = recoverDailyDigestDelivery(current, claimId, mode);
+        if (!recovered) {
+          return false;
+        }
+
+        transaction.set(reference, writeDailyDeliveryRecord(recovered));
+        return true;
+      });
+    },
   },
   batchState: {
     async getCursor() {
@@ -278,17 +323,16 @@ const dailyDigestDependencies: DailyDigestDependencies = {
   },
   ingestionWatermarks: {
     async create() {
-      const reference = firestore.collection('notificationDigestRuntime').doc('watermark');
-      await reference.set({
-        capturedThrough: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
+      const reference = firestore
+        .collection('notificationDigestRuntime')
+        .doc('eventSequence');
+      return firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const lastSequence = snapshot.data()?.lastSequence;
+        return Number.isSafeInteger(lastSequence) && lastSequence >= 0
+          ? lastSequence as number
+          : 0;
       });
-      const snapshot = await reference.get();
-      const capturedThrough = snapshot.data()?.capturedThrough;
-      if (!(capturedThrough instanceof Timestamp)) {
-        throw new Error('Daily digest ingestion watermark is unavailable.');
-      }
-      return capturedThrough.toDate();
     },
   },
   recipients: createRecipientDirectory(),
@@ -296,6 +340,14 @@ const dailyDigestDependencies: DailyDigestDependencies = {
   recipientCap: DEFAULT_DAILY_RECIPIENT_CAP,
   createClaimId: randomUUID,
 };
+
+export async function recoverDailyDigestReservation(
+  uid: string,
+  claimId: string,
+  mode: DailyDigestRecoveryMode,
+): Promise<boolean> {
+  return dailyDigestDependencies.deliveryState.recover(uid, claimId, mode);
+}
 
 export const captureListingEvent = onDocumentCreated(
   'listings/{listingId}',
