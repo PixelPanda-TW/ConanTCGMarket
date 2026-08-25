@@ -285,6 +285,7 @@ h1 {
   box-shadow: 0 10px 28px rgb(76 29 149 / 8%);
 }
 
+/* Form primitives */
 .required-mark {
   color: hsl(var(--destructive));
   font-size: 0.78em;
@@ -299,6 +300,32 @@ h1 {
   padding: 12px 14px;
   line-height: 1.5;
 }
+
+.profile-form label.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  font-size: 16px;
+}
+
+.checkbox-field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #0969da;
+}
+
+.field-error,
+.save-success {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.field-error { border-left: 4px solid var(--danger); border-radius: 8px; background: #fff1f2; color: var(--danger); padding: 10px 12px; }
+
+.save-success { border-left: 4px solid var(--success-color); border-radius: 8px; background: #f0fdf4; color: #166534; padding: 10px 12px; }
 
 .profile-state p {
   margin: 0;
@@ -461,32 +488,6 @@ h1 {
   font-weight: 700;
   cursor: pointer;
 }
-
-.profile-form label.checkbox-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  font-size: 16px;
-}
-
-.checkbox-field input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: #0969da;
-}
-
-.field-error,
-.save-success {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.field-error { border-left: 4px solid var(--danger); border-radius: 8px; background: #fff1f2; color: var(--danger); padding: 10px 12px; }
-
-.save-success { border-left: 4px solid var(--success-color); border-radius: 8px; background: #f0fdf4; color: #166534; padding: 10px 12px; }
 
 .profile-form button {
   justify-self: start;
