@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:functions": "npm --prefix functions run build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:functions": "npm --prefix functions test",
     "test:rules": "FIREBASE_SKIP_UPDATE_CHECK=true firebase emulators:exec --project demo-conan-tcg --only firestore,storage \"vitest run --config vitest.rules.config.ts\"",
     "import:cards": "node scripts/import-card-master.mjs",
     "sync:cards": "node scripts/sync-rugia-card-master.mjs"
