@@ -1,5 +1,8 @@
 import { toCharacterKey } from '../characterKey';
 
+const MAX_NOTIFICATION_CHARACTER_KEYS = 100;
+const MAX_NOTIFICATION_CHARACTER_KEY_LENGTH = 100;
+
 export interface NotificationSubscription {
   uid: string;
   characterKeys: string[];
@@ -21,11 +24,17 @@ export function validateNotificationSubscription(value: unknown) {
   if (!Array.isArray(subscription.characterKeys)) {
     throw new Error('Notification subscription requires characterKeys.');
   }
+  if (subscription.characterKeys.length > MAX_NOTIFICATION_CHARACTER_KEYS) {
+    throw new Error('Notification subscription allows at most 100 character keys.');
+  }
 
   const keys = new Set<string>();
   for (const key of subscription.characterKeys) {
     if (typeof key !== 'string' || key !== toCharacterKey(key)) {
       throw new Error('Notification subscription requires normalized character keys.');
+    }
+    if (key.length > MAX_NOTIFICATION_CHARACTER_KEY_LENGTH) {
+      throw new Error('Notification character keys must contain at most 100 characters.');
     }
 
     if (keys.has(key)) {

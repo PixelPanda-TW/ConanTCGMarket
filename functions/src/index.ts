@@ -7,24 +7,32 @@ import {
   type DocumentData,
 } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
+import { error as logError } from 'firebase-functions/logger';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   DEFAULT_DAILY_RECIPIENT_CAP,
   beginDailyDigestSend,
   completeDailyDigestDelivery,
+  completeDailyDigestWithoutSend,
+  isDailyDigestReservedClaimStale,
   recoverDailyDigestDelivery,
   releaseDailyDigestDelivery,
   reserveDailyDigestDelivery,
   runDailyDigest as runDailyDigestData,
   type DailyDigestDependencies,
   type DailyDigestDeliveryRecord,
-  type DailyDigestRecoveryMode,
   type NotificationSubscription,
 } from './dailyDigest.js';
+import {
+  DailyDigestOperatorError,
+  handleDailyDigestOperatorRequest,
+  type DailyDigestOperatorDependencies,
+} from './dailyDigestOperator.js';
 import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
-import type { ListingEvent, ListingSnapshot } from './domain.js';
+import type { ListingEvent } from './domain.js';
 import {
   createGmailClient,
   createRecipientDirectory,
@@ -55,6 +63,12 @@ function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDel
     ? data.emailDailyClaimId as string
     : undefined;
   const storedClaimState = data?.emailDailyClaimState;
+  const claimRunDate = typeof data?.emailDailyClaimRunDate === 'string'
+    ? data.emailDailyClaimRunDate as string
+    : undefined;
+  const completedRunDate = typeof data?.emailDailyCompletedRunDate === 'string'
+    ? data.emailDailyCompletedRunDate as string
+    : undefined;
   return {
     ...(Number.isSafeInteger(cursorSequence) && cursorSequence >= 0
       ? { cursorSequence: cursorSequence as number }
@@ -67,6 +81,8 @@ function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDel
           : 'sending',
       }
       : {}),
+    ...(claimRunDate ? { claimRunDate } : {}),
+    ...(completedRunDate ? { completedRunDate } : {}),
     ...(data?.emailDailyReservedAt instanceof Timestamp
       ? { reservedAt: data.emailDailyReservedAt }
       : {}),
@@ -83,6 +99,10 @@ function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentDa
       : {}),
     ...(record.claimId ? { emailDailyClaimId: record.claimId } : {}),
     ...(record.claimState ? { emailDailyClaimState: record.claimState } : {}),
+    ...(record.claimRunDate ? { emailDailyClaimRunDate: record.claimRunDate } : {}),
+    ...(record.completedRunDate
+      ? { emailDailyCompletedRunDate: record.completedRunDate }
+      : {}),
     ...(record.reservedAt ? { emailDailyReservedAt: record.reservedAt } : {}),
     ...(record.windowEndSequence !== undefined
       ? { emailDailyWindowEndSequence: record.windowEndSequence }
@@ -113,6 +133,7 @@ const eventStore: ListingEventStore = {
         ...event,
         capturedAt: FieldValue.serverTimestamp(),
         capturedSequence,
+        nextAttemptAt: FieldValue.serverTimestamp(),
       });
       transaction.set(sequenceReference, {
         lastSequence: capturedSequence,
@@ -192,11 +213,21 @@ const eventStore: ListingEventStore = {
       });
     });
   },
-  async findDueFailed(now, maxAttempts) {
+  async findDueFailed(now, maxAttempts, limit) {
     const snapshot = await firestore.collection('listingEvents')
       .where('discordStatus', '==', 'failed')
       .where('attempts', '<', maxAttempts)
       .where('nextAttemptAt', '<=', Timestamp.fromDate(now))
+      .limit(limit)
+      .get();
+
+    return snapshot.docs.map((document) => document.data() as ListingEvent);
+  },
+  async findPending(limit) {
+    const snapshot = await firestore.collection('listingEvents')
+      .where('discordStatus', '==', 'pending')
+      .orderBy(FieldPath.documentId())
+      .limit(limit)
       .get();
 
     return snapshot.docs.map((document) => document.data() as ListingEvent);
@@ -250,7 +281,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
     },
   },
   deliveryState: {
-    async claim(uid, claimId, reservedAt, windowEndSequence) {
+    async claim(uid, claimId, reservedAt, windowEndSequence, runDate) {
       const reference = firestore.collection('notificationDeliveryState').doc(uid);
 
       return firestore.runTransaction(async (transaction) => {
@@ -261,6 +292,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
           claimId,
           reservedAt,
           windowEndSequence,
+          runDate,
         );
         if (!claimed) {
           return null;
@@ -282,6 +314,20 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         const snapshot = await transaction.get(reference);
         const current = readDailyDeliveryRecord(snapshot.data());
         const completed = completeDailyDigestDelivery(current, claimId);
+        if (!completed) {
+          return;
+        }
+
+        transaction.set(reference, writeDailyDeliveryRecord(completed));
+      });
+    },
+    async completeWithoutSend(uid, claimId) {
+      const reference = firestore.collection('notificationDeliveryState').doc(uid);
+
+      await firestore.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        const current = readDailyDeliveryRecord(snapshot.data());
+        const completed = completeDailyDigestWithoutSend(current, claimId);
         if (!completed) {
           return;
         }
@@ -347,17 +393,37 @@ const dailyDigestDependencies: DailyDigestDependencies = {
       }, { merge: true });
     },
   },
-  ingestionWatermarks: {
-    async create() {
-      const reference = firestore
-        .collection('notificationDigestRuntime')
+  runs: {
+    async getOrCreate(runDate) {
+      const runReference = firestore.collection('notificationDigestRuns').doc(runDate);
+      const sequenceReference = firestore.collection('notificationDigestRuntime')
         .doc('eventSequence');
       return firestore.runTransaction(async (transaction) => {
-        const snapshot = await transaction.get(reference);
-        const lastSequence = snapshot.data()?.lastSequence;
-        return Number.isSafeInteger(lastSequence) && lastSequence >= 0
+        const [runSnapshot, sequenceSnapshot] = await transaction.getAll(
+          runReference,
+          sequenceReference,
+        );
+        if (runSnapshot.exists) {
+          const storedRunDate = runSnapshot.data()?.runDate;
+          const windowEndSequence = runSnapshot.data()?.windowEndSequence;
+          if (storedRunDate !== runDate
+            || !Number.isSafeInteger(windowEndSequence)
+            || windowEndSequence < 0) {
+            throw new Error(`Daily digest run ${runDate} is invalid.`);
+          }
+          return { runDate, windowEndSequence: windowEndSequence as number };
+        }
+
+        const lastSequence = sequenceSnapshot.data()?.lastSequence;
+        const windowEndSequence = Number.isSafeInteger(lastSequence) && lastSequence >= 0
           ? lastSequence as number
           : 0;
+        transaction.create(runReference, {
+          runDate,
+          windowEndSequence,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return { runDate, windowEndSequence };
       });
     },
   },
@@ -367,31 +433,97 @@ const dailyDigestDependencies: DailyDigestDependencies = {
   createClaimId: randomUUID,
 };
 
-export async function recoverDailyDigestReservation(
-  uid: string,
-  claimId: string,
-  mode: DailyDigestRecoveryMode,
-): Promise<boolean> {
-  return dailyDigestDependencies.deliveryState.recover(uid, claimId, mode);
-}
+const dailyDigestOperatorDependencies: DailyDigestOperatorDependencies = {
+  async listActiveClaims(limit) {
+    const inspectedAt = new Date();
+    const snapshot = await firestore.collection('notificationDeliveryState')
+      .where('emailDailyClaimState', 'in', ['reserved', 'sending'])
+      .limit(limit)
+      .get();
+
+    return snapshot.docs.flatMap((document) => {
+      const record = readDailyDeliveryRecord(document.data());
+      if (!record.claimId
+        || (record.claimState !== 'reserved' && record.claimState !== 'sending')) {
+        return [];
+      }
+      return [{
+        uid: document.id,
+        claimId: record.claimId,
+        claimState: record.claimState,
+        ...(record.claimRunDate ? { claimRunDate: record.claimRunDate } : {}),
+        reservedAt: record.reservedAt?.toDate().toISOString() ?? null,
+        staleReserved: isDailyDigestReservedClaimStale(record, inspectedAt),
+        ...(record.cursorSequence !== undefined
+          ? { cursorSequence: record.cursorSequence }
+          : {}),
+        ...(record.windowEndSequence !== undefined
+          ? { windowEndSequence: record.windowEndSequence }
+          : {}),
+      }];
+    });
+  },
+  recover: (uid, claimId, mode) => dailyDigestDependencies.deliveryState
+    .recover(uid, claimId, mode),
+};
+
+export const dailyDigestOperator = onRequest(
+  {
+    invoker: 'private',
+    timeoutSeconds: 30,
+  },
+  async (request, response) => {
+    if (request.method !== 'POST') {
+      response.status(405).json({ error: 'POST is required.' });
+      return;
+    }
+
+    try {
+      const result = await handleDailyDigestOperatorRequest(
+        request.body,
+        dailyDigestOperatorDependencies,
+      );
+      response.status(200).json(result);
+    } catch (error) {
+      if (error instanceof DailyDigestOperatorError) {
+        response.status(error.status).json({ error: error.message });
+        return;
+      }
+      logError('Daily digest operator request failed.', error);
+      response.status(500).json({ error: 'Operator request failed.' });
+    }
+  },
+);
 
 export const captureListingEvent = onDocumentCreated(
-  'listings/{listingId}',
+  {
+    document: 'listings/{listingId}',
+    retry: true,
+    timeoutSeconds: 60,
+  },
   async (source) => {
     if (!source.data) {
       return;
     }
 
-    await captureListingEventData({
+    const result = await captureListingEventData({
       params: { listingId: source.params.listingId },
-      data: source.data.data() as ListingSnapshot,
+      data: source.data.data(),
     }, dependencies);
+    if (result.status === 'invalid') {
+      logError('Listing event capture skipped a permanently invalid snapshot.', {
+        listingId: source.params.listingId,
+        reason: result.reason,
+      });
+    }
   },
 );
 
 export const deliverDiscordEvent = onDocumentCreated(
   {
     document: 'listingEvents/{listingId}',
+    retry: true,
+    timeoutSeconds: 60,
     secrets: [discordListingsWebhookUrl],
   },
   async (source) => {
@@ -411,6 +543,10 @@ export const deliverDiscordEvent = onDocumentCreated(
 export const retryFailedDiscordEvents = onSchedule(
   {
     schedule: 'every 15 minutes',
+    retryCount: 3,
+    minBackoffSeconds: 60,
+    maxBackoffSeconds: 300,
+    timeoutSeconds: 540,
     secrets: [discordListingsWebhookUrl],
   },
   async () => retryFailedDiscordEventsData(new Date(), dependencies),
@@ -419,6 +555,10 @@ export const retryFailedDiscordEvents = onSchedule(
 export const sendDailyDigest = onSchedule(
   {
     ...DAILY_DIGEST_SCHEDULE_OPTIONS,
+    retryCount: 3,
+    minBackoffSeconds: 60,
+    maxBackoffSeconds: 300,
+    timeoutSeconds: 540,
     secrets: [
       gmailOAuthClientId,
       gmailOAuthClientSecret,
@@ -426,5 +566,8 @@ export const sendDailyDigest = onSchedule(
       gmailSenderAddress,
     ],
   },
-  async () => runDailyDigestData(new Date(), dailyDigestDependencies),
+  async (event) => runDailyDigestData(
+    new Date(event.scheduleTime),
+    dailyDigestDependencies,
+  ),
 );

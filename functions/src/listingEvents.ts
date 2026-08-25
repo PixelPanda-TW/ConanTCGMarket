@@ -1,15 +1,16 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import {
+  InvalidListingSnapshotError,
   toListingEvent,
   type DiscordClient,
   type ListingEvent,
   type ListingEventDraft,
-  type ListingSnapshot,
 } from './domain.js';
 
 const MAX_DISCORD_ATTEMPTS = 3;
 const INITIAL_RETRY_DELAY_MS = 60_000;
 const DELIVERY_LEASE_MS = 5 * 60_000;
+const DISCORD_RETRY_BATCH_SIZE = 100;
 
 export interface ListingEventStore {
   create(event: ListingEventDraft): Promise<void>;
@@ -27,7 +28,8 @@ export interface ListingEventStore {
     attempts: number,
     nextAttemptAt: Date | undefined,
   ): Promise<void>;
-  findDueFailed(now: Date, maxAttempts: number): Promise<ListingEvent[]>;
+  findPending(limit: number): Promise<ListingEvent[]>;
+  findDueFailed(now: Date, maxAttempts: number, limit: number): Promise<ListingEvent[]>;
 }
 
 export interface ListingEventDependencies {
@@ -39,8 +41,12 @@ export interface ListingEventDependencies {
 
 export interface ListingCreatedEvent {
   params: { listingId: string };
-  data: ListingSnapshot;
+  data: unknown;
 }
+
+export type ListingEventCaptureResult =
+  | { status: 'captured' | 'duplicate' }
+  | { status: 'invalid'; reason: string };
 
 function isAlreadyExists(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -54,8 +60,16 @@ function isAlreadyExists(error: unknown): boolean {
 export async function captureListingEvent(
   source: ListingCreatedEvent,
   deps: Pick<ListingEventDependencies, 'events'>,
-): Promise<void> {
-  const event = toListingEvent(source.params.listingId, source.data);
+): Promise<ListingEventCaptureResult> {
+  let event: ListingEventDraft;
+  try {
+    event = toListingEvent(source.params.listingId, source.data);
+  } catch (error) {
+    if (error instanceof InvalidListingSnapshotError) {
+      return { status: 'invalid', reason: error.message };
+    }
+    throw error;
+  }
 
   try {
     await deps.events.create(event);
@@ -63,7 +77,10 @@ export async function captureListingEvent(
     if (!isAlreadyExists(error)) {
       throw error;
     }
+    return { status: 'duplicate' };
   }
+
+  return { status: 'captured' };
 }
 
 function nextAttemptAt(now: Date, attempts: number): Date | undefined {
@@ -158,9 +175,17 @@ export async function retryFailedDiscordEvents(
   now: Date,
   deps: ListingEventDependencies,
 ): Promise<void> {
-  const dueEvents = await deps.events.findDueFailed(now, MAX_DISCORD_ATTEMPTS);
+  const share = Math.floor(DISCORD_RETRY_BATCH_SIZE / 2);
+  const [pendingEvents, dueFailedEvents] = await Promise.all([
+    deps.events.findPending(share),
+    deps.events.findDueFailed(now, MAX_DISCORD_ATTEMPTS, share),
+  ]);
+  const dueEvents = new Map<string, ListingEvent>();
+  for (const event of [...pendingEvents, ...dueFailedEvents]) {
+    dueEvents.set(event.listingId, event);
+  }
 
-  for (const event of dueEvents) {
+  for (const event of dueEvents.values()) {
     await deliverDiscordEvent(event, deps);
   }
 }

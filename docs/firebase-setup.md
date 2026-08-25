@@ -40,6 +40,18 @@ not a hard spending limit.
 
 The daily digest schedule runs at 09:00 `Asia/Taipei`.
 
+The Functions package intentionally remains on Node.js 20 because this feature's
+accepted implementation plan fixes Node 20 as a global constraint. Upgrading the
+runtime belongs in a separate change with its own dependency and deployment
+verification.
+
+The digest processes at most 100 Gmail recipients sequentially per invocation.
+Its explicit 540-second timeout avoids relying on the 60-second default while
+leaving a six-minute safety margin before a pre-send reservation becomes stale.
+Each `Asia/Taipei` date has one durable run record and one fixed Listing-event
+watermark, so Cloud Scheduler retries and overlapping invocations cannot create a
+second digest for a user on the same date.
+
 ### Firebase Secrets
 
 Set each secret interactively in the Firebase CLI. Do not place any secret in
@@ -81,6 +93,58 @@ spend cap safeguards are in place, deploy Functions and Firestore artifacts:
 firebase deploy --only functions,firestore
 ```
 
+### Daily digest operator workflow
+
+`dailyDigestOperator` is an HTTP Function deployed with the private Cloud IAM
+invoker policy. It never returns a recipient email address. Grant the smallest
+possible operator group or user access after deployment; do not grant
+`allUsers` or `allAuthenticatedUsers`:
+
+```sh
+gcloud functions add-invoker-policy-binding dailyDigestOperator --region=us-central1 --member=user:operator@example.com
+```
+
+Run the bounded monitoring request before attempting recovery. It lists at most
+50 active claims by default (100 maximum), including the exact UID, claim ID,
+state, run date, reservation time, window sequence, and whether a `reserved`
+claim is stale:
+
+```sh
+gcloud functions call dailyDigestOperator --region=us-central1 --data='{"action":"list","limit":50}'
+```
+
+Interpret claim states conservatively:
+
+- `reserved` means the worker has not crossed the durable `beginSend` boundary.
+  A fresh reservation can still belong to a running worker. After 15 minutes it
+  is older than the 540-second Function timeout and the next digest invocation
+  atomically replaces it. If an operator must recover it sooner and has proved
+  the worker stopped before `beginSend`, use the exact current claim ID and the
+  `definitely-unsent` decision.
+- `sending` means the Gmail API call may have been accepted. It is never released
+  automatically and rejects `definitely-unsent`. Inspect the dedicated sender's
+  Sent mailbox and Cloud Logging, then make the explicit `sent-or-ambiguous`
+  decision. That decision advances the reserved cursor and closes the user's run.
+
+Recover a definitely-unsent pre-send reservation only with:
+
+```sh
+gcloud functions call dailyDigestOperator --region=us-central1 --data='{"action":"recover","uid":"UID","claimId":"CLAIM_ID","decision":"definitely-unsent"}'
+```
+
+Resolve a `sending` claim only with the at-most-once decision:
+
+```sh
+gcloud functions call dailyDigestOperator --region=us-central1 --data='{"action":"recover","uid":"UID","claimId":"CLAIM_ID","decision":"sent-or-ambiguous"}'
+```
+
+This Gmail boundary intentionally favors at-most-once delivery. If Gmail accepted
+the request before returning an ambiguous error, retrying could duplicate the
+digest; therefore `sent-or-ambiguous` can omit one digest when the request was in
+fact not accepted. A stale or mismatched claim returns a conflict and makes no
+state change. Re-run the list action after every recovery and retain the command
+and result in the operator incident record.
+
 ### Non-production verification checklist
 
 Before using notification delivery in production:
@@ -91,6 +155,6 @@ Before using notification delivery in production:
   use only that subscriber's verified test Gmail address.
 - Trigger or wait for the 09:00 `Asia/Taipei` digest, confirm the single test
   subscriber receives the expected Listing, then confirm the delivery cursor
-  advances only after the successful send.
+  advances only after the successful send and the date-keyed run is complete.
 - Delete the test Listing and test subscriber, and confirm no production
   webhook, sender account, or subscriber data was used during the check.

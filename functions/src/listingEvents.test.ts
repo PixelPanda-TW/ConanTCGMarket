@@ -58,6 +58,7 @@ function createDependencies(overrides: Partial<ListingEventStore> = {}) {
     claim: vi.fn().mockResolvedValue(claimedEvent),
     markSent: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    findPending: vi.fn().mockResolvedValue([]),
     findDueFailed: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
@@ -107,6 +108,20 @@ describe('captureListingEvent', () => {
       { params: { listingId: 'listing-1' }, data: listing },
       deps,
     )).rejects.toThrow('Firestore unavailable');
+  });
+
+  it('acknowledges a permanently invalid snapshot without entering the retry loop', async () => {
+    const deps = createDependencies();
+
+    await expect(captureListingEvent({
+      params: { listingId: 'listing-1' },
+      data: { ...listing, listingPrice: '<script>alert(1)</script>' as never },
+    }, deps)).resolves.toEqual({
+      status: 'invalid',
+      reason: expect.stringMatching(/listingPrice/),
+    });
+
+    expect(deps.events.create).not.toHaveBeenCalled();
   });
 });
 
@@ -306,7 +321,7 @@ describe('retryFailedDiscordEvents', () => {
 
     await retryFailedDiscordEvents(now, deps);
 
-    expect(deps.events.findDueFailed).toHaveBeenCalledWith(now, 3);
+    expect(deps.events.findDueFailed).toHaveBeenCalledWith(now, 3, 50);
     expect(deps.discord.publishNewListing).toHaveBeenCalledWith({
       ...failedEvent,
       discordClaimId: 'claim-1',
@@ -316,5 +331,37 @@ describe('retryFailedDiscordEvents', () => {
     });
     expect(deps.events.markSent).toHaveBeenCalledWith('listing-1', 'claim-1', now);
     expect(deps.listings.update).not.toHaveBeenCalled();
+  });
+
+  it('reconciles bounded shares of pending and failed events', async () => {
+    const pendingEvent = { ...event, id: 'listing-pending', listingId: 'listing-pending' };
+    const failedEvent: ListingEvent = {
+      ...event,
+      id: 'listing-failed',
+      listingId: 'listing-failed',
+      discordStatus: 'failed',
+      attempts: 1,
+      nextAttemptAt: Timestamp.fromDate(new Date('2026-08-25T01:59:00.000Z')),
+    };
+    const deps = createDependencies({
+      findDueFailed: vi.fn().mockResolvedValue([failedEvent]),
+      claim: vi.fn(async (listingId) => ({
+        ...(listingId === pendingEvent.listingId ? pendingEvent : failedEvent),
+        discordStatus: 'failed',
+        discordClaimId: 'claim-1',
+        discordLeaseUntil: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
+        attempts: listingId === pendingEvent.listingId ? 1 : 2,
+      })),
+    });
+    const findPending = vi.fn().mockResolvedValue([pendingEvent]);
+    (deps.events as ListingEventStore & {
+      findPending(limit: number): Promise<ListingEvent[]>;
+    }).findPending = findPending;
+
+    await retryFailedDiscordEvents(now, deps);
+
+    expect(findPending).toHaveBeenCalledWith(50);
+    expect(deps.events.findDueFailed).toHaveBeenCalledWith(now, 3, 50);
+    expect(deps.discord.publishNewListing).toHaveBeenCalledTimes(2);
   });
 });

@@ -49,6 +49,19 @@ describe('Firebase rules', () => {
       email: 'buyer@example.com',
     }));
   });
+  it('rejects duplicate or excessively large subscription key lists', async () => {
+    const buyer = environment.authenticatedContext('buyer-limits').firestore();
+    await assertFails(setDoc(doc(buyer, 'notificationSubscriptions', 'buyer-limits'), {
+      characterKeys: ['suzuki-sonoko', 'suzuki-sonoko'],
+      emailDailyEnabled: true,
+      updatedAt: new Date(),
+    }));
+    await assertFails(setDoc(doc(buyer, 'notificationSubscriptions', 'buyer-limits'), {
+      characterKeys: Array.from({ length: 101 }, (_, index) => `character-${index}`),
+      emailDailyEnabled: true,
+      updatedAt: new Date(),
+    }));
+  });
   it('rejects all browser reads and writes of notification events and delivery state', async () => {
     const buyer = environment.authenticatedContext('buyer-a').firestore();
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));

@@ -4,6 +4,7 @@ import type { ListingEvent } from './domain.js';
 import {
   beginDailyDigestSend,
   completeDailyDigestDelivery,
+  completeDailyDigestWithoutSend,
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   recoverDailyDigestDelivery,
   releaseDailyDigestDelivery,
@@ -52,7 +53,12 @@ function subscription(uid: string, characterKeys = ['諸伏景光']): Notificati
 function createDependencies(
   subscriptions: NotificationSubscription[] = [subscription('buyer-1')],
   events: ListingEvent[] = [listingEvent('listing-1', '諸伏景光')],
-): DailyDigestDependencies {
+): DailyDigestDependencies & {
+  runs: {
+    getOrCreate(runDate: string): Promise<{ runDate: string; windowEndSequence: number }>;
+  };
+  nextWatermark: ReturnType<typeof vi.fn<() => Promise<number>>>;
+} {
   const sortedSubscriptions = [...subscriptions].sort((left, right) => left.uid.localeCompare(right.uid));
   const deliveryRecords = new Map<string, DailyDigestDeliveryRecord>();
   for (const item of subscriptions) {
@@ -63,6 +69,7 @@ function createDependencies(
   let claimSequence = 0;
   let batchCursor: string | null = null;
   const createWatermark = vi.fn(async () => 100);
+  const runWatermarks = new Map<string, number>();
 
   return {
     subscriptions: {
@@ -81,12 +88,13 @@ function createDependencies(
       ))),
     },
     deliveryState: {
-      claim: vi.fn(async (uid, claimId, reservedAt, windowEnd) => {
+      claim: vi.fn(async (uid, claimId, reservedAt, windowEnd, runDate) => {
         const claimed = reserveDailyDigestDelivery(
           deliveryRecords.get(uid) ?? {},
           claimId,
           reservedAt,
           windowEnd,
+          runDate,
         );
         if (!claimed) return null;
         deliveryRecords.set(uid, claimed);
@@ -98,6 +106,13 @@ function createDependencies(
       }),
       complete: vi.fn(async (uid, claimId) => {
         const completed = completeDailyDigestDelivery(deliveryRecords.get(uid) ?? {}, claimId);
+        if (completed) deliveryRecords.set(uid, completed);
+      }),
+      completeWithoutSend: vi.fn(async (uid, claimId) => {
+        const completed = completeDailyDigestWithoutSend(
+          deliveryRecords.get(uid) ?? {},
+          claimId,
+        );
         if (completed) deliveryRecords.set(uid, completed);
       }),
       beginSend: vi.fn(async (uid, claimId) => {
@@ -127,9 +142,17 @@ function createDependencies(
         batchCursor = cursor;
       }),
     },
-    ingestionWatermarks: {
-      create: createWatermark,
+    runs: {
+      getOrCreate: vi.fn(async (runDate) => {
+        let windowEndSequence = runWatermarks.get(runDate);
+        if (windowEndSequence === undefined) {
+          windowEndSequence = await createWatermark();
+          runWatermarks.set(runDate, windowEndSequence);
+        }
+        return { runDate, windowEndSequence };
+      }),
     },
+    nextWatermark: createWatermark,
     recipients: {
       getVerifiedEmail: vi.fn().mockResolvedValue('buyer@example.com'),
     },
@@ -228,6 +251,28 @@ describe('runDailyDigest', () => {
     expect(chunks.flat()).toEqual(characterKeys);
   });
 
+  it('skips malformed, duplicate, oversized, and overlong subscription key lists', async () => {
+    const invalidSubscriptions = [
+      { ...subscription('buyer-non-list'), characterKeys: '諸伏景光' as never },
+      subscription('buyer-non-string', [42 as never]),
+      subscription('buyer-not-normalized', [' 諸伏景光']),
+      subscription('buyer-duplicate', ['諸伏景光', '諸伏景光']),
+      subscription(
+        'buyer-too-many',
+        Array.from({ length: 101 }, (_, index) => `角色-${index}`),
+      ),
+      subscription('buyer-overlong', ['角'.repeat(101)]),
+      subscription('buyer-valid'),
+    ];
+    deps = createDependencies(invalidSubscriptions, [listingEvent('listing-1', '諸伏景光')]);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledTimes(1);
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('buyer-valid');
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+  });
+
   it('continues from the persisted scan cursor so capped recipients are eventually processed', async () => {
     deps = createDependencies([
       subscription('buyer-1'),
@@ -245,6 +290,7 @@ describe('runDailyDigest', () => {
       expect.any(String),
       expect.any(Date),
       expect.any(Number),
+      expect.any(String),
     );
 
     await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
@@ -275,6 +321,7 @@ describe('runDailyDigest', () => {
       expect.any(String),
       expect.any(Date),
       expect.any(Number),
+      '2026-08-26',
     );
   });
 
@@ -285,7 +332,7 @@ describe('runDailyDigest', () => {
 
     expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
     expect(deps.deliveryState.complete).not.toHaveBeenCalled();
-    expect(deps.deliveryState.release).toHaveBeenCalledWith('buyer-1', 'claim-1');
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
   it('does not send a duplicate digest after a completed run advances the cursor', async () => {
@@ -298,6 +345,32 @@ describe('runDailyDigest', () => {
     expect(deps.deliveryState.complete).toHaveBeenCalledTimes(1);
   });
 
+  it('uses one fixed watermark for duplicate invocations on the same Asia/Taipei date', async () => {
+    const events = [listingEvent('listing-first', '諸伏景光', undefined, undefined, 1)];
+    deps = createDependencies([subscription('buyer-1')], events);
+    deps.nextWatermark
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2);
+
+    await runDailyDigest(new Date('2026-08-25T16:30:00.000Z'), deps);
+    events.push(listingEvent(
+      'listing-same-date-late',
+      '諸伏景光',
+      '2026-08-25T16:45:00.000Z',
+      '2026-08-25T16:45:00.000Z',
+      2,
+    ));
+    await runDailyDigest(new Date('2026-08-25T17:00:00.000Z'), deps);
+
+    expect(deps.runs.getOrCreate).toHaveBeenNthCalledWith(1, '2026-08-26');
+    expect(deps.runs.getOrCreate).toHaveBeenNthCalledWith(2, '2026-08-26');
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
+
+    await runDailyDigest(new Date('2026-08-26T16:30:00.000Z'), deps);
+    expect(deps.runs.getOrCreate).toHaveBeenNthCalledWith(3, '2026-08-27');
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
+  });
+
   it('delivers an event captured after a run even when its Listing creation time is older', async () => {
     const events = [listingEvent(
       'listing-first',
@@ -306,7 +379,7 @@ describe('runDailyDigest', () => {
       '2026-08-25T02:01:00.000Z',
     )];
     deps = createDependencies([subscription('buyer-1')], events);
-    vi.mocked(deps.ingestionWatermarks.create)
+    deps.nextWatermark
       .mockResolvedValueOnce(10)
       .mockResolvedValueOnce(11);
 
@@ -329,7 +402,7 @@ describe('runDailyDigest', () => {
 
   it('closes every recipient window at the committed ingestion watermark', async () => {
     const watermark = 47;
-    vi.mocked(deps.ingestionWatermarks.create).mockResolvedValue(watermark);
+    deps.nextWatermark.mockResolvedValue(watermark);
 
     await runDailyDigest(now, deps);
 
@@ -350,7 +423,7 @@ describe('runDailyDigest', () => {
       10,
     )];
     deps = createDependencies([subscription('buyer-1')], events);
-    vi.mocked(deps.ingestionWatermarks.create)
+    deps.nextWatermark
       .mockResolvedValueOnce(10)
       .mockResolvedValueOnce(11);
 
@@ -430,6 +503,30 @@ describe('runDailyDigest', () => {
     expect(message?.html).toContain('/#/notifications');
     expect(`${message?.text}${message?.html}`).not.toMatch(/<img|imageUrl|firebasestorage/i);
   });
+
+  it('HTML-escapes every dynamic rendered value even when runtime data violates its TypeScript type', async () => {
+    const adversarial = listingEvent(
+      'listing\"><img src=x onerror=alert(2)>',
+      '<img src=x onerror=alert(1)>',
+    );
+    adversarial.characterKey = '諸伏景光';
+    adversarial.rarity = '"><svg onload=alert(1)>';
+    adversarial.cardId = '<script>alert(1)</script>';
+    adversarial.listingPrice = '<b>120</b>' as never;
+    adversarial.remainingQuantity = '<i>2</i>' as never;
+    deps = createDependencies([subscription('buyer-1')], [adversarial]);
+
+    await runDailyDigest(now, deps);
+
+    const html = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0].html ?? '';
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain('&quot;&gt;&lt;svg onload=alert(1)&gt;');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).toContain('價格：NT$ &lt;b&gt;120&lt;/b&gt;');
+    expect(html).toContain('剩餘數量：&lt;i&gt;2&lt;/i&gt;');
+    expect(html).toContain('listing%22%3E%3Cimg%20src%3Dx%20onerror%3Dalert(2)%3E');
+    expect(html).not.toMatch(/<img|<svg|<script|<b>|<i>/i);
+  });
 });
 
 describe('daily digest delivery claims', () => {
@@ -449,7 +546,7 @@ describe('daily digest delivery claims', () => {
     )).toBeNull();
   });
 
-  it('does not replace a reservation when the first worker is still active a day later', () => {
+  it('does not replace a reservation while the first worker may still be active', () => {
     const first = reserveDailyDigestDelivery(
       { cursorSequence: 7 },
       'claim-1',
@@ -459,8 +556,82 @@ describe('daily digest delivery claims', () => {
     expect(reserveDailyDigestDelivery(
       first!,
       'claim-2',
-      new Date('2026-08-27T01:00:00.000Z'),
+      new Date('2026-08-26T01:10:00.000Z'),
       11,
+      '2026-08-26',
+    )).toBeNull();
+  });
+
+  it('automatically replaces only a stale pre-send reservation', () => {
+    const first = reserveDailyDigestDelivery(
+      { cursorSequence: 7 },
+      'claim-1',
+      now,
+      10,
+      '2026-08-26',
+    );
+
+    const replaced = reserveDailyDigestDelivery(
+      first!,
+      'claim-2',
+      new Date('2026-08-26T01:16:00.000Z'),
+      10,
+      '2026-08-26',
+    );
+
+    expect(replaced).toMatchObject({
+      cursorSequence: 7,
+      claimId: 'claim-2',
+      claimState: 'reserved',
+      claimRunDate: '2026-08-26',
+    });
+  });
+
+  it('never automatically replaces a stale claim that entered sending', () => {
+    const first = reserveDailyDigestDelivery(
+      { cursorSequence: 7 },
+      'claim-1',
+      now,
+      10,
+      '2026-08-26',
+    );
+
+    expect(reserveDailyDigestDelivery(
+      { ...first!, claimState: 'sending' },
+      'claim-2',
+      new Date('2026-08-26T02:00:00.000Z'),
+      10,
+      '2026-08-26',
+    )).toBeNull();
+  });
+
+  it('does not reserve a second digest after the user completed the same run', () => {
+    const completed = {
+      cursorSequence: 10,
+      completedRunDate: '2026-08-26',
+    };
+
+    expect(reserveDailyDigestDelivery(
+      completed,
+      'claim-2',
+      new Date('2026-08-26T02:00:00.000Z'),
+      10,
+      '2026-08-26',
+    )).toBeNull();
+  });
+
+  it('does not let a delayed older run regress a later completed cursor', () => {
+    const completedLaterRun = {
+      cursorSequence: 20,
+      completedRunDate: '2026-08-27',
+    };
+
+    expect(reserveDailyDigestDelivery(
+      completedLaterRun,
+      'claim-delayed',
+      new Date('2026-08-27T02:00:00.000Z'),
+      10,
+      '2026-08-26',
     )).toBeNull();
   });
 
@@ -586,6 +757,22 @@ describe('daily digest delivery claims', () => {
       'claim-1',
       'sent-or-ambiguous',
     )).toEqual({ cursorSequence: 12 });
+  });
+
+  it('does not classify a pre-send reservation as sent or ambiguous', () => {
+    const reserved: DailyDigestDeliveryRecord = {
+      cursorSequence: 7,
+      claimId: 'claim-1',
+      claimState: 'reserved',
+      reservedAt: Timestamp.fromDate(now),
+      windowEndSequence: 12,
+    };
+
+    expect(recoverDailyDigestDelivery(
+      reserved,
+      'claim-1',
+      'sent-or-ambiguous',
+    )).toBeNull();
   });
 });
 

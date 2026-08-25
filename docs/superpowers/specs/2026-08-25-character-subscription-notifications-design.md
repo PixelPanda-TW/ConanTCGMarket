@@ -53,13 +53,25 @@ Server-owned document:
 
 ```ts
 interface NotificationDeliveryState {
-  lastDigestEventAt: Timestamp;
+  emailDailyCursorSequence?: number;
+  emailDailyCompletedRunDate?: string;
+  emailDailyClaimId?: string;
+  emailDailyClaimState?: 'reserved' | 'sending';
+  emailDailyClaimRunDate?: string;
+  emailDailyReservedAt?: Timestamp;
+  emailDailyWindowEndSequence?: number;
   updatedAt: Timestamp;
 }
 ```
 
 This document is never readable or writable by a browser. It provides the
 cursor used to make daily summaries idempotent.
+
+### `notificationDigestRuns/{taipeiDate}`
+
+Server-owned run record keyed by the `YYYY-MM-DD` date in `Asia/Taipei`. Its
+event-sequence watermark is created transactionally once and reused by every
+duplicate, retry, or overlapping scheduler invocation for that date.
 
 ### `listingEvents/{listingId}`
 
@@ -103,6 +115,13 @@ single input for both Discord announcements and email summaries.
    updates a failed event; operators can inspect failed events without exposing
    them to clients.
 
+Both Firestore-created handlers enable platform retries for transient failures.
+The scheduled reconciliation worker processes bounded pages of legacy/new
+`pending` events as well as due `failed` events, so a missed create-trigger
+delivery does not leave a Listing announcement permanently unscheduled. Invalid
+Listing snapshots are rejected at the Function boundary, recorded in structured
+logs, and acknowledged as permanent rather than retried forever.
+
 External webhook delivery cannot be made perfectly exactly-once. The durable
 event prevents duplicate trigger processing; a failure between a successful
 Discord request and saving its status can exceptionally result in a duplicate
@@ -111,15 +130,17 @@ listing announcement.
 
 ### Daily Gmail digest
 
-1. A scheduled Function runs at 09:00 Asia/Taipei every day.
+1. A scheduled Function runs at 09:00 Asia/Taipei every day and transactionally
+   obtains the date-keyed run's fixed event-sequence watermark.
 2. It reads users with `emailDailyEnabled`, then finds Listing events newer than
    each user's private delivery cursor whose `characterKey` is in that user's
    `characterKeys` (chunking character keys to Firestore query limits when
    required).
 3. It groups matched events by character and sends exactly one compact email
    with direct listing links. It does not embed card images.
-4. Only after a successful send does it advance the user's delivery cursor.
-   A failure preserves the cursor so the events are retried in the next run.
+4. A user can complete only once for the date-keyed run. Only after a successful
+   send does the worker advance the user's delivery cursor and completed run
+   date. A no-event inspection also closes that user's run without sending.
 5. A conservative daily recipient cap protects the dedicated Gmail sender's
    free quota. Deferred users retain their old cursor and receive their
    accumulated digest later rather than losing notifications.
@@ -127,6 +148,15 @@ listing announcement.
 The Function obtains the recipient at send time from the signed-in Firebase
 Authentication user's verified Google email. No email address is copied to
 Firestore, Seller Profiles, or a public response.
+
+Pre-send `reserved` claims use a 15-minute stale threshold, longer than the
+explicit 540-second Function timeout, and may be atomically reclaimed. Once the
+worker durably enters `sending`, Gmail acceptance is externally ambiguous: the
+claim never expires automatically. A private-IAM operator endpoint lists active
+claims and requires the exact UID, claim ID, and either `definitely-unsent`
+(reserved only) or `sent-or-ambiguous` (sending only). The latter advances the
+cursor without retrying. This boundary intentionally provides at-most-once Gmail
+delivery and may omit one digest rather than risk sending a duplicate.
 
 ## Cost and operations
 
@@ -160,6 +190,8 @@ Firestore, Seller Profiles, or a public response.
   update, and delete only their own document.
 - `notificationDeliveryState/{uid}` and `listingEvents/{id}`: no direct client
   reads or writes. Firebase Admin SDK Functions bypass rules to manage them.
+- `notificationDigestRuns/{date}` and notification runtime state: no direct
+  client reads or writes.
 - Existing Listing, Seller Profile, and Sales rules remain unchanged except for
   tests demonstrating that notification data is private.
 - Firebase Secrets are configured only in deployment environments and are never

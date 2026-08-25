@@ -7,12 +7,16 @@ import type {
 
 const MARKETPLACE_BASE_URL = 'https://pixelpanda-tw.github.io/ConanTCGMarket';
 const CHARACTER_QUERY_LIMIT = 30;
+const DAILY_DIGEST_TIME_ZONE = 'Asia/Taipei';
+const DAILY_DIGEST_RESERVED_LEASE_MS = 15 * 60_000;
+const MAX_NOTIFICATION_CHARACTER_KEYS = 100;
+const MAX_NOTIFICATION_CHARACTER_KEY_LENGTH = 100;
 
 export const DEFAULT_DAILY_RECIPIENT_CAP = 100;
 
 export const DAILY_DIGEST_SCHEDULE_OPTIONS = {
   schedule: '0 9 * * *',
-  timeZone: 'Asia/Taipei',
+  timeZone: DAILY_DIGEST_TIME_ZONE,
 } as const;
 
 export interface NotificationSubscription {
@@ -43,9 +47,11 @@ export interface DailyDigestDeliveryState {
     claimId: string,
     reservedAt: Date,
     windowEndSequence: number,
+    runDate: string,
   ): Promise<DailyDigestClaim | null>;
   beginSend(uid: string, claimId: string): Promise<boolean>;
   complete(uid: string, claimId: string): Promise<void>;
+  completeWithoutSend(uid: string, claimId: string): Promise<void>;
   release(uid: string, claimId: string): Promise<void>;
   recover(
     uid: string,
@@ -64,6 +70,8 @@ export interface DailyDigestDeliveryRecord {
   cursorSequence?: number;
   claimId?: string;
   claimState?: DailyDigestClaimState;
+  claimRunDate?: string;
+  completedRunDate?: string;
   reservedAt?: Timestamp;
   windowEndSequence?: number;
 }
@@ -76,8 +84,13 @@ export interface DailyDigestBatchState {
   advance(cursor: string | null): Promise<void>;
 }
 
-export interface DailyDigestIngestionWatermarks {
-  create(): Promise<number>;
+export interface DailyDigestRun {
+  runDate: string;
+  windowEndSequence: number;
+}
+
+export interface DailyDigestRunStore {
+  getOrCreate(runDate: string): Promise<DailyDigestRun>;
 }
 
 export interface DailyDigestDependencies {
@@ -85,11 +98,20 @@ export interface DailyDigestDependencies {
   events: DailyDigestEventStore;
   deliveryState: DailyDigestDeliveryState;
   batchState: DailyDigestBatchState;
-  ingestionWatermarks: DailyDigestIngestionWatermarks;
+  runs: DailyDigestRunStore;
   recipients: RecipientDirectory;
   gmail: GmailClient;
   recipientCap: number;
   createClaimId(): string;
+}
+
+export function isDailyDigestReservedClaimStale(
+  current: DailyDigestDeliveryRecord,
+  now: Date,
+): boolean {
+  return current.claimState === 'reserved'
+    && current.reservedAt instanceof Timestamp
+    && current.reservedAt.toMillis() + DAILY_DIGEST_RESERVED_LEASE_MS <= now.getTime();
 }
 
 export function reserveDailyDigestDelivery(
@@ -97,15 +119,41 @@ export function reserveDailyDigestDelivery(
   claimId: string,
   reservedAt: Date,
   windowEndSequence: number,
+  runDate?: string,
 ): DailyDigestDeliveryRecord | null {
-  if (current.claimId) {
+  if (current.cursorSequence !== undefined
+    && windowEndSequence < current.cursorSequence) {
     return null;
   }
 
+  if (runDate
+    && current.completedRunDate
+    && current.completedRunDate >= runDate) {
+    return null;
+  }
+
+  let available = current;
+  if (current.claimId) {
+    const staleReserved = isDailyDigestReservedClaimStale(current, reservedAt);
+    if (!staleReserved) {
+      return null;
+    }
+
+    available = {
+      ...(current.cursorSequence !== undefined
+        ? { cursorSequence: current.cursorSequence }
+        : {}),
+      ...(current.completedRunDate
+        ? { completedRunDate: current.completedRunDate }
+        : {}),
+    };
+  }
+
   return {
-    ...current,
+    ...available,
     claimId,
     claimState: 'reserved',
+    ...(runDate ? { claimRunDate: runDate } : {}),
     reservedAt: Timestamp.fromDate(reservedAt),
     windowEndSequence,
   };
@@ -134,7 +182,28 @@ export function completeDailyDigestDelivery(
     return null;
   }
 
-  return { cursorSequence: current.windowEndSequence };
+  return {
+    cursorSequence: current.windowEndSequence,
+    ...(current.claimRunDate ? { completedRunDate: current.claimRunDate } : {}),
+  };
+}
+
+export function completeDailyDigestWithoutSend(
+  current: DailyDigestDeliveryRecord,
+  claimId: string,
+): DailyDigestDeliveryRecord | null {
+  if (
+    current.claimId !== claimId
+      || current.claimState !== 'reserved'
+      || current.windowEndSequence === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    cursorSequence: current.windowEndSequence,
+    ...(current.claimRunDate ? { completedRunDate: current.claimRunDate } : {}),
+  };
 }
 
 export function releaseDailyDigestDelivery(
@@ -145,9 +214,14 @@ export function releaseDailyDigestDelivery(
     return null;
   }
 
-  return current.cursorSequence === undefined
-    ? {}
-    : { cursorSequence: current.cursorSequence };
+  return {
+    ...(current.cursorSequence === undefined
+      ? {}
+      : { cursorSequence: current.cursorSequence }),
+    ...(current.completedRunDate
+      ? { completedRunDate: current.completedRunDate }
+      : {}),
+  };
 }
 
 export function recoverDailyDigestDelivery(
@@ -160,19 +234,27 @@ export function recoverDailyDigestDelivery(
   }
 
   if (mode === 'sent-or-ambiguous') {
-    if (current.windowEndSequence === undefined) {
+    if (current.claimState !== 'sending' || current.windowEndSequence === undefined) {
       return null;
     }
-    return { cursorSequence: current.windowEndSequence };
+    return {
+      cursorSequence: current.windowEndSequence,
+      ...(current.claimRunDate ? { completedRunDate: current.claimRunDate } : {}),
+    };
   }
 
   if (mode === 'definitely-unsent') {
     if (current.claimState !== 'reserved') {
       return null;
     }
-    return current.cursorSequence === undefined
-      ? {}
-      : { cursorSequence: current.cursorSequence };
+    return {
+      ...(current.cursorSequence === undefined
+        ? {}
+        : { cursorSequence: current.cursorSequence }),
+      ...(current.completedRunDate
+        ? { completedRunDate: current.completedRunDate }
+        : {}),
+    };
   }
 
   return null;
@@ -186,8 +268,46 @@ function chunks<T>(values: T[], size: number): T[][] {
   return result;
 }
 
-function escapeHtml(value: string): string {
-  return value
+function readSubscriptionCharacterKeys(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_NOTIFICATION_CHARACTER_KEYS) {
+    return null;
+  }
+
+  const uniqueKeys = new Set<string>();
+  for (const key of value) {
+    if (typeof key !== 'string') {
+      return null;
+    }
+    const normalized = key.normalize('NFKC').trim().replace(/\s+/g, ' ');
+    if (!normalized
+      || normalized !== key
+      || normalized.length > MAX_NOTIFICATION_CHARACTER_KEY_LENGTH
+      || uniqueKeys.has(normalized)) {
+      return null;
+    }
+    uniqueKeys.add(normalized);
+  }
+  return [...uniqueKeys];
+}
+
+export function dailyDigestRunDate(now: Date): string {
+  if (Number.isNaN(now.valueOf())) {
+    throw new Error('Daily digest run requires a valid scheduled time.');
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: DAILY_DIGEST_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts
+    .find((part) => part.type === type)?.value;
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -236,11 +356,11 @@ function buildHtml(groups: ReturnType<typeof buildGroups>): string {
   const sections = groups.map((group) => {
     const listings = group.listings.map((listing) => `
       <li>
-        <div>價格：NT$ ${listing.listingPrice}</div>
+        <div>價格：NT$ ${escapeHtml(listing.listingPrice)}</div>
         <div>稀有度：${escapeHtml(listing.rarity)}</div>
         <div>卡片 ID：${escapeHtml(listing.cardId)}</div>
-        <div>剩餘數量：${listing.remainingQuantity}</div>
-        <a href="${escapeHtml(listingUrl(listing.listingId))}">查看商品</a>
+        <div>剩餘數量：${escapeHtml(listing.remainingQuantity)}</div>
+        <a href="${escapeHtml(listingUrl(String(listing.listingId)))}">查看商品</a>
       </li>`).join('');
 
     return `<section><h2>${escapeHtml(group.characterName)}</h2><ul>${listings}</ul></section>`;
@@ -259,7 +379,9 @@ export async function runDailyDigest(
   }
 
   const pageSize = recipientCap;
-  const windowEnd = await deps.ingestionWatermarks.create();
+  const runDate = dailyDigestRunDate(now);
+  const run = await deps.runs.getOrCreate(runDate);
+  const windowEnd = run.windowEndSequence;
   let scanCursor = await deps.batchState.getCursor();
   let attemptedRecipients = 0;
 
@@ -271,7 +393,10 @@ export async function runDailyDigest(
     }
 
     for (const subscription of subscriptions) {
-      if (!subscription.emailDailyEnabled || subscription.characterKeys.length === 0) {
+      const characterKeys = readSubscriptionCharacterKeys(subscription.characterKeys);
+      if (subscription.emailDailyEnabled !== true
+        || !characterKeys
+        || characterKeys.length === 0) {
         scanCursor = subscription.uid;
         await deps.batchState.advance(scanCursor);
         continue;
@@ -290,6 +415,7 @@ export async function runDailyDigest(
         claimId,
         now,
         windowEnd,
+        runDate,
       );
       if (!claim) {
         scanCursor = subscription.uid;
@@ -299,9 +425,9 @@ export async function runDailyDigest(
 
       const eventsByListingId = new Map<string, ListingEvent>();
 
-      for (const characterKeys of chunks(subscription.characterKeys, CHARACTER_QUERY_LIMIT)) {
+      for (const characterKeyChunk of chunks(characterKeys, CHARACTER_QUERY_LIMIT)) {
         const events = await deps.events.findNewByCharacterKeys(
-          characterKeys,
+          characterKeyChunk,
           claim.afterSequence,
           claim.throughSequence,
         );
@@ -315,7 +441,7 @@ export async function runDailyDigest(
           || left.listingId.localeCompare(right.listingId)
       ));
       if (events.length === 0) {
-        await deps.deliveryState.release(subscription.uid, claimId);
+        await deps.deliveryState.completeWithoutSend(subscription.uid, claimId);
         scanCursor = subscription.uid;
         await deps.batchState.advance(scanCursor);
         continue;

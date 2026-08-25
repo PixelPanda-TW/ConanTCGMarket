@@ -61,4 +61,34 @@ describe('toListingEvent', () => {
     expect(event).not.toHaveProperty('contactValue');
     expect(event).not.toHaveProperty('email');
   });
+
+  it.each([
+    ['non-object snapshot', null],
+    ['non-string card ID', { ...listing, cardId: 1096 }],
+    ['oversized card ID', { ...listing, cardId: 'C'.repeat(101) }],
+    ['non-string character name', { ...listing, characterName: 42 }],
+    ['oversized character name', { ...listing, characterName: '角'.repeat(101) }],
+    ['non-string rarity', { ...listing, rarity: false }],
+    ['oversized rarity', { ...listing, rarity: 'R'.repeat(51) }],
+    ['string price', { ...listing, listingPrice: '120' }],
+    ['non-finite price', { ...listing, listingPrice: Number.POSITIVE_INFINITY }],
+    ['non-positive price', { ...listing, listingPrice: 0 }],
+    ['oversized price', { ...listing, listingPrice: 10_000_001 }],
+    ['fractional quantity', { ...listing, remainingQuantity: 1.5 }],
+    ['non-positive quantity', { ...listing, remainingQuantity: 0 }],
+    ['oversized quantity', { ...listing, remainingQuantity: 10_001 }],
+    ['invalid creation date', { ...listing, createdAt: new Date('invalid') }],
+    ['non-date creation timestamp', { ...listing, createdAt: '2026-08-25' }],
+  ])('rejects a client-writable %s before creating an event', (_label, snapshot) => {
+    expect(() => toListingEvent('listing-1', snapshot as never))
+      .toThrow(/Invalid Listing snapshot/);
+  });
+
+  it.each([
+    ['empty Listing ID', ''],
+    ['oversized Listing ID', 'L'.repeat(201)],
+  ])('rejects an %s before creating an event', (_label, listingId) => {
+    expect(() => toListingEvent(listingId, listing))
+      .toThrow(/Invalid Listing snapshot/);
+  });
 });

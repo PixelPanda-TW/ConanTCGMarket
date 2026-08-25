@@ -42,6 +42,24 @@ describe('domain model validation', () => {
     })).toThrow();
   });
 
+  it('rejects notification subscriptions with more than 100 character keys', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      characterKeys: Array.from({ length: 101 }, (_, index) => `角色-${index}`),
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    })).toThrow(/at most 100/);
+  });
+
+  it('rejects notification subscriptions with an overlong character key', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      characterKeys: ['角'.repeat(101)],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+    })).toThrow(/at most 100 characters/);
+  });
+
   it('rejects notification subscriptions with a non-boolean email preference', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',

@@ -13,6 +13,8 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(['characterKeys', 'emailDailyEnabled', 'updatedAt'])
         && request.resource.data.keys().hasAll(['characterKeys', 'emailDailyEnabled', 'updatedAt'])
         && request.resource.data.characterKeys is list
+        && request.resource.data.characterKeys.size() <= 100
+        && request.resource.data.characterKeys.toSet().size() == request.resource.data.characterKeys.size()
         && request.resource.data.emailDailyEnabled is bool
         && request.resource.data.updatedAt is timestamp;
     }
@@ -21,6 +23,8 @@ service cloud.firestore {
       allow create, update: if request.auth != null && request.auth.uid == uid && isValidNotificationSubscription();
     }
     match /notificationDeliveryState/{id} { allow read, write: if false; }
+    match /notificationDigestRuns/{id} { allow read, write: if false; }
+    match /notificationDigestRuntime/{id} { allow read, write: if false; }
     match /listingEvents/{id} { allow read, write: if false; }
   }
 }
