@@ -22,18 +22,13 @@ const expectedEvent = {
   listingPrice: 120,
   remainingQuantity: 2,
   createdAt: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
-  capturedAt: Timestamp.fromDate(new Date('2026-08-25T02:00:00.000Z')),
   discordStatus: 'pending',
   attempts: 0,
 };
 
 describe('toListingEvent', () => {
   it('creates an event snapshot from a complete active listing', () => {
-    expect(toListingEvent(
-      'listing-1',
-      listing,
-      new Date('2026-08-25T02:00:00.000Z'),
-    )).toStrictEqual(expectedEvent);
+    expect(toListingEvent('listing-1', listing)).toStrictEqual(expectedEvent);
   });
 
   it('rejects a listing without character metadata', () => {
@@ -59,11 +54,7 @@ describe('toListingEvent', () => {
       email: 'buyer@example.com',
     };
 
-    const event = toListingEvent(
-      'listing-1',
-      privateListing,
-      new Date('2026-08-25T02:00:00.000Z'),
-    );
+    const event = toListingEvent('listing-1', privateListing);
 
     expect(event).toStrictEqual(expectedEvent);
     expect(event).not.toHaveProperty('sellerId');

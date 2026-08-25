@@ -53,8 +53,8 @@ function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDel
     ...(typeof data?.emailDailyClaimId === 'string'
       ? { claimId: data.emailDailyClaimId }
       : {}),
-    ...(data?.emailDailyLeaseUntil instanceof Timestamp
-      ? { leaseUntil: data.emailDailyLeaseUntil }
+    ...(data?.emailDailyReservedAt instanceof Timestamp
+      ? { reservedAt: data.emailDailyReservedAt }
       : {}),
     ...(data?.emailDailyWindowEnd instanceof Timestamp
       ? { windowEnd: data.emailDailyWindowEnd }
@@ -66,7 +66,7 @@ function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentDa
   return {
     ...(record.cursor ? { emailDailyCursor: record.cursor } : {}),
     ...(record.claimId ? { emailDailyClaimId: record.claimId } : {}),
-    ...(record.leaseUntil ? { emailDailyLeaseUntil: record.leaseUntil } : {}),
+    ...(record.reservedAt ? { emailDailyReservedAt: record.reservedAt } : {}),
     ...(record.windowEnd ? { emailDailyWindowEnd: record.windowEnd } : {}),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -74,7 +74,10 @@ function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentDa
 
 const eventStore: ListingEventStore = {
   async create(event) {
-    await firestore.collection('listingEvents').doc(event.id).create(event);
+    await firestore.collection('listingEvents').doc(event.id).create({
+      ...event,
+      capturedAt: FieldValue.serverTimestamp(),
+    });
   },
   async claim(listingId, claimId, claimedAt, leaseUntil, maxAttempts) {
     const eventReference = firestore.collection('listingEvents').doc(listingId);
@@ -206,7 +209,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
     },
   },
   deliveryState: {
-    async claim(uid, claimId, claimedAt, leaseUntil, windowEnd) {
+    async claim(uid, claimId, reservedAt, windowEnd) {
       const reference = firestore.collection('notificationDeliveryState').doc(uid);
 
       return firestore.runTransaction(async (transaction) => {
@@ -215,8 +218,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         const claimed = reserveDailyDigestDelivery(
           current,
           claimId,
-          claimedAt,
-          leaseUntil,
+          reservedAt,
           windowEnd,
         );
         if (!claimed) {
@@ -272,6 +274,21 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         subscriptionCursor: cursor ?? FieldValue.delete(),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+    },
+  },
+  ingestionWatermarks: {
+    async create() {
+      const reference = firestore.collection('notificationDigestRuntime').doc('watermark');
+      await reference.set({
+        capturedThrough: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      const snapshot = await reference.get();
+      const capturedThrough = snapshot.data()?.capturedThrough;
+      if (!(capturedThrough instanceof Timestamp)) {
+        throw new Error('Daily digest ingestion watermark is unavailable.');
+      }
+      return capturedThrough.toDate();
     },
   },
   recipients: createRecipientDirectory(),

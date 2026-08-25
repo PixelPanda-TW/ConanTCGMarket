@@ -1,12 +1,18 @@
 import { Timestamp } from 'firebase-admin/firestore';
-import { toListingEvent, type DiscordClient, type ListingEvent, type ListingSnapshot } from './domain.js';
+import {
+  toListingEvent,
+  type DiscordClient,
+  type ListingEvent,
+  type ListingEventDraft,
+  type ListingSnapshot,
+} from './domain.js';
 
 const MAX_DISCORD_ATTEMPTS = 3;
 const INITIAL_RETRY_DELAY_MS = 60_000;
 const DELIVERY_LEASE_MS = 5 * 60_000;
 
 export interface ListingEventStore {
-  create(event: ListingEvent): Promise<void>;
+  create(event: ListingEventDraft): Promise<void>;
   claim(
     listingId: string,
     claimId: string,
@@ -47,9 +53,9 @@ function isAlreadyExists(error: unknown): boolean {
 
 export async function captureListingEvent(
   source: ListingCreatedEvent,
-  deps: Pick<ListingEventDependencies, 'events' | 'now'>,
+  deps: Pick<ListingEventDependencies, 'events'>,
 ): Promise<void> {
-  const event = toListingEvent(source.params.listingId, source.data, deps.now());
+  const event = toListingEvent(source.params.listingId, source.data);
 
   try {
     await deps.events.create(event);

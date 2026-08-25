@@ -32,6 +32,8 @@ export interface ListingEvent {
   nextAttemptAt?: Timestamp;
 }
 
+export type ListingEventDraft = Omit<ListingEvent, 'capturedAt'>;
+
 export interface DigestGroup {
   characterName: string;
   listings: ListingEvent[];
@@ -64,8 +66,7 @@ function normalizeMetadata(value: string | undefined): string {
 export function toListingEvent(
   listingId: string,
   listing: ListingSnapshot,
-  capturedAt: Date | Timestamp = listing.createdAt,
-): ListingEvent {
+): ListingEventDraft {
   if (listing.status !== 'active') {
     throw new Error('Listing event requires an active listing.');
   }
@@ -89,9 +90,6 @@ export function toListingEvent(
     createdAt: listing.createdAt instanceof Timestamp
       ? listing.createdAt
       : Timestamp.fromDate(listing.createdAt),
-    capturedAt: capturedAt instanceof Timestamp
-      ? capturedAt
-      : Timestamp.fromDate(capturedAt),
     discordStatus: 'pending',
     attempts: 0,
   };

@@ -58,6 +58,7 @@ function createDependencies(
   }
   let claimSequence = 0;
   let batchCursor: string | null = null;
+  const createWatermark = vi.fn(async () => new Date(now));
 
   return {
     subscriptions: {
@@ -76,12 +77,11 @@ function createDependencies(
       ))),
     },
     deliveryState: {
-      claim: vi.fn(async (uid, claimId, claimedAt, leaseUntil, windowEnd) => {
+      claim: vi.fn(async (uid, claimId, reservedAt, windowEnd) => {
         const claimed = reserveDailyDigestDelivery(
           deliveryRecords.get(uid) ?? {},
           claimId,
-          claimedAt,
-          leaseUntil,
+          reservedAt,
           windowEnd,
         );
         if (!claimed) return null;
@@ -106,6 +106,9 @@ function createDependencies(
       advance: vi.fn(async (cursor) => {
         batchCursor = cursor;
       }),
+    },
+    ingestionWatermarks: {
+      create: createWatermark,
     },
     recipients: {
       getVerifiedEmail: vi.fn().mockResolvedValue('buyer@example.com'),
@@ -213,7 +216,6 @@ describe('runDailyDigest', () => {
       expect.any(String),
       expect.any(Date),
       expect.any(Date),
-      expect.any(Date),
     );
 
     await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
@@ -242,7 +244,6 @@ describe('runDailyDigest', () => {
     expect(deps.deliveryState.claim).toHaveBeenCalledWith(
       'buyer-valid',
       expect.any(String),
-      expect.any(Date),
       expect.any(Date),
       expect.any(Date),
     );
@@ -276,13 +277,16 @@ describe('runDailyDigest', () => {
       '2026-08-25T02:01:00.000Z',
     )];
     deps = createDependencies([subscription('buyer-1')], events);
+    vi.mocked(deps.ingestionWatermarks.create)
+      .mockResolvedValueOnce(now)
+      .mockResolvedValueOnce(new Date('2026-08-27T01:00:00.000Z'));
 
     await runDailyDigest(now, deps);
     events.push(listingEvent(
       'listing-captured-late',
       '諸伏景光',
       '2026-08-25T03:00:00.000Z',
-      '2026-08-26T00:59:00.000Z',
+      '2026-08-26T01:06:00.000Z',
     ));
     await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
 
@@ -291,6 +295,19 @@ describe('runDailyDigest', () => {
       characterName: '諸伏景光',
       listings: [expect.objectContaining({ id: 'listing-captured-late' })],
     }]);
+  });
+
+  it('closes every recipient window at the committed ingestion watermark', async () => {
+    const watermark = new Date('2026-08-26T00:47:30.000Z');
+    vi.mocked(deps.ingestionWatermarks.create).mockResolvedValue(watermark);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.events.findNewByCharacterKeys).toHaveBeenCalledWith(
+      ['諸伏景光'],
+      new Date('2026-08-25T01:00:00.000Z'),
+      watermark,
+    );
   });
 
   it('allows only one overlapping invocation to send a user digest', async () => {
@@ -327,12 +344,11 @@ describe('runDailyDigest', () => {
 });
 
 describe('daily digest delivery claims', () => {
-  it('rejects an overlapping claim while the current lease is active', () => {
+  it('rejects an overlapping claim while the current reservation exists', () => {
     const first = reserveDailyDigestDelivery(
       {},
       'claim-1',
       now,
-      new Date('2026-08-26T01:15:00.000Z'),
       now,
     );
 
@@ -340,30 +356,36 @@ describe('daily digest delivery claims', () => {
       first!,
       'claim-2',
       new Date('2026-08-26T01:01:00.000Z'),
-      new Date('2026-08-26T01:16:00.000Z'),
       new Date('2026-08-26T01:01:00.000Z'),
     )).toBeNull();
   });
 
-  it('prevents an expired stale claimant from overwriting a newer cursor', () => {
+  it('does not replace a reservation when the first worker is still active a day later', () => {
     const first = reserveDailyDigestDelivery(
       { cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')) },
       'claim-1',
       now,
-      new Date('2026-08-26T01:15:00.000Z'),
       now,
     );
-    const secondWindow = new Date('2026-08-26T02:00:00.000Z');
-    const second = reserveDailyDigestDelivery(
+    expect(reserveDailyDigestDelivery(
       first!,
       'claim-2',
-      new Date('2026-08-26T01:15:00.000Z'),
-      new Date('2026-08-26T01:30:00.000Z'),
-      secondWindow,
-    );
+      new Date('2026-08-27T01:00:00.000Z'),
+      new Date('2026-08-27T01:00:00.000Z'),
+    )).toBeNull();
+  });
 
-    expect(completeDailyDigestDelivery(second!, 'claim-1')).toBeNull();
-    expect(completeDailyDigestDelivery(second!, 'claim-2')).toEqual({
+  it('prevents a stale claimant from overwriting a manually recovered reservation', () => {
+    const secondWindow = new Date('2026-08-26T02:00:00.000Z');
+    const recovered: DailyDigestDeliveryRecord = {
+      cursor: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
+      claimId: 'claim-2',
+      reservedAt: Timestamp.fromDate(new Date('2026-08-26T02:00:00.000Z')),
+      windowEnd: Timestamp.fromDate(secondWindow),
+    };
+
+    expect(completeDailyDigestDelivery(recovered, 'claim-1')).toBeNull();
+    expect(completeDailyDigestDelivery(recovered, 'claim-2')).toEqual({
       cursor: Timestamp.fromDate(secondWindow),
     });
   });

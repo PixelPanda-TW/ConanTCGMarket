@@ -45,6 +45,8 @@ const claimedEvent: ListingEvent = {
   nextAttemptAt: Timestamp.fromDate(new Date('2026-08-25T02:05:00.000Z')),
 };
 
+const eventDraft = (({ capturedAt: _capturedAt, ...draft }) => draft)(event);
+
 function createDependencies(overrides: Partial<ListingEventStore> = {}) {
   const events: ListingEventStore = {
     create: vi.fn().mockResolvedValue(undefined),
@@ -72,10 +74,10 @@ function createDependencies(overrides: Partial<ListingEventStore> = {}) {
 
 describe('captureListingEvent', () => {
   it('creates one durable pending event from duplicate Listing-created deliveries', async () => {
-    const stored = new Map<string, ListingEvent>();
+    const stored = new Map<string, Omit<ListingEvent, 'capturedAt'>>();
     let successfulCreates = 0;
     const deps = createDependencies({
-      create: vi.fn(async (createdEvent: ListingEvent) => {
+      create: vi.fn(async (createdEvent: Omit<ListingEvent, 'capturedAt'>) => {
         if (stored.has(createdEvent.id)) {
           throw Object.assign(new Error('document already exists'), { code: 6 });
         }
@@ -88,7 +90,7 @@ describe('captureListingEvent', () => {
     await captureListingEvent({ params: { listingId: 'listing-1' }, data: listing }, deps);
 
     expect(successfulCreates).toBe(1);
-    expect([...stored.values()]).toStrictEqual([event]);
+    expect([...stored.values()]).toStrictEqual([eventDraft]);
   });
 
   it('does not swallow non-duplicate persistence failures', async () => {

@@ -8,8 +8,6 @@ import type {
 const MARKETPLACE_BASE_URL = 'https://pixelpanda-tw.github.io/ConanTCGMarket';
 const CHARACTER_QUERY_LIMIT = 30;
 const EPOCH = new Date(0);
-const DELIVERY_CLAIM_LEASE_MS = 15 * 60_000;
-const INGESTION_SETTLE_MS = 5 * 60_000;
 
 export const DEFAULT_DAILY_RECIPIENT_CAP = 100;
 
@@ -44,8 +42,7 @@ export interface DailyDigestDeliveryState {
   claim(
     uid: string,
     claimId: string,
-    claimedAt: Date,
-    leaseUntil: Date,
+    reservedAt: Date,
     windowEnd: Date,
   ): Promise<DailyDigestClaim | null>;
   complete(uid: string, claimId: string): Promise<void>;
@@ -61,7 +58,7 @@ export interface DailyDigestClaim {
 export interface DailyDigestDeliveryRecord {
   cursor?: Timestamp;
   claimId?: string;
-  leaseUntil?: Timestamp;
+  reservedAt?: Timestamp;
   windowEnd?: Timestamp;
 }
 
@@ -70,11 +67,16 @@ export interface DailyDigestBatchState {
   advance(cursor: string | null): Promise<void>;
 }
 
+export interface DailyDigestIngestionWatermarks {
+  create(): Promise<Date>;
+}
+
 export interface DailyDigestDependencies {
   subscriptions: DailyDigestSubscriptionStore;
   events: DailyDigestEventStore;
   deliveryState: DailyDigestDeliveryState;
   batchState: DailyDigestBatchState;
+  ingestionWatermarks: DailyDigestIngestionWatermarks;
   recipients: RecipientDirectory;
   gmail: GmailClient;
   recipientCap: number;
@@ -84,18 +86,17 @@ export interface DailyDigestDependencies {
 export function reserveDailyDigestDelivery(
   current: DailyDigestDeliveryRecord,
   claimId: string,
-  claimedAt: Date,
-  leaseUntil: Date,
+  reservedAt: Date,
   windowEnd: Date,
 ): DailyDigestDeliveryRecord | null {
-  if (current.claimId && current.leaseUntil && current.leaseUntil.toDate() > claimedAt) {
+  if (current.claimId) {
     return null;
   }
 
   return {
     ...current,
     claimId,
-    leaseUntil: Timestamp.fromDate(leaseUntil),
+    reservedAt: Timestamp.fromDate(reservedAt),
     windowEnd: Timestamp.fromDate(windowEnd),
   };
 }
@@ -203,6 +204,7 @@ export async function runDailyDigest(
   }
 
   const pageSize = recipientCap;
+  const windowEnd = await deps.ingestionWatermarks.create();
   let scanCursor = await deps.batchState.getCursor();
   let attemptedRecipients = 0;
 
@@ -228,12 +230,10 @@ export async function runDailyDigest(
       }
 
       const claimId = deps.createClaimId();
-      const windowEnd = new Date(now.getTime() - INGESTION_SETTLE_MS);
       const claim = await deps.deliveryState.claim(
         subscription.uid,
         claimId,
         now,
-        new Date(now.getTime() + DELIVERY_CLAIM_LEASE_MS),
         windowEnd,
       );
       if (!claim) {
