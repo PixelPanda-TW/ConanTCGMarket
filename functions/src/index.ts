@@ -3,8 +3,23 @@ import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import {
+  DAILY_DIGEST_SCHEDULE_OPTIONS,
+  DEFAULT_DAILY_RECIPIENT_CAP,
+  runDailyDigest as runDailyDigestData,
+  type DailyDigestDependencies,
+  type NotificationSubscription,
+} from './dailyDigest.js';
 import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
 import type { ListingEvent, ListingSnapshot } from './domain.js';
+import {
+  createGmailClient,
+  createRecipientDirectory,
+  gmailOAuthClientId,
+  gmailOAuthClientSecret,
+  gmailOAuthRefreshToken,
+  gmailSenderAddress,
+} from './gmailClient.js';
 import {
   captureListingEvent as captureListingEventData,
   deliverDiscordEvent as deliverDiscordEventData,
@@ -114,6 +129,59 @@ const dependencies: ListingEventDependencies = {
   createClaimId: randomUUID,
 };
 
+const dailyDigestDependencies: DailyDigestDependencies = {
+  subscriptions: {
+    async listEmailDailyEnabled() {
+      const snapshot = await firestore.collection('notificationSubscriptions')
+        .where('emailDailyEnabled', '==', true)
+        .limit(DEFAULT_DAILY_RECIPIENT_CAP)
+        .get();
+
+      return snapshot.docs.map((document): NotificationSubscription => {
+        const data = document.data();
+        return {
+          uid: document.id,
+          characterKeys: data.characterKeys as string[],
+          emailDailyEnabled: data.emailDailyEnabled as boolean,
+          updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(0),
+        };
+      });
+    },
+  },
+  events: {
+    async findNewByCharacterKeys(characterKeys, after, through) {
+      if (characterKeys.length === 0 || characterKeys.length > 30) {
+        throw new Error('Daily digest character query requires between 1 and 30 keys.');
+      }
+
+      const snapshot = await firestore.collection('listingEvents')
+        .where('characterKey', 'in', characterKeys)
+        .where('createdAt', '>', Timestamp.fromDate(after))
+        .where('createdAt', '<=', Timestamp.fromDate(through))
+        .orderBy('createdAt', 'asc')
+        .get();
+
+      return snapshot.docs.map((document) => document.data() as ListingEvent);
+    },
+  },
+  deliveryState: {
+    async getCursor(uid) {
+      const snapshot = await firestore.collection('notificationDeliveryState').doc(uid).get();
+      const cursor = snapshot.data()?.emailDailyCursor;
+      return cursor instanceof Timestamp ? cursor.toDate() : null;
+    },
+    async advance(uid, cursor) {
+      await firestore.collection('notificationDeliveryState').doc(uid).set({
+        emailDailyCursor: Timestamp.fromDate(cursor),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    },
+  },
+  recipients: createRecipientDirectory(),
+  gmail: createGmailClient(),
+  recipientCap: DEFAULT_DAILY_RECIPIENT_CAP,
+};
+
 export const captureListingEvent = onDocumentCreated(
   'listings/{listingId}',
   async (source) => {
@@ -153,4 +221,17 @@ export const retryFailedDiscordEvents = onSchedule(
     secrets: [discordListingsWebhookUrl],
   },
   async () => retryFailedDiscordEventsData(new Date(), dependencies),
+);
+
+export const sendDailyDigest = onSchedule(
+  {
+    ...DAILY_DIGEST_SCHEDULE_OPTIONS,
+    secrets: [
+      gmailOAuthClientId,
+      gmailOAuthClientSecret,
+      gmailOAuthRefreshToken,
+      gmailSenderAddress,
+    ],
+  },
+  async () => runDailyDigestData(new Date(), dailyDigestDependencies),
 );

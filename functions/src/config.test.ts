@@ -26,4 +26,19 @@ describe('Firestore deployment configuration', () => {
       ],
     });
   });
+
+  it('deploys the composite index required by daily character event queries', async () => {
+    const indexes = await readJson('../../firestore.indexes.json') as {
+      indexes?: unknown[];
+    };
+
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: 'listingEvents',
+      queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'characterKey', order: 'ASCENDING' },
+        { fieldPath: 'createdAt', order: 'ASCENDING' },
+      ],
+    });
+  });
 });
