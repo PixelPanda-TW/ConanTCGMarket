@@ -120,6 +120,8 @@ describe('domain model validation', () => {
       id: 'listing-1',
       sellerId: 'seller-1',
       cardId: '0001',
+      cardType: 'character',
+      cardName: '諸伏景光',
       characterName: '諸伏景光',
       rarity: 'CP',
       imageUrls: ['https://example.com/card.jpg'],
@@ -136,14 +138,28 @@ describe('domain model validation', () => {
     expect(() => validateListing(listing)).not.toThrow();
   });
 
-  it('requires character name and rarity snapshots on a listing', () => {
+  it('accepts an event listing without a character snapshot', () => {
+    const eventListing: Listing = {
+      id: 'listing-event', sellerId: 'seller-1', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarity: 'C',
+      imageUrls: ['https://example.com/card.jpg'], listingPrice: 500, originalQuantity: 1, remainingQuantity: 1,
+      hasSleeve: false, supportsMyShip: false, status: 'active',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'), updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateListing(eventListing)).not.toThrow();
+    expect(eventListing.characterName).toBeUndefined();
+    expect(() => validateListing({ ...eventListing, characterName: '偽角色' }))
+      .toThrow('Non-character Listing cannot contain characterName.');
+  });
+
+  it('requires generic card metadata and rarity snapshots on a listing', () => {
     const listing = {
       id: 'listing-1', sellerId: 'seller-1', cardId: '1096', imageUrls: ['https://example.com/card.jpg'], listingPrice: 500,
       originalQuantity: 5, remainingQuantity: 5, hasSleeve: false, supportsMyShip: false, status: 'active',
       createdAt: new Date('2026-08-17T00:00:00.000Z'), updatedAt: new Date('2026-08-17T00:00:00.000Z'),
     } as Listing;
 
-    expect(() => validateListing(listing)).toThrow('Listing requires characterName and rarity snapshots.');
+    expect(() => validateListing(listing)).toThrow('Listing requires cardType, cardName, and rarity snapshots.');
   });
 
   it('rejects listings without photos', () => {
@@ -151,6 +167,8 @@ describe('domain model validation', () => {
       id: 'listing-1',
       sellerId: 'seller-1',
       cardId: '0001',
+      cardType: 'character',
+      cardName: '諸伏景光',
       characterName: '諸伏景光',
       rarity: 'CP',
       imageUrls: [],

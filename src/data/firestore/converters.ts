@@ -69,7 +69,8 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
     const data: FirestoreData = {
       sellerId: listingData.sellerId,
       cardId: listingData.cardId,
-      characterName: listingData.characterName,
+      cardType: listingData.cardType,
+      cardName: listingData.cardName,
       rarity: listingData.rarity,
       imageUrls: listingData.imageUrls,
       listingPrice: listingData.listingPrice,
@@ -82,6 +83,8 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
       updatedAt: dateToTimestamp(listingData.updatedAt),
     };
 
+    if (listingData.cardType === 'character') data.characterName = listingData.characterName;
+
     if (listingData.note !== undefined) {
       data.note = listingData.note;
     }
@@ -92,10 +95,13 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
+    const hasNormalizedMetadata = data.cardType !== undefined || data.cardName !== undefined;
     const listing: Listing = {
       id: snapshot.id,
       sellerId: data.sellerId as string,
       cardId: data.cardId as string,
+      cardType: (hasNormalizedMetadata ? data.cardType : 'character') as Listing['cardType'],
+      cardName: (hasNormalizedMetadata ? data.cardName : data.characterName) as string | undefined,
       characterName: data.characterName as string | undefined,
       rarity: data.rarity as string | undefined,
       imageUrls: data.imageUrls as string[],

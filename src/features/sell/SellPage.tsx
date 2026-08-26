@@ -13,7 +13,7 @@ import {
   type SellFormState,
 } from './sellForm';
 
-const initial: SellFormState = { cardId: '', characterName: '', rarity: '', files: [], listingPrice: '', quantity: '', hasSleeve: false, sleeveFee: '', supportsMyShip: false, myShipFee: '', note: '' };
+const initial: SellFormState = { cardId: '', cardType: 'character', cardName: '', rarity: '', files: [], listingPrice: '', quantity: '', hasSleeve: false, sleeveFee: '', supportsMyShip: false, myShipFee: '', note: '' };
 export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerProfile?: (uid: string) => Promise<SellerProfile | null> }) {
   const { user, isLoading } = useAuth();
   const [profile, setProfile] = useState<SellerProfile | null | undefined>();
@@ -46,12 +46,12 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
         return;
       }
       if (!hasKnownCardMetadata(cards, result.values)) {
-        setErrors({ cardId: '資料庫找不到這組卡片 ID、角色／人名與稀有度，請確認後再試。' });
+        setErrors({ cardId: '資料庫找不到這組卡片類型、卡片名稱、稀有度與 ID，請確認後再試。' });
         return;
       }
-    } catch { setMessage('無法驗證角色／人名，請稍後再試。'); return; }
+    } catch { setMessage('無法驗證卡片資料，請稍後再試。'); return; }
     setSaving(true); try { const id = createListingId(); const urls = await uploadListingImages(user.uid, id, result.values.files); const now = new Date(); const quantity = Number(result.values.quantity);
-      await createListing({ id, sellerId: user.uid, cardId: result.values.cardId, characterName: result.values.characterName, rarity: result.values.rarity, imageUrls: urls, listingPrice: Number(result.values.listingPrice), originalQuantity: quantity, remainingQuantity: quantity, hasSleeve: result.values.hasSleeve, sleeveFee: result.values.hasSleeve ? Number(result.values.sleeveFee) : undefined, supportsMyShip: result.values.supportsMyShip, myShipFee: result.values.supportsMyShip ? Number(result.values.myShipFee) : undefined, note: result.values.note || undefined, status: 'active', createdAt: now, updatedAt: now });
+      await createListing({ id, sellerId: user.uid, cardId: result.values.cardId, cardType: result.values.cardType, cardName: result.values.cardName, ...(result.values.cardType === 'character' ? { characterName: result.values.cardName } : {}), rarity: result.values.rarity, imageUrls: urls, listingPrice: Number(result.values.listingPrice), originalQuantity: quantity, remainingQuantity: quantity, hasSleeve: result.values.hasSleeve, sleeveFee: result.values.hasSleeve ? Number(result.values.sleeveFee) : undefined, supportsMyShip: result.values.supportsMyShip, myShipFee: result.values.supportsMyShip ? Number(result.values.myShipFee) : undefined, note: result.values.note || undefined, status: 'active', createdAt: now, updatedAt: now });
       setMessage('刊登成功'); window.location.hash = `#/listing/${id}`;
     } catch (error) { setMessage(error instanceof Error ? error.message : '刊登失敗，請稍後再試。'); } finally { setSaving(false); }
   }
@@ -64,13 +64,13 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
       value={form}
       onChange={(metadata) => {
         setForm((current) => ({ ...current, ...metadata }));
-        setErrors((current) => ({ ...current, characterName: undefined, rarity: undefined, cardId: undefined }));
+        setErrors((current) => ({ ...current, cardType: undefined, cardName: undefined, rarity: undefined, cardId: undefined }));
       }}
       requireCardId
       required
       className="listing-card-fields"
     />
-    {(errors.characterName || errors.rarity || errors.cardId) && <p className="field-error" role="alert">{errors.characterName ?? errors.rarity ?? errors.cardId}</p>}
+    {(errors.cardType || errors.cardName || errors.rarity || errors.cardId) && <p className="field-error" role="alert">{errors.cardType ?? errors.cardName ?? errors.rarity ?? errors.cardId}</p>}
     {cardLoadError && <p className="field-error" role="alert">{cardLoadError}</p>}
     <ListingForm
       price={form.listingPrice}

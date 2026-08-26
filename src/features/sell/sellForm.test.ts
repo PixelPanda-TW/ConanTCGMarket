@@ -12,15 +12,15 @@ import {
 
 const file = new File(['image'], 'card.png', { type: 'image/png' });
 const form = (overrides: Partial<SellFormState> = {}): SellFormState => ({
-  cardId: '1096', characterName: '鈴木園子', rarity: 'SR', files: [file], listingPrice: '1200', quantity: '2', hasSleeve: false,
+  cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarity: 'SR', files: [file], listingPrice: '1200', quantity: '2', hasSleeve: false,
   sleeveFee: '', supportsMyShip: false, myShipFee: '', note: '', ...overrides,
 });
 
 describe('sell form', () => {
   it('normalizes card metadata and validates all required listing fields', () => {
-    expect(normalizeSellForm(form({ cardId: ' 0164 ', characterName: ' 鈴木園子 ', rarity: ' SR ', listingPrice: ' 500 ', note: ' near mint ' }))).toMatchObject({ cardId: '0164', characterName: '鈴木園子', rarity: 'SR', listingPrice: '500', note: 'near mint' });
-    expect(validateSellForm(form({ cardId: '109', characterName: '', rarity: '', files: [], listingPrice: '0', quantity: '1.5' })).errors).toEqual({
-      cardId: '卡片 ID 必須是 4 位數字。', characterName: '請填寫角色／人名。', rarity: '請填寫稀有度。', files: '請選擇 1 到 3 張商品圖片。', listingPrice: '價格必須大於 0。', quantity: '數量必須是大於 0 的整數。',
+    expect(normalizeSellForm(form({ cardId: ' 0164 ', cardName: ' 鈴木園子 ', rarity: ' SR ', listingPrice: ' 500 ', note: ' near mint ' }))).toMatchObject({ cardId: '0164', cardType: 'character', cardName: '鈴木園子', rarity: 'SR', listingPrice: '500', note: 'near mint' });
+    expect(validateSellForm(form({ cardId: '109', cardType: '' as never, cardName: '', rarity: '', files: [], listingPrice: '0', quantity: '1.5' })).errors).toEqual({
+      cardId: '卡片 ID 必須是 4 位數字。', cardType: '請選擇卡片類型。', cardName: '請填寫卡片名稱。', rarity: '請填寫稀有度。', files: '請選擇 1 到 3 張商品圖片。', listingPrice: '價格必須大於 0。', quantity: '數量必須是大於 0 的整數。',
     });
   });
 
@@ -29,12 +29,12 @@ describe('sell form', () => {
     expect(hasKnownCharacterName([{ id: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }], '不存在的人名')).toBe(false);
   });
 
-  it('accepts only a matching Card Master ID, character name, and one of its rarities', () => {
-    const cards = [{ id: '1096', characterName: '鈴木園子', rarities: ['SR', 'CP'] }];
+  it('accepts only a matching generic Card Master metadata combination', () => {
+    const cards = [{ id: '1096', cardType: 'character' as const, cardName: '鈴木園子', rarities: ['SR', 'CP'] }];
 
-    expect(hasKnownCardMetadata(cards, { cardId: '1096', characterName: '鈴木園子', rarity: 'CP' })).toBe(true);
-    expect(hasKnownCardMetadata(cards, { cardId: '1096', characterName: '鈴木園子', rarity: 'R' })).toBe(false);
-    expect(hasKnownCardMetadata(cards, { cardId: '1096', characterName: '毛利蘭', rarity: 'SR' })).toBe(false);
+    expect(hasKnownCardMetadata(cards, { cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarity: 'CP' })).toBe(true);
+    expect(hasKnownCardMetadata(cards, { cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarity: 'R' })).toBe(false);
+    expect(hasKnownCardMetadata(cards, { cardId: '1096', cardType: 'event', cardName: '鈴木園子', rarity: 'SR' })).toBe(false);
   });
 
   it('narrows autocomplete choices from character name to rarity then card ID', () => {

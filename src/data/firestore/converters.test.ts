@@ -15,6 +15,8 @@ describe('Firestore converters', () => {
       data: () => ({
         sellerId: 'seller-1',
         cardId: '1096',
+        cardType: 'character',
+        cardName: '鈴木園子',
         characterName: '鈴木園子',
         rarity: 'SR',
         imageUrls: ['https://example.com/card.jpg'],
@@ -31,6 +33,8 @@ describe('Firestore converters', () => {
 
     expect(listingConverter.fromFirestore(snapshot as never)).toMatchObject({
       id: 'listing-1',
+      cardType: 'character',
+      cardName: '鈴木園子',
       createdAt: new Date('2026-08-17T00:00:00.000Z'),
       updatedAt: new Date('2026-08-17T01:00:00.000Z'),
     });
@@ -98,6 +102,8 @@ describe('Firestore converters', () => {
       id: 'listing-1',
       sellerId: 'seller-1',
       cardId: '1096',
+      cardType: 'character',
+      cardName: '鈴木園子',
       characterName: '鈴木園子',
       rarity: 'SR',
       imageUrls: ['https://example.com/card.jpg'],
@@ -117,6 +123,8 @@ describe('Firestore converters', () => {
     expect(result).toEqual({
       sellerId: 'seller-1',
       cardId: '1096',
+      cardType: 'character',
+      cardName: '鈴木園子',
       characterName: '鈴木園子',
       rarity: 'SR',
       imageUrls: ['https://example.com/card.jpg'],
@@ -128,6 +136,36 @@ describe('Firestore converters', () => {
       status: 'active',
       createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
       updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
+    });
+  });
+
+  it('writes generic event listing metadata without a characterName field', () => {
+    const result = listingConverter.toFirestore({
+      id: 'listing-event', sellerId: 'seller-1', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarity: 'C',
+      imageUrls: ['https://example.com/card.jpg'], listingPrice: 500, originalQuantity: 1, remainingQuantity: 1,
+      hasSleeve: false, supportsMyShip: false, status: 'active',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'), updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+    });
+
+    expect(result).toMatchObject({
+      sellerId: 'seller-1', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarity: 'C',
+    });
+    expect(result).not.toHaveProperty('characterName');
+  });
+
+  it('maps a legacy characterName-only Listing to a character snapshot', () => {
+    const snapshot = {
+      id: 'legacy-listing',
+      data: () => ({
+        sellerId: 'seller-1', cardId: 'CT-P01-001', characterName: '鈴木園子', rarity: 'SR', imageUrls: ['https://example.com/card.jpg'],
+        listingPrice: 500, originalQuantity: 1, remainingQuantity: 1, hasSleeve: false, supportsMyShip: false, status: 'active',
+        createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+        updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
+      }),
+    };
+
+    expect(listingConverter.fromFirestore(snapshot as never)).toMatchObject({
+      cardType: 'character', cardName: '鈴木園子', characterName: '鈴木園子',
     });
   });
 

@@ -1,9 +1,13 @@
+import { isCardType, type CardType } from '../cardType';
+
 export type ListingStatus = 'active' | 'sold_out';
 
 export interface Listing {
   id: string;
   sellerId: string;
   cardId: string;
+  cardType?: CardType;
+  cardName?: string;
   characterName?: string;
   rarity?: string;
   imageUrls: string[];
@@ -29,14 +33,23 @@ export function validateListing(listing: Listing, allowLegacyCardMetadata = fals
     throw new Error('Listing requires sellerId.');
   }
 
-  if (typeof listing.cardId !== 'string' || listing.cardId.length === 0) {
-    throw new Error('Listing requires cardId.');
+  if ((typeof listing.cardId !== 'string' || !/^\d{4}$/.test(listing.cardId)) && !allowLegacyCardMetadata) {
+    throw new Error('Listing requires a four-digit cardId.');
   }
 
   const hasCharacterName = typeof listing.characterName === 'string' && listing.characterName.trim().length > 0;
+  const hasCardName = typeof listing.cardName === 'string' && listing.cardName.trim().length > 0;
   const hasRarity = typeof listing.rarity === 'string' && listing.rarity.trim().length > 0;
-  if ((!hasCharacterName || !hasRarity) && !allowLegacyCardMetadata) {
-    throw new Error('Listing requires characterName and rarity snapshots.');
+  if (!isCardType(listing.cardType) || !hasCardName || !hasRarity) {
+    if (!allowLegacyCardMetadata) {
+      throw new Error('Listing requires cardType, cardName, and rarity snapshots.');
+    }
+  } else if (listing.cardType === 'character') {
+    if (!hasCharacterName || listing.characterName !== listing.cardName) {
+      throw new Error('Character Listing requires characterName to equal cardName.');
+    }
+  } else if (listing.characterName !== undefined) {
+    throw new Error('Non-character Listing cannot contain characterName.');
   }
 
   if (
