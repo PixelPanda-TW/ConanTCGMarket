@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterListings } from './listingFilters';
+import { filterListings, validateCardIdQuery } from './listingFilters';
 
 describe('filterListings', () => {
   it('removes listings without myship support when the myship filter is enabled', () => {
@@ -29,5 +29,28 @@ describe('filterListings', () => {
     ];
 
     expect(filterListings(listings, { hasSleeve: false, supportsMyShip: false, characterName: '鈴木園子' })).toEqual([listings[0]]);
+  });
+
+  it('filters generic metadata with a leading-zero ID prefix or exact four-digit ID', () => {
+    const listing0501 = {
+      id: '0501', cardId: '0501', cardType: 'event' as const, cardName: '追跡開始', rarity: 'C', hasSleeve: false, supportsMyShip: true,
+    };
+    const listing0590 = {
+      id: '0590', cardId: '0590', cardType: 'character' as const, cardName: '諸伏景光', rarity: 'R', hasSleeve: false, supportsMyShip: true,
+    };
+    const base = (overrides = {}) => ({ hasSleeve: false, supportsMyShip: false, ...overrides });
+
+    expect(filterListings([listing0501, listing0590], base({ cardIdQuery: '05' }))).toEqual([listing0501, listing0590]);
+    expect(filterListings([listing0501, listing0590], base({ cardIdQuery: '0501' }))).toEqual([listing0501]);
+    expect(filterListings([listing0501, listing0590], base({ cardType: 'event', cardIdQuery: '05', supportsMyShip: true }))).toEqual([listing0501]);
+  });
+
+  it('rejects non-digits and more than four digits without matching', () => {
+    const listing = { id: '0501', cardId: '0501', hasSleeve: false, supportsMyShip: true };
+
+    expect(validateCardIdQuery(' 05 ')).toBeUndefined();
+    expect(validateCardIdQuery('05a')).toBe('卡片 ID 只能輸入最多 4 位數字。');
+    expect(validateCardIdQuery('05012')).toBe('卡片 ID 只能輸入最多 4 位數字。');
+    expect(filterListings([listing], { hasSleeve: false, supportsMyShip: false, cardIdQuery: '05a' })).toEqual([]);
   });
 });

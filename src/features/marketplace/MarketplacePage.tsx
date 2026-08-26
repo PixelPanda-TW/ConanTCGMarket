@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CardMetadataSelector, type CardMetadataSelection } from '../../components/CardMetadataSelector';
+import { CardIdSearchField } from '../../components/CardIdSearchField';
 import { PageShell } from '../../components/PageShell';
 import { WelcomeNoticeDialog } from '../../components/WelcomeNoticeDialog';
 import { developmentCards } from '../../data/cards/developmentCards';
 import { getPublicSellerProfile, listActiveListings, listCards } from '../../data/firestore/repositories';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
-import { filterListings } from '../../listingFilters';
+import { filterListings, validateCardIdQuery } from '../../listingFilters';
+import { cardTypeLabel } from '../../domain/cardType';
 import { AuthStatus } from '../auth/AuthStatus';
 import { CharacterSubscriptionControl } from '../notifications/CharacterSubscriptionControl';
-import { resolveListingCard } from './marketplaceCatalog';
+import { resolveListingCard, resolveMarketplaceListingMetadata } from './marketplaceCatalog';
 
 interface MarketplaceListing extends Listing {
   card: Card | null;
-  characterName: string;
+  cardName: string;
   rarity: string;
   seller: string;
 }
@@ -26,7 +28,8 @@ export interface MarketplacePageProps {
 }
 
 const initialMetadata: CardMetadataSelection = {
-  characterName: '',
+  cardType: undefined,
+  cardName: '',
   rarity: '',
   cardId: '',
 };
@@ -39,6 +42,7 @@ export function MarketplacePage({
   const [filters, setFilters] = useState({
     hasSleeve: false,
     supportsMyShip: false,
+    cardIdQuery: '',
     ...initialMetadata,
   });
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
@@ -53,20 +57,25 @@ export function MarketplacePage({
         const records = await Promise.all(
           activeListings
             .filter((listing) => listing.status === 'active')
-            .map(async (listing) => ({
-              listing,
-              card: resolveListingCard(listing.cardId, loadedCards, developmentCards),
-              profile: await loadSeller(listing.sellerId),
-            })),
+            .map(async (listing) => {
+              const card = resolveListingCard(listing.cardId, loadedCards, developmentCards);
+              return {
+                listing,
+                card,
+                metadata: resolveMarketplaceListingMetadata(listing, loadedCards, developmentCards),
+                profile: await loadSeller(listing.sellerId),
+              };
+            }),
         );
 
         if (!isCurrent) return;
         setCards(loadedCards);
-        setListings(records.map(({ listing, card, profile }) => ({
+        setListings(records.map(({ listing, card, metadata, profile }) => ({
           ...listing,
           card,
-          characterName: listing.characterName ?? card?.cardName ?? '未提供角色／人名',
-          rarity: listing.rarity ?? card?.rarities[0] ?? '未提供稀有度',
+          cardType: metadata.cardType,
+          cardName: metadata.cardName,
+          rarity: metadata.rarity,
           seller: profile?.displayName ?? '賣家',
         })));
         setState('ready');
@@ -79,7 +88,9 @@ export function MarketplacePage({
   }, [loadCards, loadListings, loadSeller]);
 
   const visibleListings = useMemo(() => filterListings(listings, filters), [filters, listings]);
-  const isKnownCharacter = cards.some((card) => card.cardType === 'character' && card.cardName === filters.characterName);
+  const cardIdError = validateCardIdQuery(filters.cardIdQuery);
+  const isKnownCharacter = filters.cardType === 'character'
+    && cards.some((card) => card.cardType === 'character' && card.cardName === filters.cardName);
 
   return (
     <PageShell width="marketplace">
@@ -110,15 +121,20 @@ export function MarketplacePage({
               cards={cards}
               value={filters}
               onChange={(metadata) => setFilters((current) => ({ ...current, ...metadata }))}
-              requireCardId={false}
+              showCardId={false}
               className="marketplace-card-metadata-selector"
+            />
+            <CardIdSearchField
+              value={filters.cardIdQuery}
+              onChange={(cardIdQuery) => setFilters((current) => ({ ...current, cardIdQuery }))}
+              error={cardIdError}
             />
           </div>
           {isKnownCharacter && (
             <section className="marketplace-subscription" aria-label="角色通知">
-              <p>想第一時間知道「{filters.characterName}」的新商品？</p>
+              <p>想第一時間知道「{filters.cardName}」的新商品？</p>
               <CharacterSubscriptionControl
-                characterName={filters.characterName ?? ''}
+                characterName={filters.cardName ?? ''}
                 isKnownCharacter
               />
             </section>
@@ -133,8 +149,10 @@ export function MarketplacePage({
             <a className="listing-card" href={`#/listing/${listing.id}`} key={listing.id}>
               <img className="card-photo" src={listing.imageUrls[0]} alt="實卡照片" />
               <div className="listing-details">
-                <h2>{listing.characterName}</h2>
+                <p className="card-type-badge">{listing.cardType ? cardTypeLabel(listing.cardType) : '未提供卡片類型'}</p>
+                <h2>{listing.cardName}</h2>
                 <p className="rarity">{listing.rarity}</p>
+                <p className="card-id">ID {listing.cardId}</p>
                 <p className="price">NT${listing.listingPrice.toLocaleString('zh-TW')} / 張</p>
                 <p>剩餘 {listing.remainingQuantity} 張</p>
                 <p>賣家：{listing.seller}</p>

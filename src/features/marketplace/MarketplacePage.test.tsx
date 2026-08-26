@@ -25,6 +25,7 @@ const cards: Card[] = [
   { id: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R', 'CP'] },
   { id: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
   { id: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+  { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
 ];
 
 const activeListing: Listing = {
@@ -85,9 +86,10 @@ describe('MarketplacePage', () => {
 
     expect(styles).toContain('.filters .marketplace-card-metadata-selector { flex: 1 0 100%; min-width: 0; }');
     expect(styles).not.toContain('.marketplace-card-metadata-selector { display: contents; }');
+    expect(styles).toContain('@media (max-width: 375px)');
   });
 
-  it('shows only active listings and narrows card metadata filters from a selected character', async () => {
+  it('shows only active listings and independent ID search before a type is selected', async () => {
     render(
       <MarketplacePage
         loadListings={async () => [activeListing, { ...activeListing, id: 'sold-out', status: 'sold_out' }]}
@@ -99,14 +101,18 @@ describe('MarketplacePage', () => {
     expect(await screen.findByRole('heading', { name: '諸伏景光' })).toBeTruthy();
     expect(screen.queryByText('sold-out')).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
+    const cardIdInput = screen.getByLabelText('搜尋卡片 ID');
+    expect((cardIdInput as HTMLInputElement).value).toBe('');
+    expect(screen.queryByLabelText('卡片 ID')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏' } });
     expect([...document.querySelectorAll('datalist option')].map((option) => option.getAttribute('value'))).toEqual(['諸伏景光', '諸伏高明']);
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏景光' } });
-    expect((screen.getByLabelText('角色／人名') as HTMLInputElement).value).toBe('諸伏景光');
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏景光' } });
+    expect((screen.getByLabelText('卡片名稱') as HTMLInputElement).value).toBe('諸伏景光');
     expect([...screen.getByLabelText('稀有度').querySelectorAll('option')].map((option) => option.value)).toEqual(['', 'CP', 'R']);
 
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
-    expect([...screen.getByLabelText('卡片 ID').querySelectorAll('option')].map((option) => option.value)).toEqual(['', '0338', '0590']);
   });
 
   it('shows subscription only for an exact known character, not invalid free text', async () => {
@@ -119,10 +125,11 @@ describe('MarketplacePage', () => {
     );
 
     await screen.findByRole('heading', { name: '諸伏景光' });
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏景光' } });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏景光' } });
     expect(screen.getByRole('button', { name: '訂閱諸伏景光' })).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏' } });
     expect(screen.queryByRole('button', { name: /訂閱諸伏/ })).toBeNull();
   });
 
@@ -136,12 +143,55 @@ describe('MarketplacePage', () => {
     );
 
     await screen.findByRole('heading', { name: '諸伏景光' });
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '諸伏高明' } });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏高明' } });
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'D' } });
-    fireEvent.change(screen.getByLabelText('卡片 ID'), { target: { value: '0501' } });
 
     const panel = screen.getByRole('region', { name: '角色通知' });
     expect(panel).toBeTruthy();
     expect(screen.getByRole('button', { name: '訂閱諸伏高明' })).toBeTruthy();
+  });
+
+  it('composes an event type, ID prefix, and myship filter without another Firestore fetch', async () => {
+    const loadListings = vi.fn(async () => [
+      activeListing,
+      {
+        ...activeListing,
+        id: 'event-listing',
+        cardId: '1100',
+        cardType: 'event' as const,
+        cardName: '追跡開始',
+        characterName: undefined,
+        rarity: 'C',
+        supportsMyShip: true,
+      },
+    ]);
+    const loadCards = vi.fn(async () => cards);
+
+    render(<MarketplacePage loadListings={loadListings} loadCards={loadCards} loadSeller={async () => seller} />);
+
+    await screen.findByRole('heading', { name: '諸伏景光' });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'event' } });
+    fireEvent.change(screen.getByLabelText('搜尋卡片 ID'), { target: { value: '11' } });
+    fireEvent.click(screen.getByLabelText('賣貨便'));
+
+    expect(await screen.findByRole('heading', { name: '追跡開始' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '諸伏景光' })).toBeNull();
+    expect(loadListings).toHaveBeenCalledTimes(1);
+    expect(loadCards).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the field error and no results for an invalid ID without fetching again', async () => {
+    const loadListings = vi.fn(async () => [activeListing]);
+    const loadCards = vi.fn(async () => cards);
+    render(<MarketplacePage loadListings={loadListings} loadCards={loadCards} loadSeller={async () => seller} />);
+
+    await screen.findByRole('heading', { name: '諸伏景光' });
+    fireEvent.change(screen.getByLabelText('搜尋卡片 ID'), { target: { value: '05a' } });
+
+    expect(screen.getByRole('alert').textContent).toBe('卡片 ID 只能輸入最多 4 位數字。');
+    expect(screen.getByText('目前沒有符合條件的商品。')).toBeTruthy();
+    expect(loadListings).toHaveBeenCalledTimes(1);
+    expect(loadCards).toHaveBeenCalledTimes(1);
   });
 });

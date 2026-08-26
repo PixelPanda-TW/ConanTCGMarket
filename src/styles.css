@@ -686,6 +686,9 @@ h1 {
 .filters select { flex: 0 1 220px; min-width: 160px; }
 .filters select, .marketplace-card-metadata-selector input { border-color: #d8b4fe; }
 .filters .marketplace-card-metadata-selector { flex: 1 0 100%; min-width: 0; }
+.filters .card-id-search-field { display: grid; flex: 0 1 180px; min-width: min(100%, 150px); gap: 6px; align-items: start; font-weight: 700; }
+.filters .card-id-search-field input { box-sizing: border-box; width: 100%; border-color: #d8b4fe; }
+.filters .card-id-search-field .field-error { width: 100%; }
 .marketplace-subscription {
   display: flex;
   flex-wrap: wrap;
@@ -820,12 +823,20 @@ h1 {
 .marketplace .listing-details { gap: 2px; padding: 10px; }
 .marketplace .listing-details h2 { overflow: hidden; color: var(--ink); font-size: 15px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .marketplace .rarity { color: var(--primary-color); font-size: 13px; }
+.marketplace .card-id { color: hsl(var(--muted-foreground)); font-size: 12px; font-variant-numeric: tabular-nums; }
+.marketplace .card-type-badge { display: inline-flex; width: fit-content; margin: 0 0 4px; border-radius: 999px; background: hsl(var(--primary) / .12); color: hsl(var(--primary)); padding: 3px 7px; font-size: 11px; font-weight: 800; }
 .dashboard-summary p { border: 1px solid #e9d5ff; border-radius: 12px; background: #fff; color: var(--ink); padding: 16px; font-weight: 800; }
 .dashboard-section { display: grid; gap: 12px; margin-top: 28px; }
 .dashboard-section h2 { margin: 0; color: var(--ink); font-size: 20px; }
 .dashboard-section .listing-card { margin: 0; }
 @media (max-width: 980px) { .listings { grid-template-columns: repeat(4, 150px); } }
 @media (max-width: 640px) { .listings { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .filters select { flex-basis: 100%; } .profile-state, .profile-form { padding: 16px; } }
+@media (max-width: 375px) {
+  .filters { gap: 12px; padding: 14px; }
+  .filters .marketplace-card-metadata-selector,
+  .filters .card-id-search-field { flex-basis: 100%; min-width: 0; }
+  .marketplace .listing-details { padding: 8px; }
+}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
 
 @media (max-width: 640px) {

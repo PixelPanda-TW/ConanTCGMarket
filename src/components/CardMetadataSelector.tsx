@@ -37,15 +37,19 @@ export function CardMetadataSelector({
   required = false,
   className,
 }: CardMetadataSelectorProps) {
-  const isLegacySelection = !value.cardType;
-  const cardType = value.cardType ?? 'character';
+  const isLegacySelection = value.cardType === undefined && value.characterName !== undefined;
+  const cardType = value.cardType ?? '';
   const cardName = value.cardName ?? value.characterName ?? '';
-  const nameSuggestions = getCardNameSuggestions(cards, cardType, cardName);
-  const rarityOptions = getRaritiesForMetadata(cards, cardType, cardName);
-  const cardIdOptions = getCardIdsForMetadata(cards, cardType, cardName, value.rarity);
+  const nameSuggestions = cardType ? getCardNameSuggestions(cards, cardType, cardName) : [];
+  const rarityOptions = cardType ? getRaritiesForMetadata(cards, cardType, cardName) : [];
+  const cardIdOptions = cardType ? getCardIdsForMetadata(cards, cardType, cardName, value.rarity) : [];
   const selectorClassName = ['card-metadata-selector', className].filter(Boolean).join(' ');
 
-  function updateCardType(cardType: CardType) {
+  function updateCardType(cardType: CardType | '') {
+    if (!cardType) {
+      onChange({ cardType: undefined, cardName: '', rarity: '', cardId: '' });
+      return;
+    }
     onChange({ cardType, cardName: '', rarity: '', cardId: '' });
   }
 
@@ -55,7 +59,7 @@ export function CardMetadataSelector({
       return;
     }
 
-    onChange({ ...value, cardType, cardName, rarity: '', cardId: '' });
+    onChange({ ...value, cardType: value.cardType, cardName, rarity: '', cardId: '' });
   }
 
   function updateRarity(rarity: string) {
@@ -64,11 +68,11 @@ export function CardMetadataSelector({
       return;
     }
 
-    onChange({ ...value, cardType, cardName, rarity, cardId: '' });
+    onChange({ ...value, cardType: value.cardType, cardName, rarity, cardId: '' });
   }
 
   function updateCardId(cardId: string) {
-    onChange(isLegacySelection ? { ...value, cardId } : { ...value, cardType, cardName, cardId });
+    onChange(isLegacySelection ? { ...value, cardId } : { ...value, cardType: value.cardType, cardName, cardId });
   }
 
   return (
@@ -78,9 +82,10 @@ export function CardMetadataSelector({
         <select
           aria-label="卡片類型"
           value={cardType}
-          onChange={(event) => updateCardType(event.target.value as CardType)}
+          onChange={(event) => updateCardType(event.target.value as CardType | '')}
           required={required}
         >
+          <option value="">全部類型</option>
           {CARD_TYPES.map((cardType) => <option key={cardType} value={cardType}>{cardTypeLabel(cardType)}</option>)}
         </select>
       </label>
@@ -94,6 +99,7 @@ export function CardMetadataSelector({
           onChange={(event) => updateCardName(event.target.value)}
           autoComplete="off"
           placeholder={isLegacySelection ? '輸入角色／人名' : '輸入卡片名稱'}
+          disabled={!cardType}
           required={required}
         />
         <datalist id="card-metadata-name-options">
