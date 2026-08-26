@@ -67,8 +67,15 @@ fresh count/conflict report is produced, and the user explicitly authorizes the
 production import. Until then, no production import or Firebase mutation is
 authorized.
 
-This exact production command is intentionally unexecuted:
+Before any approved import, the controlled operator must configure Firebase
+Admin SDK Application Default Credentials (ADC), for example with
+`gcloud auth application-default login`, as described in the
+[canonical Card Master import guide](card-master-import.md). Browser Firebase
+configuration is not an import credential and is intentionally not reproduced
+here.
+
+This exact production command remains intentionally unexecuted:
 
 ```sh
-FIREBASE_CONFIG='{"apiKey":"…","projectId":"…","appId":"…"}' npm run import:cards -- /tmp/conan-card-master-multi-type.json
+GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-multi-type.json
 ```
