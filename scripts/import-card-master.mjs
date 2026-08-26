@@ -1,44 +1,76 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import {
+  aggregateCardMasterRecords,
+  canonicalCardIdentity,
+  createCardKey,
+} from './card-master-domain.mjs';
 
-const allowed = new Set(['cardId', 'cardType', 'cardName', 'rarities']);
-const cardTypes = new Set(['character', 'event', 'case', 'partner']);
 const MAX_WRITES_PER_BATCH = 450;
 
 export function validateCardMasterImport(input) {
-  if (!Array.isArray(input)) throw new Error('Expected a JSON array.');
-  const cardsById = new Map();
-  for (const item of input) {
-    if (!item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).some((key) => !allowed.has(key)) || typeof item.cardId !== 'string' || !/^\d{4}$/.test(item.cardId) || !cardTypes.has(item.cardType) || typeof item.cardName !== 'string' || !item.cardName.trim() || !Array.isArray(item.rarities) || item.rarities.length === 0 || item.rarities.some((rarity) => typeof rarity !== 'string' || !rarity.trim())) throw new Error('Invalid card master input.');
-
-    const cardName = item.cardName.trim();
-    const previous = cardsById.get(item.cardId);
-    if (previous && (previous.cardType !== item.cardType || previous.cardName !== cardName)) throw new Error('Invalid card master input.');
-    const rarities = Array.from(new Set(item.rarities.map((rarity) => rarity.trim()))).sort();
-    if (previous) previous.rarities = Array.from(new Set([...previous.rarities, ...rarities])).sort();
-    else cardsById.set(item.cardId, { cardId: item.cardId, cardType: item.cardType, cardName, rarities });
+  try {
+    return aggregateCardMasterRecords(input);
+  } catch {
+    throw new Error('Invalid card master input.');
   }
-  return Array.from(cardsById.values()).sort((left, right) => left.cardId.localeCompare(right.cardId));
 }
 
-export function planCardMasterImport(input) {
+function assertNoKeyCollisions(prepared) {
+  const identityByKey = new Map();
+  for (const card of prepared) {
+    const identity = canonicalCardIdentity(card);
+    const previousIdentity = identityByKey.get(card.key);
+    if (previousIdentity !== undefined && previousIdentity !== identity) {
+      throw new Error(`Card key collision: ${card.key}.`);
+    }
+    identityByKey.set(card.key, identity);
+  }
+}
+
+export function planCardMasterImport(input, { createKey = createCardKey } = {}) {
   const cards = validateCardMasterImport(input);
-  return Array.from({ length: Math.ceil(cards.length / MAX_WRITES_PER_BATCH) }, (_, index) => (
-    cards.slice(index * MAX_WRITES_PER_BATCH, (index + 1) * MAX_WRITES_PER_BATCH)
+  const prepared = cards.map((card) => ({ key: createKey(card), ...card }));
+  assertNoKeyCollisions(prepared);
+  return Array.from({ length: Math.ceil(prepared.length / MAX_WRITES_PER_BATCH) }, (_, index) => (
+    prepared.slice(index * MAX_WRITES_PER_BATCH, (index + 1) * MAX_WRITES_PER_BATCH)
   ));
 }
 
-export async function executeCardMasterImport(input, { initializeFirestore = initializeAdminFirestore } = {}) {
-  const plan = planCardMasterImport(input);
+export async function executeCardMasterImport(
+  input,
+  { initializeFirestore = initializeAdminFirestore, createKey = createCardKey } = {},
+) {
+  const plan = planCardMasterImport(input, { createKey });
   const db = await initializeFirestore();
 
   for (const cards of plan) {
     const batch = db.batch();
-    for (const { cardId, cardType, cardName, rarities } of cards) {
-      batch.set(db.collection('cards').doc(cardId), { cardType, cardName, rarities });
+    for (const { key, cardId, cardType, cardName, rarities } of cards) {
+      batch.set(db.collection('cards').doc(key), { cardId, cardType, cardName, rarities });
     }
     await batch.commit();
   }
+}
+
+export async function runCardMasterImportCli(
+  argv,
+  {
+    readJson = async (path) => JSON.parse(await readFile(path, 'utf8')),
+    executeImport = executeCardMasterImport,
+    log = console.log,
+  } = {},
+) {
+  const dryRun = argv[0] === '--dry-run';
+  const inputPath = dryRun ? argv[1] : argv[0];
+  if (!inputPath) throw new Error('Usage: npm run import:cards -- [--dry-run] <input-file>');
+
+  const input = await readJson(inputPath);
+  if (!dryRun) return executeImport(input);
+
+  const batches = planCardMasterImport(input);
+  const recordCount = batches.reduce((count, batch) => count + batch.length, 0);
+  log(`records=${recordCount}, batches=${batches.length}, keyCollisions=0`);
 }
 
 async function initializeAdminFirestore() {
@@ -51,6 +83,5 @@ async function initializeAdminFirestore() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const input = JSON.parse(await readFile(process.argv[2], 'utf8'));
-  await executeCardMasterImport(input);
+  await runCardMasterImportCli(process.argv.slice(2));
 }
