@@ -793,6 +793,7 @@ h1 {
 
 .card-metadata-selector > label {
   display: grid;
+  min-width: 0;
   gap: 6px;
 }
 
@@ -804,7 +805,7 @@ h1 {
 .card-metadata-selector select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid hsl(var(--input));
   border-radius: var(--radius);
   background: hsl(var(--background) / .78);

@@ -71,7 +71,35 @@ describe('SellPage', () => {
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
 
     expect([...screen.getByLabelText('稀有度').querySelectorAll('option')].map((option) => option.getAttribute('value'))).toEqual(['', 'CP', 'R']);
-    expect([...screen.getByLabelText('卡片 ID').querySelectorAll('option')].map((option) => option.getAttribute('value'))).toEqual(['', '0338', '0590']);
+    expect([...document.querySelectorAll('#card-metadata-id-options option')].map((option) => option.getAttribute('value'))).toEqual(['0338', '0590']);
+  });
+
+  it('creates a partner Listing with the normalized visible ID and no internal key', async () => {
+    listCardsMock.mockResolvedValue([{ key: 'card_partner', cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] }]);
+    createListingIdMock.mockReturnValue('listing-partner');
+    uploadListingImagesMock.mockResolvedValue(['https://example.com/partner.jpg']);
+    createListingMock.mockResolvedValue('listing-partner');
+    render(<SellPage loadSellerProfile={loadSellerProfile} />);
+
+    await screen.findByLabelText('卡片類型');
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'partner' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '江戶川柯南' } });
+    fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'P' } });
+    fireEvent.change(screen.getByLabelText('卡片 ID'), { target: { value: 'p001' } });
+    fireEvent.change(screen.getByLabelText('商品圖片'), { target: { files: [new File(['image'], 'partner.png', { type: 'image/png' })] } });
+    fireEvent.change(screen.getByLabelText('價格'), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('數量'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: '建立刊登' }));
+
+    await waitFor(() => expect(createListingMock).toHaveBeenCalledTimes(1));
+    expect(createListingIdMock).toHaveBeenCalledTimes(1);
+    expect(uploadListingImagesMock).toHaveBeenCalledTimes(1);
+    const listing = createListingMock.mock.calls[0][0];
+    expect(listing).toEqual(expect.objectContaining({
+      cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarity: 'P',
+    }));
+    expect(listing).not.toHaveProperty('key');
+    expect(listing).not.toHaveProperty('cardKey');
   });
 
   it('creates an event Listing snapshot without characterName', async () => {
@@ -128,15 +156,14 @@ describe('SellPage', () => {
     fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'event' } });
     fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '追跡開始' } });
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'C' } });
-    const cardIdInput = screen.getByLabelText('卡片 ID') as HTMLSelectElement;
-    cardIdInput.append(new Option('9999', '9999'));
-    fireEvent.change(cardIdInput, { target: { value: '9999' } });
+    fireEvent.change(screen.getByLabelText('卡片 ID'), { target: { value: '9999' } });
     fireEvent.change(screen.getByLabelText('商品圖片'), { target: { files: [new File(['image'], 'event.png', { type: 'image/png' })] } });
     fireEvent.change(screen.getByLabelText('價格'), { target: { value: '500' } });
     fireEvent.change(screen.getByLabelText('數量'), { target: { value: '1' } });
     fireEvent.click(screen.getByRole('button', { name: '建立刊登' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('資料庫找不到這組卡片類型、卡片名稱、稀有度與 ID，請確認後再試。');
+    expect(createListingIdMock).not.toHaveBeenCalled();
     expect(uploadListingImagesMock).not.toHaveBeenCalled();
     expect(createListingMock).not.toHaveBeenCalled();
   });

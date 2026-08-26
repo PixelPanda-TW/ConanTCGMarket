@@ -18,10 +18,22 @@ const form = (overrides: Partial<SellFormState> = {}): SellFormState => ({
 
 describe('sell form', () => {
   it('normalizes card metadata and validates all required listing fields', () => {
-    expect(normalizeSellForm(form({ cardId: ' 0164 ', cardName: ' 鈴木園子 ', rarity: ' SR ', listingPrice: ' 500 ', note: ' near mint ' }))).toMatchObject({ cardId: '0164', cardType: 'character', cardName: '鈴木園子', rarity: 'SR', listingPrice: '500', note: 'near mint' });
+    expect(normalizeSellForm(form({ cardId: ' p001 ', cardName: ' Cafe\u0301 ', rarity: ' P ', listingPrice: ' 500 ', note: ' near mint ' }))).toMatchObject({ cardId: 'P001', cardType: 'character', cardName: 'Café', rarity: 'P', listingPrice: '500', note: 'near mint' });
     expect(validateSellForm(form({ cardId: '109', cardType: '' as never, cardName: '', rarity: '', files: [], listingPrice: '0', quantity: '1.5' })).errors).toEqual({
-      cardId: '卡片 ID 必須是 4 位數字。', cardType: '請選擇卡片類型。', cardName: '請填寫卡片名稱。', rarity: '請填寫稀有度。', files: '請選擇 1 到 3 張商品圖片。', listingPrice: '價格必須大於 0。', quantity: '數量必須是大於 0 的整數。',
+      cardId: '卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。', cardType: '請選擇卡片類型。', cardName: '請填寫卡片名稱。', rarity: '請填寫稀有度。', files: '請選擇 1 到 3 張商品圖片。', listingPrice: '價格必須大於 0。', quantity: '數量必須是大於 0 的整數。',
     });
+  });
+
+  it.each([
+    ['P001', 'P001', undefined],
+    ['p001', 'P001', undefined],
+    ['P01', 'P01', '卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。'],
+    ['B0982', 'B0982', '卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。'],
+  ])('validates the visible card ID %s', (cardId, expectedCardId, expectedError) => {
+    const result = validateSellForm(form({ cardId }));
+
+    expect(result.values.cardId).toBe(expectedCardId);
+    expect(result.errors.cardId).toBe(expectedError);
   });
 
   it('accepts only character names present in Card Master', () => {

@@ -121,12 +121,12 @@ describe('CardMetadataSelector', () => {
     await user.type(input, '江戶川');
 
     expect(input.value).toBe('江戶川');
-    expect(screen.getByRole('option', { name: '全部卡片 ID' })).toBeTruthy();
+    expect(screen.getByLabelText('卡片 ID').tagName).toBe('INPUT');
   });
 
-  it('displays and returns the visible card ID without exposing the internal key', () => {
+  it('accepts a normalized visible card ID through a mobile-safe text input and datalist', () => {
     const onChange = vi.fn();
-    render(
+    const { container } = render(
       <CardMetadataSelector
         cards={cards}
         value={{ cardType: 'partner', cardName: '江戶川柯南', rarity: 'P', cardId: '' }}
@@ -134,15 +134,30 @@ describe('CardMetadataSelector', () => {
       />,
     );
 
-    const cardId = screen.getByLabelText('卡片 ID') as HTMLSelectElement;
-    expect([...cardId.options].map((option) => option.textContent)).toEqual(['請選擇卡片 ID', 'P001']);
-    expect(cardId.textContent).not.toContain('#');
-    expect(cardId.textContent).not.toContain('card_c');
+    const cardId = screen.getByLabelText('卡片 ID') as HTMLInputElement;
+    expect(cardId.tagName).toBe('INPUT');
+    expect(cardId.getAttribute('list')).toBe('card-metadata-id-options');
+    expect(cardId.maxLength).toBe(4);
+    expect(cardId.getAttribute('autocapitalize')).toBe('characters');
+    expect(cardId.getAttribute('spellcheck')).toBe('false');
+    expect(cardId.getAttribute('inputmode')).toBeNull();
+    const options = [...container.querySelectorAll('#card-metadata-id-options option')];
+    expect(options.map((option) => option.getAttribute('value'))).toEqual(['P001']);
+    expect(options.map((option) => option.textContent).join('')).not.toContain('card_c');
 
-    fireEvent.change(cardId, { target: { value: 'P001' } });
+    fireEvent.change(cardId, { target: { value: 'p001' } });
     expect(onChange).toHaveBeenCalledWith({
       cardType: 'partner', cardName: '江戶川柯南', rarity: 'P', cardId: 'P001',
     });
+  });
+
+  it('keeps card ID entry disabled until rarity is selected', () => {
+    render(<SelectorHarness />);
+
+    expect((screen.getByLabelText('卡片 ID') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏高明' } });
+    fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'D' } });
+    expect((screen.getByLabelText('卡片 ID') as HTMLInputElement).disabled).toBe(false);
   });
 
 });

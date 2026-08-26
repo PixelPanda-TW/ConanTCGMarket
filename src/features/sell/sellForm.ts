@@ -1,5 +1,6 @@
 import type { Card } from '../../domain/models';
 import { isCardType, type CardType } from '../../domain/cardType';
+import { isCompleteCardId, normalizeCardId } from '../../domain/cardId';
 import {
   getCardIdsForMetadata,
   getCharacterNameSuggestions,
@@ -32,13 +33,13 @@ export interface SellFormState {
 export type SellFormErrors = Partial<Record<'cardId' | 'cardType' | 'cardName' | 'rarity' | 'files' | 'listingPrice' | 'quantity' | 'sleeveFee' | 'myShipFee', string>>;
 
 export function normalizeSellForm(values: SellFormState): SellFormState {
-  return { ...values, cardId: values.cardId.trim(), cardName: values.cardName.trim(), rarity: values.rarity.trim(), listingPrice: values.listingPrice.trim(), quantity: values.quantity.trim(), sleeveFee: values.sleeveFee.trim(), myShipFee: values.myShipFee.trim(), note: values.note.trim() };
+  return { ...values, cardId: normalizeCardId(values.cardId), cardName: values.cardName.trim().normalize('NFC'), rarity: values.rarity.trim(), listingPrice: values.listingPrice.trim(), quantity: values.quantity.trim(), sleeveFee: values.sleeveFee.trim(), myShipFee: values.myShipFee.trim(), note: values.note.trim() };
 }
 
 export function validateSellForm(values: SellFormState) {
   const normalizedValues = normalizeSellForm(values);
   const errors: SellFormErrors = {};
-  if (!/^\d{4}$/.test(normalizedValues.cardId)) errors.cardId = '卡片 ID 必須是 4 位數字。';
+  if (!isCompleteCardId(normalizedValues.cardId)) errors.cardId = '卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。';
   if (!isCardType(normalizedValues.cardType)) errors.cardType = '請選擇卡片類型。';
   if (!normalizedValues.cardName) errors.cardName = '請填寫卡片名稱。';
   if (!normalizedValues.rarity) errors.rarity = '請填寫稀有度。';

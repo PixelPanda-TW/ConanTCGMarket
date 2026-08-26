@@ -1,4 +1,5 @@
 import { CARD_TYPES, cardTypeLabel, type CardType } from '../domain/cardType';
+import { normalizeCardIdQuery } from '../domain/cardId';
 import type { Card } from '../domain/models';
 import {
   getCardsForMetadata,
@@ -132,16 +133,20 @@ export function CardMetadataSelector({
       {showCardId && (
         <label>
           <FieldLabel required={required}>卡片 ID</FieldLabel>
-          <select
+          <input
             aria-label="卡片 ID"
+            autoCapitalize="characters"
+            list="card-metadata-id-options"
+            maxLength={4}
+            spellCheck={false}
             value={value.cardId}
-            onChange={(event) => updateCardId(event.target.value)}
+            onChange={(event) => updateCardId(normalizeCardIdQuery(event.target.value))}
             disabled={!value.rarity}
             required={required}
-          >
-            <option value="">{requireCardId === false ? '全部卡片 ID' : '請選擇卡片 ID'}</option>
+          />
+          <datalist id="card-metadata-id-options">
             {cardOptions.map((card) => <option key={card.key} value={card.cardId}>{card.cardId}</option>)}
-          </select>
+          </datalist>
         </label>
       )}
     </div>
