@@ -40,15 +40,34 @@ describe('Firestore converters', () => {
     expect(
       cardConverter.toFirestore({
         id: '1096',
-        characterName: '鈴木園子',
+        cardType: 'character',
+        cardName: '鈴木園子',
         rarities: ['SR', 'CP'],
         officialImageUrl: 'https://example.com/official.jpg',
         effectText: 'private card text',
         unknown: 'unknown',
       } as never),
     ).toEqual({
-      characterName: '鈴木園子',
+      cardType: 'character',
+      cardName: '鈴木園子',
       rarities: ['SR', 'CP'],
+    });
+  });
+
+  it('converts legacy Card Master character metadata to the normalized shape', () => {
+    const snapshot = {
+      id: '0501',
+      data: () => ({
+        characterName: '諸伏高明',
+        rarities: ['D'],
+      }),
+    };
+
+    expect(cardConverter.fromFirestore(snapshot as never, {} as never)).toMatchObject({
+      id: '0501',
+      cardType: 'character',
+      cardName: '諸伏高明',
+      rarities: ['D'],
     });
   });
 
@@ -235,7 +254,7 @@ describe('Firestore converters', () => {
   it('rejects malformed Firestore card optional fields', () => {
     const snapshot = {
       id: '1096',
-      data: () => ({ characterName: 123, rarity: 'CP' }),
+      data: () => ({ cardType: 'character', cardName: 123, rarities: ['CP'] }),
     };
 
     expect(() => cardConverter.fromFirestore(snapshot as never)).toThrow();

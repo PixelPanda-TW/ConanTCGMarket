@@ -11,6 +11,7 @@ import {
   type Sale,
   type SellerProfile,
 } from './index';
+import { CARD_TYPES, cardTypeLabel, isCardType } from '../cardType';
 
 describe('domain model validation', () => {
   it('accepts a notification subscription for complete normalized character keys', () => {
@@ -69,21 +70,39 @@ describe('domain model validation', () => {
     })).toThrow();
   });
 
-  it('accepts four-digit Card Master IDs with a character name', () => {
-    expect(() => validateCard({ id: '1096', characterName: '鈴木園子', rarity: 'SR' } as Card)).not.toThrow();
+  it('accepts normalized four-digit Card Master metadata', () => {
+    expect(() => validateCard({
+      id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'],
+    } as Card)).not.toThrow();
   });
 
   it('rejects Card Master IDs that are not four digits', () => {
-    expect(() => validateCard({ id: 'B10036', characterName: '鈴木園子', rarity: 'SR' } as Card)).toThrow('Card id must be four digits.');
+    expect(() => validateCard({
+      id: 'B10036', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'],
+    } as Card)).toThrow('Card id must be four digits.');
   });
 
-  it('requires each card to have a character name', () => {
+  it('rejects cards with an unsupported card type', () => {
+    expect(() => validateCard({
+      id: '1100', cardType: 'unknown', cardName: '追跡開始', rarities: ['C'],
+    } as never)).toThrow('Card requires a supported cardType.');
+  });
+
+  it('requires each card to have a card name', () => {
     const card: Card = {
       id: '0001',
-      rarity: 'CP',
+      cardType: 'character',
+      rarities: ['CP'],
     } as Card;
 
-    expect(() => validateCard(card)).toThrow('Card requires characterName.');
+    expect(() => validateCard(card)).toThrow('Card requires cardName.');
+  });
+
+  it('exposes the supported card types with their UI labels', () => {
+    expect(CARD_TYPES).toEqual(['character', 'event', 'case', 'partner']);
+    expect(isCardType('event')).toBe(true);
+    expect(isCardType('unknown')).toBe(false);
+    expect(cardTypeLabel('case')).toBe('Case 卡（情境卡）');
   });
 
   it('accepts a valid active listing with positive quantities', () => {
