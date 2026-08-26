@@ -1,5 +1,5 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where, type QueryConstraint } from 'firebase/firestore';
-import type { Listing } from '../../../domain/models';
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
+import { validateListing, type Listing } from '../../../domain/models';
 import { auth } from '../../../lib/firebase/app';
 import { listingConverter } from '../converters';
 import { firestoreDb } from '../database';
@@ -54,7 +54,25 @@ export async function updateListing(listing: Listing): Promise<void> {
   const current = await getListing(listing.id);
   if (!current || current.sellerId !== listing.sellerId || current.cardId !== listing.cardId || current.originalQuantity !== listing.originalQuantity) throw new Error('Listing immutable fields cannot be changed.');
   if (listing.remainingQuantity < current.originalQuantity - current.remainingQuantity) throw new Error('Remaining quantity cannot be less than sold quantity.');
-  await setDoc(doc(firestoreDb, collections.listings, listing.id).withConverter(listingConverter), listing);
+  const editable = {
+    imageUrls: listing.imageUrls,
+    listingPrice: listing.listingPrice,
+    remainingQuantity: listing.remainingQuantity,
+    hasSleeve: listing.hasSleeve,
+    sleeveFee: listing.sleeveFee,
+    supportsMyShip: listing.supportsMyShip,
+    myShipFee: listing.myShipFee,
+    note: listing.note,
+    status: listing.status,
+    updatedAt: listing.updatedAt,
+  };
+  validateListing({ ...current, ...editable }, true);
+  await updateDoc(doc(firestoreDb, collections.listings, listing.id), {
+    ...editable,
+    sleeveFee: editable.sleeveFee ?? deleteField(),
+    myShipFee: editable.myShipFee ?? deleteField(),
+    note: editable.note ?? deleteField(),
+  });
 }
 
 export async function deleteListing(listing: Pick<Listing, 'id' | 'sellerId'>): Promise<void> {

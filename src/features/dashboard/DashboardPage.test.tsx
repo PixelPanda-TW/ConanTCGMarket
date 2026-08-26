@@ -6,6 +6,7 @@ import type { Listing } from '../../domain/models';
 import { DashboardPage } from './DashboardPage';
 
 const repositories = vi.hoisted(() => ({
+  listCards: vi.fn(),
   listSellerListings: vi.fn(),
   listSellerSales: vi.fn(),
   recordSale: vi.fn(),
@@ -28,11 +29,32 @@ describe('DashboardPage', () => {
   it('shows generic card metadata for active seller listings', async () => {
     repositories.listSellerListings.mockResolvedValue([listing]);
     repositories.listSellerSales.mockResolvedValue([]);
+    repositories.listCards.mockResolvedValue([]);
 
     render(<DashboardPage />);
 
     expect(await screen.findByText('Case 卡（情境卡）')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '封鎖現場' })).toBeTruthy();
     expect(screen.getByText('SR · ID 2200')).toBeTruthy();
+  });
+
+  it('resolves cardId-only legacy metadata from Card Master for active and sold-out listings', async () => {
+    repositories.listSellerListings.mockResolvedValue([
+      { ...listing, id: 'legacy-active', cardId: 'CT-P01-001', cardType: undefined, cardName: undefined, rarity: undefined },
+      { ...listing, id: 'legacy-sold-out', cardId: 'CT-P01-002', cardType: undefined, cardName: undefined, rarity: undefined, status: 'sold_out' },
+    ]);
+    repositories.listSellerSales.mockResolvedValue([]);
+    repositories.listCards.mockResolvedValue([
+      { id: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
+      { id: 'CT-P01-002', cardType: 'partner', cardName: '舊版拍檔', rarities: ['P'] },
+    ]);
+
+    render(<DashboardPage />);
+
+    expect(await screen.findByRole('heading', { name: '舊版事件' })).toBeTruthy();
+    expect(screen.getByText('CP · ID CT-P01-001')).toBeTruthy();
+    expect(screen.getByText('Partner 卡（拍檔卡）')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '舊版拍檔' })).toBeTruthy();
+    expect(screen.getByText('P · ID CT-P01-002')).toBeTruthy();
   });
 });

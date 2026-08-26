@@ -8,6 +8,7 @@ import { ListingEditPage } from './ListingEditPage';
 const repositories = vi.hoisted(() => ({
   deleteListing: vi.fn(),
   getListing: vi.fn(),
+  listCards: vi.fn(),
   updateListing: vi.fn(),
 }));
 
@@ -44,6 +45,7 @@ describe('ListingEditPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repositories.getListing.mockResolvedValue(listing);
+    repositories.listCards.mockResolvedValue([]);
     repositories.updateListing.mockResolvedValue(undefined);
   });
 
@@ -94,5 +96,26 @@ describe('ListingEditPage', () => {
       rarity: 'R',
       characterName: '諸伏景光',
     })));
+  });
+
+  it('resolves cardId-only legacy metadata from Card Master without blocking editing', async () => {
+    repositories.getListing.mockResolvedValue({
+      ...listing,
+      id: 'legacy-listing',
+      cardId: 'CT-P01-001',
+      cardType: undefined,
+      cardName: undefined,
+      rarity: undefined,
+    });
+    repositories.listCards.mockResolvedValue([
+      { id: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
+    ]);
+
+    render(<ListingEditPage id="legacy-listing" />);
+
+    expect(await screen.findByText('事件卡')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '舊版事件' })).toBeTruthy();
+    expect(screen.getByText('CP · ID CT-P01-001')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '儲存變更' })).toBeTruthy();
   });
 });
