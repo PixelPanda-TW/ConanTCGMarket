@@ -22,11 +22,19 @@ function textLines(html) {
     .filter(Boolean);
 }
 
-function characterNameFromInfoBox(infoBox) {
+const sourceCardTypes = new Map([
+  ['角色卡', 'character'],
+  ['事件卡', 'event'],
+  ['情境卡', 'case'],
+  ['拍檔卡', 'partner'],
+]);
+
+function cardNameFromInfoBox(infoBox) {
   const markedName = infoBox.match(/<a\b(?=[^>]*\bclass=(?:"[^"]*\bfontsize2\b[^"]*"|'[^']*\bfontsize2\b[^']*'))[^>]*>([\s\S]*?)<\/a>/iu)?.[1];
   if (markedName) return textLines(markedName)[0];
 
-  return textLines(infoBox.replace(/^[\s\S]*?<br\s*\/?>/iu, ''))[0];
+  const nameSection = infoBox.match(/<br\s*\/?>\s*([\s\S]*)$/iu)?.[1];
+  return nameSection ? textLines(nameSection)[0] : undefined;
 }
 
 /**
@@ -35,36 +43,28 @@ function characterNameFromInfoBox(infoBox) {
  */
 export function extractApprovedCardRecords(html) {
   const records = [];
-  const seen = new Set();
 
   const cardHolders = html.match(/<span\b[^>]*\bclass=(?:['"])cardHolder(?:['"])[^>]*>[\s\S]*?(?=<span\b[^>]*\bclass=(?:['"])cardHolder(?:['"])[^>]*>|$)/giu) ?? [];
 
   for (const holder of cardHolders) {
-    if (!/showCard\([^)]*['"]角色卡['"]/u.test(holder)) continue;
-
     const infoBox = holder.match(/<div\b[^>]*\bclass=(?:['"])infoBox(?:['"])[^>]*>([\s\S]*?)<\/div>/iu)?.[1];
-    if (!infoBox) continue;
+    const sourceType = holder.match(/showCard\(\s*['"][^'"]*['"]\s*,\s*['"][^'"]*['"]\s*,\s*['"]([^'"]+)['"]/u)?.[1];
+    if (!sourceType && !infoBox) continue;
+
+    const cardType = sourceCardTypes.get(sourceType);
+    if (!cardType) throw new Error(`Rugia Card Master has unknown source card type: ${sourceType ?? 'missing'}.`);
+
+    if (!infoBox) throw new Error('Rugia Card Master card record is missing metadata.');
 
     const metadata = decodeEntities(infoBox.replace(/<[^>]+>/gu, ' ').replace(/\s+/gu, ' ').trim());
-    const match = metadata.match(/(?:^|\s)[^\s/]+\s*\/\s*(\d{4})\s*\(([^)]+)\)/u);
-    const characterName = characterNameFromInfoBox(infoBox);
+    const match = metadata.match(/(?:^|\s)[^\s/]+\s*\/\s*([^\s()]+)\s*\(([^)]+)\)/u);
+    const cardName = cardNameFromInfoBox(infoBox);
 
-    if (!match || !characterName || seen.has(match[1])) continue;
-    seen.add(match[1]);
-    records.push({ cardId: match[1], characterName, rarity: match[2].trim() });
-  }
-
-  if (records.length > 0) return records;
-
-  const lines = textLines(html);
-
-  for (let index = 0; index < lines.length - 1; index += 1) {
-    const match = lines[index].match(/^[^/]+\/\s*(\d{4})\s*\(([^)]+)\)$/u);
-    if (!match || seen.has(match[1])) continue;
-    const characterName = lines[index + 1];
-    if (!characterName || /^(image|圖片)$/iu.test(characterName)) continue;
-    seen.add(match[1]);
-    records.push({ cardId: match[1], characterName, rarity: match[2].trim() });
+    if (!match || !cardName || !match[2].trim()) {
+      throw new Error('Rugia Card Master card record is missing an approved field.');
+    }
+    if (!/^\d{4}$/.test(match[1])) throw new Error(`Rugia Card Master has invalid card ID ${match[1]}.`);
+    records.push({ cardId: match[1], cardType, cardName, rarity: match[2].trim() });
   }
 
   return records;
@@ -79,17 +79,18 @@ export async function syncRugiaCardMaster(fetchImpl = fetch) {
 
     for (const record of extractApprovedCardRecords(await response.text())) {
       const existing = cardsById.get(record.cardId);
-      if (existing && existing.characterName !== record.characterName) {
-        throw new Error(`Rugia Card Master has conflicting character names for card ID ${record.cardId}.`);
+      if (existing && (existing.cardType !== record.cardType || existing.cardName !== record.cardName)) {
+        throw new Error(`Rugia Card Master has conflicting identity for card ID ${record.cardId}.`);
       }
       if (existing) existing.rarities.add(record.rarity);
-      else cardsById.set(record.cardId, { cardId: record.cardId, characterName: record.characterName, rarities: new Set([record.rarity]) });
+      else cardsById.set(record.cardId, { cardId: record.cardId, cardType: record.cardType, cardName: record.cardName, rarities: new Set([record.rarity]) });
     }
   }
 
-  return Array.from(cardsById.values(), ({ cardId, characterName, rarities }) => ({
+  return Array.from(cardsById.values(), ({ cardId, cardType, cardName, rarities }) => ({
     cardId,
-    characterName,
+    cardType,
+    cardName,
     rarities: Array.from(rarities).sort(),
   })).sort((left, right) => left.cardId.localeCompare(right.cardId));
 }

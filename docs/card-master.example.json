@@ -1,8 +1,14 @@
 [
   {
-    "cardId": "CP-001",
-    "nameZh": "諸伏景光",
-    "nameJa": "諸伏景光",
-    "rarity": "CP"
+    "cardId": "0001",
+    "cardType": "character",
+    "cardName": "江戶川柯南",
+    "rarities": ["R"]
+  },
+  {
+    "cardId": "1100",
+    "cardType": "event",
+    "cardName": "追跡開始",
+    "rarities": ["C"]
   }
 ]

@@ -30,6 +30,23 @@ Add the same values as repository variables before deploying with GitHub Actions
 GitHub Pages deployment is web-only. It builds and publishes the Vite site; it
 does not deploy Firestore rules, indexes, or Cloud Functions.
 
+## Controlled Card Master synchronization and import
+
+Create a review-only Card Master candidate from the authorized Rugia source:
+
+```sh
+npm run sync:cards -- /tmp/conan-card-master.json
+```
+
+The candidate contains only `cardId`, `cardType`, `cardName`, and `rarities`.
+Its four approved types are `character`, `event`, `case`, and `partner`; do not
+add card images, effect text, source metadata, or any other unapproved fields.
+
+Do not run `npm run import:cards` against production until an operator has
+reviewed the generated count/conflict report and obtained explicit production
+approval. The import is an upsert only: it never deletes the Card Master, and
+it writes only `cardType`, trimmed `cardName`, and normalized `rarities`.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any
