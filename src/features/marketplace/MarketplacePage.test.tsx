@@ -22,9 +22,9 @@ vi.mock('../auth/AuthProvider', () => ({
 }));
 
 const cards: Card[] = [
-  { id: '0338', characterName: '諸伏景光', rarities: ['R', 'CP'] },
-  { id: '0590', characterName: '諸伏景光', rarities: ['R'] },
-  { id: '0501', characterName: '諸伏高明', rarities: ['D'] },
+  { id: '0338', cardType: 'character', cardName: '諸伏景光', characterName: '諸伏景光', rarities: ['R', 'CP'] },
+  { id: '0590', cardType: 'character', cardName: '諸伏景光', characterName: '諸伏景光', rarities: ['R'] },
+  { id: '0501', cardType: 'character', cardName: '諸伏高明', characterName: '諸伏高明', rarities: ['D'] },
 ];
 
 const activeListing: Listing = {

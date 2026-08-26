@@ -93,7 +93,7 @@ describe('domain model validation', () => {
       id: '0001',
       cardType: 'character',
       rarities: ['CP'],
-    } as Card;
+    } as unknown as Card;
 
     expect(() => validateCard(card)).toThrow('Card requires cardName.');
   });

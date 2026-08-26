@@ -8,44 +8,100 @@ export interface CardMetadataValue {
   cardId: string;
 }
 
-function matchesCardType(card: Card, cardType: CardType): boolean {
-  return card.cardType === cardType;
+export interface LegacyCardMetadataValue {
+  characterName: string;
+  rarity: string;
+  cardId: string;
 }
 
-export function getCardNameSuggestions(cards: readonly Card[], cardType: CardType, query: string): string[] {
+interface LegacyCard {
+  id: string;
+  characterName: string;
+  rarities?: readonly string[];
+  rarity?: string;
+}
+
+type MetadataCard = Card | LegacyCard;
+
+function isLegacyCard(card: MetadataCard): card is LegacyCard {
+  return !('cardType' in card);
+}
+
+function cardRarities(card: MetadataCard): readonly string[] {
+  return card.rarities ?? (card.rarity ? [card.rarity] : []);
+}
+
+function cardNameOf(card: MetadataCard): string {
+  return isLegacyCard(card) ? card.characterName : card.cardName;
+}
+
+function matchesCardType(card: MetadataCard, cardType: CardType): boolean {
+  return isLegacyCard(card) ? cardType === 'character' : card.cardType === cardType;
+}
+
+export function getCardNameSuggestions(cards: readonly MetadataCard[], cardType: CardType, query: string): string[] {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return [];
 
   return [...new Set(cards
     .filter((card) => matchesCardType(card, cardType))
-    .map((card) => card.cardName)
+    .map(cardNameOf)
     .filter((name) => name.startsWith(normalizedQuery)))];
 }
 
-export function getRaritiesForMetadata(cards: readonly Card[], cardType: CardType, cardName: string): string[] {
+export function getRaritiesForMetadata(cards: readonly MetadataCard[], cardType: CardType, cardName: string): string[] {
   return [...new Set(cards
-    .filter((card) => matchesCardType(card, cardType) && (!cardName.trim() || card.cardName === cardName))
-    .flatMap((card) => card.rarities))]
+    .filter((card) => matchesCardType(card, cardType) && (!cardName.trim() || cardNameOf(card) === cardName))
+    .flatMap(cardRarities))]
     .sort();
 }
 
 export function getCardIdsForMetadata(
-  cards: readonly Card[],
+  cards: readonly MetadataCard[],
   cardType: CardType,
   cardName: string,
   rarity: string,
+): string[];
+export function getCardIdsForMetadata(
+  cards: readonly MetadataCard[],
+  characterName: string,
+  rarity: string,
+): string[];
+export function getCardIdsForMetadata(
+  cards: readonly MetadataCard[],
+  cardTypeOrCharacterName: CardType | string,
+  cardNameOrRarity: string,
+  maybeRarity?: string,
 ): string[] {
+  const isLegacyCall = maybeRarity === undefined;
+  const cardType = isLegacyCall ? 'character' : cardTypeOrCharacterName as CardType;
+  const cardName = isLegacyCall ? cardTypeOrCharacterName : cardNameOrRarity;
+  const rarity = isLegacyCall ? cardNameOrRarity : maybeRarity;
   if (!cardName.trim() || !rarity.trim()) return [];
 
   return cards
-    .filter((card) => matchesCardType(card, cardType) && card.cardName === cardName && card.rarities.includes(rarity))
+    .filter((card) => matchesCardType(card, cardType) && cardNameOf(card) === cardName && cardRarities(card).includes(rarity))
     .map((card) => card.id)
     .sort((first, second) => first.localeCompare(second));
 }
 
-export function hasKnownCardMetadata(cards: readonly Card[], values: CardMetadataValue): boolean {
+export function hasKnownCardMetadata(
+  cards: readonly MetadataCard[],
+  values: CardMetadataValue | LegacyCardMetadataValue,
+): boolean {
+  const cardType = 'cardType' in values ? values.cardType : 'character';
+  const knownCardName = 'cardName' in values ? values.cardName : values.characterName;
+
   return cards.some((card) => card.id === values.cardId
-    && matchesCardType(card, values.cardType)
-    && card.cardName === values.cardName
-    && card.rarities.includes(values.rarity));
+    && matchesCardType(card, cardType)
+    && cardNameOf(card) === knownCardName
+    && cardRarities(card).includes(values.rarity));
+}
+
+export function getCharacterNameSuggestions(cards: readonly MetadataCard[], query: string): string[] {
+  return getCardNameSuggestions(cards, 'character', query);
+}
+
+export function getRaritiesForCharacter(cards: readonly MetadataCard[], characterName: string): string[] {
+  return getRaritiesForMetadata(cards, 'character', characterName);
 }

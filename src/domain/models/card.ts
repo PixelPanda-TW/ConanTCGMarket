@@ -5,6 +5,14 @@ export interface Card {
   cardType: CardType;
   cardName: string;
   rarities: readonly string[];
+  /** @deprecated Temporary read compatibility for staged character-only consumers. */
+  characterName?: string;
+  /** @deprecated Temporary read compatibility for staged character-only consumers. */
+  nameZh?: string;
+  /** @deprecated Temporary read compatibility for staged character-only consumers. */
+  nameJa?: string;
+  /** @deprecated Temporary read compatibility for staged character-only consumers. */
+  rarity?: string;
 }
 
 export function validateCard(card: Card) {

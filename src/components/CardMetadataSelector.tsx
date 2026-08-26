@@ -5,16 +5,25 @@ import {
   getCardNameSuggestions,
   getRaritiesForMetadata,
   type CardMetadataValue,
+  type LegacyCardMetadataValue,
 } from '../domain/cardMetadata';
 import { FieldLabel } from './forms/FormField';
 
-export type CardMetadataSelection = CardMetadataValue;
+export interface CardMetadataSelection {
+  cardType?: CardType;
+  cardName?: string;
+  characterName?: string;
+  rarity: string;
+  cardId: string;
+}
 
 interface CardMetadataSelectorProps {
   cards: readonly Card[];
   value: CardMetadataSelection;
   onChange: (value: CardMetadataSelection) => void;
   showCardId?: boolean;
+  /** @deprecated Use showCardId={false} for the independent Marketplace ID search. */
+  requireCardId?: boolean;
   required?: boolean;
   className?: string;
 }
@@ -24,12 +33,16 @@ export function CardMetadataSelector({
   value,
   onChange,
   showCardId = true,
+  requireCardId,
   required = false,
   className,
 }: CardMetadataSelectorProps) {
-  const nameSuggestions = getCardNameSuggestions(cards, value.cardType, value.cardName);
-  const rarityOptions = getRaritiesForMetadata(cards, value.cardType, value.cardName);
-  const cardIdOptions = getCardIdsForMetadata(cards, value.cardType, value.cardName, value.rarity);
+  const isLegacySelection = !value.cardType;
+  const cardType = value.cardType ?? 'character';
+  const cardName = value.cardName ?? value.characterName ?? '';
+  const nameSuggestions = getCardNameSuggestions(cards, cardType, cardName);
+  const rarityOptions = getRaritiesForMetadata(cards, cardType, cardName);
+  const cardIdOptions = getCardIdsForMetadata(cards, cardType, cardName, value.rarity);
   const selectorClassName = ['card-metadata-selector', className].filter(Boolean).join(' ');
 
   function updateCardType(cardType: CardType) {
@@ -37,7 +50,25 @@ export function CardMetadataSelector({
   }
 
   function updateCardName(cardName: string) {
-    onChange({ ...value, cardName, rarity: '', cardId: '' });
+    if (isLegacySelection) {
+      onChange({ characterName: cardName, rarity: '', cardId: '' });
+      return;
+    }
+
+    onChange({ ...value, cardType, cardName, rarity: '', cardId: '' });
+  }
+
+  function updateRarity(rarity: string) {
+    if (isLegacySelection) {
+      onChange({ ...value, rarity, cardId: '' });
+      return;
+    }
+
+    onChange({ ...value, cardType, cardName, rarity, cardId: '' });
+  }
+
+  function updateCardId(cardId: string) {
+    onChange(isLegacySelection ? { ...value, cardId } : { ...value, cardType, cardName, cardId });
   }
 
   return (
@@ -46,7 +77,7 @@ export function CardMetadataSelector({
         <FieldLabel required={required}>卡片類型</FieldLabel>
         <select
           aria-label="卡片類型"
-          value={value.cardType}
+          value={cardType}
           onChange={(event) => updateCardType(event.target.value as CardType)}
           required={required}
         >
@@ -55,14 +86,14 @@ export function CardMetadataSelector({
       </label>
 
       <label className="card-metadata-selector__name">
-        <FieldLabel required={required}>卡片名稱</FieldLabel>
+        <FieldLabel required={required}>{isLegacySelection ? '角色／人名' : '卡片名稱'}</FieldLabel>
         <input
-          aria-label="卡片名稱"
+          aria-label={isLegacySelection ? '角色／人名' : '卡片名稱'}
           list="card-metadata-name-options"
-          value={value.cardName}
+          value={cardName}
           onChange={(event) => updateCardName(event.target.value)}
           autoComplete="off"
-          placeholder="輸入卡片名稱"
+          placeholder={isLegacySelection ? '輸入角色／人名' : '輸入卡片名稱'}
           required={required}
         />
         <datalist id="card-metadata-name-options">
@@ -75,11 +106,11 @@ export function CardMetadataSelector({
         <select
           aria-label="稀有度"
           value={value.rarity}
-          onChange={(event) => onChange({ ...value, rarity: event.target.value, cardId: '' })}
-          disabled={!value.cardName}
+          onChange={(event) => updateRarity(event.target.value)}
+          disabled={!cardName}
           required={required}
         >
-          <option value="">請選擇稀有度</option>
+          <option value="">{requireCardId === false ? '全部稀有度' : '請選擇稀有度'}</option>
           {rarityOptions.map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}
         </select>
       </label>
@@ -90,11 +121,11 @@ export function CardMetadataSelector({
           <select
             aria-label="卡片 ID"
             value={value.cardId}
-            onChange={(event) => onChange({ ...value, cardId: event.target.value })}
+            onChange={(event) => updateCardId(event.target.value)}
             disabled={!value.rarity}
             required={required}
           >
-            <option value="">請選擇卡片 ID</option>
+            <option value="">{requireCardId === false ? '全部卡片 ID' : '請選擇卡片 ID'}</option>
             {cardIdOptions.map((cardId) => <option key={cardId} value={cardId}>{cardId}</option>)}
           </select>
         </label>

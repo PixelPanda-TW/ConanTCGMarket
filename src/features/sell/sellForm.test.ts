@@ -25,8 +25,8 @@ describe('sell form', () => {
   });
 
   it('accepts only character names present in Card Master', () => {
-    expect(hasKnownCharacterName([{ id: '1096', characterName: '鈴木園子', rarity: 'SR' }], '鈴木園子')).toBe(true);
-    expect(hasKnownCharacterName([{ id: '1096', characterName: '鈴木園子', rarity: 'SR' }], '不存在的人名')).toBe(false);
+    expect(hasKnownCharacterName([{ id: '1096', cardType: 'character', cardName: '鈴木園子', characterName: '鈴木園子', rarity: 'SR', rarities: ['SR'] }], '鈴木園子')).toBe(true);
+    expect(hasKnownCharacterName([{ id: '1096', cardType: 'character', cardName: '鈴木園子', characterName: '鈴木園子', rarity: 'SR', rarities: ['SR'] }], '不存在的人名')).toBe(false);
   });
 
   it('accepts only a matching Card Master ID, character name, and one of its rarities', () => {

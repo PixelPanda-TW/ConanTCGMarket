@@ -3,7 +3,9 @@ import type { Card } from './models';
 import {
   getCardIdsForMetadata,
   getCardNameSuggestions,
+  getCharacterNameSuggestions,
   getRaritiesForMetadata,
+  getRaritiesForCharacter,
   hasKnownCardMetadata,
 } from './cardMetadata';
 
@@ -28,5 +30,19 @@ describe('card metadata', () => {
     expect(hasKnownCardMetadata(cards, {
       cardType: 'character', cardName: '江戶川柯南', rarity: 'P', cardId: '1167',
     })).toBe(false);
+  });
+
+  it('adapts legacy character-only helper calls without changing their results', () => {
+    const legacyCards = [
+      { id: '0338', characterName: '諸伏景光', rarities: ['R', 'CP'] },
+      { id: '0590', characterName: '諸伏景光', rarities: ['R'] },
+    ] as never;
+
+    expect(getCharacterNameSuggestions(legacyCards, '諸伏')).toEqual(['諸伏景光']);
+    expect(getRaritiesForCharacter(legacyCards, '諸伏景光')).toEqual(['CP', 'R']);
+    expect(getCardIdsForMetadata(legacyCards, '諸伏景光', 'R')).toEqual(['0338', '0590']);
+    expect(hasKnownCardMetadata(legacyCards, {
+      cardId: '0590', characterName: '諸伏景光', rarity: 'R',
+    })).toBe(true);
   });
 });

@@ -118,7 +118,7 @@ export function MarketplacePage({
             <section className="marketplace-subscription" aria-label="角色通知">
               <p>想第一時間知道「{filters.characterName}」的新商品？</p>
               <CharacterSubscriptionControl
-                characterName={filters.characterName}
+                characterName={filters.characterName ?? ''}
                 isKnownCharacter
               />
             </section>

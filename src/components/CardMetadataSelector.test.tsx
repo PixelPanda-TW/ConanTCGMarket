@@ -75,4 +75,21 @@ describe('CardMetadataSelector', () => {
     expect(screen.queryByLabelText('卡片 ID')).toBeNull();
   });
 
+  it('adapts the legacy character-only selection without changing its callbacks', () => {
+    const onChange = vi.fn();
+    render(
+      <CardMetadataSelector
+        cards={cards}
+        value={{ characterName: '江戶川柯南', rarity: 'R', cardId: '1001' } as never}
+        onChange={onChange}
+        requireCardId={false}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '江戶川' } });
+
+    expect(onChange).toHaveBeenLastCalledWith({ characterName: '江戶川', rarity: '', cardId: '' });
+    expect(screen.getByRole('option', { name: '全部卡片 ID' })).toBeTruthy();
+  });
+
 });
