@@ -1,4 +1,5 @@
 import { isCardType, type CardType } from '../cardType';
+import { isCompleteCardId } from '../cardId';
 
 export type ListingStatus = 'active' | 'sold_out';
 
@@ -33,8 +34,8 @@ export function validateListing(listing: Listing, allowLegacyCardMetadata = fals
     throw new Error('Listing requires sellerId.');
   }
 
-  if ((typeof listing.cardId !== 'string' || !/^\d{4}$/.test(listing.cardId)) && !allowLegacyCardMetadata) {
-    throw new Error('Listing requires a four-digit cardId.');
+  if ((typeof listing.cardId !== 'string' || !isCompleteCardId(listing.cardId)) && !allowLegacyCardMetadata) {
+    throw new Error('Listing requires a complete cardId.');
   }
 
   const hasCharacterName = typeof listing.characterName === 'string' && listing.characterName.trim().length > 0;

@@ -70,15 +70,15 @@ describe('domain model validation', () => {
     })).toThrow();
   });
 
-  it('accepts normalized four-digit Card Master metadata', () => {
+  it('accepts normalized promotional Card Master metadata with a stable key', () => {
     expect(() => validateCard({
-      id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'],
+      key: 'card_hash', cardId: 'P001', cardType: 'event', cardName: '追跡開始', rarities: ['C'],
     } as Card)).not.toThrow();
   });
 
   it('keeps legacy aliases out of the normalized Card Master shape', () => {
     const card: Card = {
-      id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'],
+      key: 'card_hash', cardId: 'P001', cardType: 'event', cardName: '追跡開始', rarities: ['C'],
       // @ts-expect-error Card Master records have no legacy character alias.
       characterName: '追跡開始',
     };
@@ -86,21 +86,22 @@ describe('domain model validation', () => {
     expect(card.cardName).toBe('追跡開始');
   });
 
-  it('rejects Card Master IDs that are not four digits', () => {
+  it.each(['P01', 'B0982', 'p001'])('rejects unnormalized or incomplete Card Master card ID %s', (cardId) => {
     expect(() => validateCard({
-      id: 'B10036', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'],
-    } as Card)).toThrow('Card id must be four digits.');
+      key: 'card_hash', cardId, cardType: 'character', cardName: '鈴木園子', rarities: ['SR'],
+    } as Card)).toThrow();
   });
 
   it('rejects cards with an unsupported card type', () => {
     expect(() => validateCard({
-      id: '1100', cardType: 'unknown', cardName: '追跡開始', rarities: ['C'],
+      key: 'card_hash', cardId: '1100', cardType: 'unknown', cardName: '追跡開始', rarities: ['C'],
     } as never)).toThrow('Card requires a supported cardType.');
   });
 
   it('requires each card to have a card name', () => {
     const card: Card = {
-      id: '0001',
+      key: 'card_hash',
+      cardId: '0001',
       cardType: 'character',
       rarities: ['CP'],
     } as unknown as Card;
@@ -115,11 +116,11 @@ describe('domain model validation', () => {
     expect(cardTypeLabel('case')).toBe('Case 卡（情境卡）');
   });
 
-  it('accepts a valid active listing with positive quantities', () => {
+  it('accepts a valid active listing with a normalized promotional card ID snapshot', () => {
     const listing: Listing = {
       id: 'listing-1',
       sellerId: 'seller-1',
-      cardId: '0001',
+      cardId: 'P001',
       cardType: 'character',
       cardName: '諸伏景光',
       characterName: '諸伏景光',
@@ -150,6 +151,17 @@ describe('domain model validation', () => {
     expect(eventListing.characterName).toBeUndefined();
     expect(() => validateListing({ ...eventListing, characterName: '偽角色' }))
       .toThrow('Non-character Listing cannot contain characterName.');
+  });
+
+  it.each(['P01', 'B0982', 'p001'])('rejects unnormalized or incomplete listing card ID %s', (cardId) => {
+    const listing: Listing = {
+      id: 'listing-1', sellerId: 'seller-1', cardId, cardType: 'character', cardName: '諸伏景光', characterName: '諸伏景光', rarity: 'CP',
+      imageUrls: ['https://example.com/card.jpg'], listingPrice: 500, originalQuantity: 1, remainingQuantity: 1,
+      hasSleeve: false, supportsMyShip: false, status: 'active',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'), updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateListing(listing)).toThrow();
   });
 
   it('requires generic card metadata and rarity snapshots on a listing', () => {

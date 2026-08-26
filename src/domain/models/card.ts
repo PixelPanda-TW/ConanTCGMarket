@@ -1,15 +1,21 @@
 import { isCardType, type CardType } from '../cardType';
+import { isCompleteCardId } from '../cardId';
 
 export interface Card {
-  id: string;
+  key: string;
+  cardId: string;
   cardType: CardType;
   cardName: string;
   rarities: readonly string[];
 }
 
 export function validateCard(card: Card) {
-  if (typeof card.id !== 'string' || !/^\d{4}$/.test(card.id)) {
-    throw new Error('Card id must be four digits.');
+  if (typeof card.key !== 'string' || card.key.length === 0) {
+    throw new Error('Card requires key.');
+  }
+
+  if (typeof card.cardId !== 'string' || !isCompleteCardId(card.cardId)) {
+    throw new Error('Card requires a complete cardId.');
   }
 
   if (!isCardType(card.cardType)) {
