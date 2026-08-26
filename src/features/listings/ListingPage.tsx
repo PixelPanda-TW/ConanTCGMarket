@@ -36,7 +36,7 @@ export function ListingPage({ id }: { id: string }) {
         setCard(cards.find((item) => item.id === value.cardId) ?? null);
         setIsKnownCharacter(Boolean(
           value.characterName
-          && cards.some((item) => item.characterName === value.characterName),
+          && cards.some((item) => item.cardType === 'character' && item.cardName === value.characterName),
         ));
         setSeller(profile);
       })
@@ -59,8 +59,8 @@ export function ListingPage({ id }: { id: string }) {
       </PageShell>
     );
   }
-  const name = listing.characterName ?? card?.characterName ?? card?.nameZh ?? card?.nameJa ?? '未提供角色／人名';
-  const rarity = listing.rarity ?? card?.rarity ?? '未提供稀有度';
+  const name = listing.characterName ?? card?.cardName ?? '未提供角色／人名';
+  const rarity = listing.rarity ?? card?.rarities[0] ?? '未提供稀有度';
   return (
     <PageShell width="listing" backToMarketplace>
       <article className="listing-page">

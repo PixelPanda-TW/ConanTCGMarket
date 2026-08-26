@@ -55,5 +55,5 @@ export function validateSellForm(values: SellFormState) {
 }
 
 export function hasKnownCharacterName(cards: readonly Card[], characterName: string): boolean {
-  return cards.some((card) => card.characterName === characterName);
+  return cards.some((card) => card.cardType === 'character' && card.cardName === characterName);
 }

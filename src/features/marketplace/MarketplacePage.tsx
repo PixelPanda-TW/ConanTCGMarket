@@ -65,8 +65,8 @@ export function MarketplacePage({
         setListings(records.map(({ listing, card, profile }) => ({
           ...listing,
           card,
-          characterName: listing.characterName ?? card?.characterName ?? card?.nameZh ?? card?.nameJa ?? '未提供角色／人名',
-          rarity: listing.rarity ?? card?.rarity ?? '未提供稀有度',
+          characterName: listing.characterName ?? card?.cardName ?? '未提供角色／人名',
+          rarity: listing.rarity ?? card?.rarities[0] ?? '未提供稀有度',
           seller: profile?.displayName ?? '賣家',
         })));
         setState('ready');
@@ -79,7 +79,7 @@ export function MarketplacePage({
   }, [loadCards, loadListings, loadSeller]);
 
   const visibleListings = useMemo(() => filterListings(listings, filters), [filters, listings]);
-  const isKnownCharacter = cards.some((card) => card.characterName === filters.characterName);
+  const isKnownCharacter = cards.some((card) => card.cardType === 'character' && card.cardName === filters.characterName);
 
   return (
     <PageShell width="marketplace">

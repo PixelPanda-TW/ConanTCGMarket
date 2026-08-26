@@ -28,7 +28,11 @@ function isLegacyCard(card: MetadataCard): card is LegacyCard {
 }
 
 function cardRarities(card: MetadataCard): readonly string[] {
-  return card.rarities ?? (card.rarity ? [card.rarity] : []);
+  if (isLegacyCard(card)) {
+    return card.rarities ?? (card.rarity ? [card.rarity] : []);
+  }
+
+  return card.rarities;
 }
 
 function cardNameOf(card: MetadataCard): string {

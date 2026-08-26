@@ -76,6 +76,16 @@ describe('domain model validation', () => {
     } as Card)).not.toThrow();
   });
 
+  it('keeps legacy aliases out of the normalized Card Master shape', () => {
+    const card: Card = {
+      id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'],
+      // @ts-expect-error Card Master records have no legacy character alias.
+      characterName: '追跡開始',
+    };
+
+    expect(card.cardName).toBe('追跡開始');
+  });
+
   it('rejects Card Master IDs that are not four digits', () => {
     expect(() => validateCard({
       id: 'B10036', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'],
