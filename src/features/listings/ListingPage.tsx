@@ -9,7 +9,7 @@ import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
 export function ListingPage({ id }: { id: string }) {
   const { user } = useAuth();
   const [listing, setListing] = useState<Listing | null>();
-  const [card, setCard] = useState<Card | null>();
+  const [cards, setCards] = useState<readonly Card[]>();
   const [seller, setSeller] = useState<{
     displayName: string;
     contactType: string;
@@ -20,7 +20,7 @@ export function ListingPage({ id }: { id: string }) {
   useEffect(() => {
     let isCurrent = true;
     setListing(undefined);
-    setCard(undefined);
+    setCards(undefined);
     setSeller(undefined);
     setIsKnownCharacter(false);
 
@@ -34,11 +34,11 @@ export function ListingPage({ id }: { id: string }) {
           getPublicSellerProfile(value.sellerId),
         ]);
         if (!isCurrent) return;
-        const resolvedCard = cards.find((item) => item.cardId === value.cardId) ?? null;
-        const metadata = resolveListingMetadata(value, resolvedCard);
-        setCard(resolvedCard);
+        const metadata = resolveListingMetadata(value, cards);
+        setCards(cards);
         setIsKnownCharacter(Boolean(
           metadata.cardType === 'character'
+          && metadata.resolution !== 'ambiguous'
           && cards.some((item) => item.cardType === 'character' && item.cardName === metadata.cardName),
         ));
         setSeller(profile);
@@ -62,15 +62,15 @@ export function ListingPage({ id }: { id: string }) {
       </PageShell>
     );
   }
-  const metadata = resolveListingMetadata(listing, card);
+  const metadata = resolveListingMetadata(listing, cards ?? []);
   return (
     <PageShell width="listing" backToMarketplace>
       <article className="listing-page">
         <header className="listing-page-header">
           <p className="eyebrow">商品詳情</p>
           <h1>商品詳情</h1>
-          <ListingMetadata listing={listing} card={card} />
-          {metadata.cardType === 'character' && (
+          <ListingMetadata listing={listing} cards={cards} />
+          {metadata.cardType === 'character' && metadata.resolution !== 'ambiguous' && (
             <CharacterSubscriptionControl
               characterName={metadata.cardName}
               isKnownCharacter={isKnownCharacter}

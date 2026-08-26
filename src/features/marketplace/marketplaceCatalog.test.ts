@@ -1,35 +1,73 @@
 import { describe, expect, it } from 'vitest';
-import type { Listing } from '../../domain/models';
-import { resolveListingCard, resolveMarketplaceListingMetadata } from './marketplaceCatalog';
+import type { Card, Listing } from '../../domain/models';
+import { resolveMarketplaceListingMetadata } from './marketplaceCatalog';
 
-describe('resolveListingCard', () => {
-  it('uses development-card fallback so a listing is not hidden before Card Master import', () => {
-    expect(resolveListingCard('CP-001', [], [{ key: 'character_CP-001', cardId: 'CP-001', cardType: 'character', cardName: '諸伏景光', rarities: ['CP'] }])).toMatchObject({ cardName: '諸伏景光', rarities: ['CP'] });
+const legacyListing = { cardId: '0501' } as Listing;
+const characterCard: Card = {
+  key: 'card_character',
+  cardId: '0501',
+  cardType: 'character',
+  cardName: '諸伏高明',
+  rarities: ['D'],
+};
+const eventCard: Card = {
+  key: 'card_event',
+  cardId: '0501',
+  cardType: 'event',
+  cardName: '事件 0501',
+  rarities: ['C'],
+};
+
+describe('resolveMarketplaceListingMetadata', () => {
+  it('uses development fallback candidates when Firestore has none for the visible ID', () => {
+    expect(resolveMarketplaceListingMetadata(legacyListing, [], [characterCard])).toEqual({
+      cardType: 'character',
+      cardName: '諸伏高明',
+      rarity: 'D',
+      cardId: '0501',
+      resolution: 'card-master',
+    });
   });
 
-  it('resolves listing metadata from the new snapshot before legacy and Card Master data', () => {
-    const listing = { cardId: '1100', cardType: 'event', cardName: '上架快照', rarity: 'SR', characterName: '舊角色' } as Listing;
-    const result = resolveMarketplaceListingMetadata(listing, [
-      { key: 'event_1100', cardId: '1100', cardType: 'event', cardName: 'Card Master', rarities: ['C'] },
-    ], []);
+  it('uses complete Listing snapshots before legacy and Card Master data', () => {
+    const listing = {
+      cardId: '0501', cardType: 'partner', cardName: '上架快照', rarity: 'P', characterName: '舊角色',
+    } as Listing;
 
-    expect(result).toEqual({ cardType: 'event', cardName: '上架快照', rarity: 'SR', cardId: '1100' });
+    expect(resolveMarketplaceListingMetadata(listing, [characterCard, eventCard], [])).toEqual({
+      cardType: 'partner',
+      cardName: '上架快照',
+      rarity: 'P',
+      cardId: '0501',
+      resolution: 'snapshot',
+    });
   });
 
-  it('falls back from a legacy character snapshot to Card Master and explicit unavailable labels', () => {
-    const legacy = { cardId: '0501', characterName: '諸伏高明', rarity: 'D' } as Listing;
-    const cardMasterOnly = { cardId: '1100' } as Listing;
-    const missing = { cardId: '9999' } as Listing;
+  it('prefers every Firestore candidate over development fallback cards for the same visible ID', () => {
+    expect(resolveMarketplaceListingMetadata(legacyListing, [eventCard], [characterCard])).toEqual({
+      cardType: 'event',
+      cardName: '事件 0501',
+      rarity: 'C',
+      cardId: '0501',
+      resolution: 'card-master',
+    });
 
-    expect(resolveMarketplaceListingMetadata(legacy, [], [])).toEqual({ cardType: 'character', cardName: '諸伏高明', rarity: 'D', cardId: '0501' });
-    expect(resolveMarketplaceListingMetadata(cardMasterOnly, [
-      { key: 'case_1100', cardId: '1100', cardType: 'case', cardName: '緋色の真相', rarities: ['C'] },
-    ], [])).toEqual({ cardType: 'case', cardName: '緋色の真相', rarity: 'C', cardId: '1100' });
-    expect(resolveMarketplaceListingMetadata(missing, [], [])).toEqual({
+    expect(resolveMarketplaceListingMetadata(legacyListing, [characterCard, eventCard], [])).toEqual({
+      cardType: undefined,
+      cardName: '卡片資料不明確',
+      rarity: '未提供稀有度',
+      cardId: '0501',
+      resolution: 'ambiguous',
+    });
+  });
+
+  it('uses explicit missing labels when no candidate exists', () => {
+    expect(resolveMarketplaceListingMetadata({ cardId: '9999' } as Listing, [], [])).toEqual({
       cardType: undefined,
       cardName: '未提供卡片名稱',
       rarity: '未提供稀有度',
       cardId: '9999',
+      resolution: 'missing',
     });
   });
 });

@@ -2,7 +2,7 @@
 
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Listing } from '../../domain/models';
+import type { Card, Listing } from '../../domain/models';
 import { ListingMetadata } from './ListingMetadata';
 
 const baseListing: Listing = {
@@ -46,5 +46,25 @@ describe('ListingMetadata', () => {
     expect(screen.getByText('角色卡')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '諸伏景光' })).toBeTruthy();
     expect(screen.getByText('R · ID 0338')).toBeTruthy();
+  });
+
+  it('renders ambiguity for a card-ID-only legacy Listing with shared Card Master candidates', () => {
+    const cards: Card[] = [
+      { key: 'card_character', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+      { key: 'card_event', cardId: '0501', cardType: 'event', cardName: '事件 0501', rarities: ['C'] },
+    ];
+
+    render(<ListingMetadata listing={{
+      ...baseListing,
+      cardId: '0501',
+      cardType: undefined,
+      cardName: undefined,
+      characterName: undefined,
+      rarity: undefined,
+    }} cards={cards} />);
+
+    expect(screen.getByText('未提供卡片類型')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '卡片資料不明確' })).toBeTruthy();
+    expect(screen.getByText('未提供稀有度 · ID 0501')).toBeTruthy();
   });
 });

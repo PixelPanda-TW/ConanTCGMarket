@@ -1,47 +1,18 @@
-import { cardTypeLabel, isCardType, type CardType } from '../../domain/cardType';
+import { cardTypeLabel } from '../../domain/cardType';
 import type { Card, Listing } from '../../domain/models';
+import { resolveListingMetadata } from '../../domain/listingMetadata';
 
-export interface ResolvedListingMetadata {
-  cardType?: CardType;
-  cardName: string;
-  rarity: string;
-  cardId: string;
-}
-
-function hasText(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-export function resolveListingMetadata(listing: Listing, card?: Card | null): ResolvedListingMetadata {
-  const hasListingMetadata = isCardType(listing.cardType) && hasText(listing.cardName);
-  const isLegacyCharacter = !hasListingMetadata && hasText(listing.characterName);
-  const cardType = hasListingMetadata
-    ? listing.cardType
-    : isLegacyCharacter
-      ? 'character'
-      : card?.cardType;
-  const cardName = hasListingMetadata
-    ? listing.cardName
-    : isLegacyCharacter
-      ? listing.characterName
-      : card?.cardName;
-
-  return {
-    cardType,
-    cardName: cardName ?? '未提供卡片名稱',
-    rarity: hasText(listing.rarity) ? listing.rarity : card?.rarities[0] ?? '未提供稀有度',
-    cardId: hasText(listing.cardId) ? listing.cardId : card?.cardId ?? '未提供卡片 ID',
-  };
-}
+export { resolveListingMetadata } from '../../domain/listingMetadata';
+export type { ResolvedListingMetadata } from '../../domain/listingMetadata';
 
 interface ListingMetadataProps {
   listing: Listing;
-  card?: Card | null;
+  cards?: readonly Card[];
   compact?: boolean;
 }
 
-export function ListingMetadata({ listing, card, compact = false }: ListingMetadataProps) {
-  const metadata = resolveListingMetadata(listing, card);
+export function ListingMetadata({ listing, cards = [], compact = false }: ListingMetadataProps) {
+  const metadata = resolveListingMetadata(listing, cards);
 
   return (
     <div className={`listing-metadata${compact ? ' listing-metadata--compact' : ''}`}>

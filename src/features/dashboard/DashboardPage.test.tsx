@@ -40,21 +40,39 @@ describe('DashboardPage', () => {
 
   it('resolves cardId-only legacy metadata from Card Master for active and sold-out listings', async () => {
     repositories.listSellerListings.mockResolvedValue([
-      { ...listing, id: 'legacy-active', cardId: 'CT-P01-001', cardType: undefined, cardName: undefined, rarity: undefined },
-      { ...listing, id: 'legacy-sold-out', cardId: 'CT-P01-002', cardType: undefined, cardName: undefined, rarity: undefined, status: 'sold_out' },
+      { ...listing, id: 'legacy-active', cardId: '1100', cardType: undefined, cardName: undefined, rarity: undefined },
+      { ...listing, id: 'legacy-sold-out', cardId: '2200', cardType: undefined, cardName: undefined, rarity: undefined, status: 'sold_out' },
     ]);
     repositories.listSellerSales.mockResolvedValue([]);
     repositories.listCards.mockResolvedValue([
-      { key: 'event_CT-P01-001', cardId: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
-      { key: 'partner_CT-P01-002', cardId: 'CT-P01-002', cardType: 'partner', cardName: '舊版拍檔', rarities: ['P'] },
+      { key: 'card_event', cardId: '1100', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
+      { key: 'card_partner', cardId: '2200', cardType: 'partner', cardName: '舊版拍檔', rarities: ['P'] },
     ]);
 
     render(<DashboardPage />);
 
     expect(await screen.findByRole('heading', { name: '舊版事件' })).toBeTruthy();
-    expect(screen.getByText('CP · ID CT-P01-001')).toBeTruthy();
+    expect(screen.getByText('CP · ID 1100')).toBeTruthy();
     expect(screen.getByText('Partner 卡（拍檔卡）')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '舊版拍檔' })).toBeTruthy();
-    expect(screen.getByText('P · ID CT-P01-002')).toBeTruthy();
+    expect(screen.getByText('P · ID 2200')).toBeTruthy();
+  });
+
+  it('shows ambiguity for active and sold-out Listings sharing a Card Master visible ID', async () => {
+    repositories.listSellerListings.mockResolvedValue([
+      { ...listing, id: 'legacy-active', cardId: '0501', cardType: undefined, cardName: undefined, rarity: undefined },
+      { ...listing, id: 'legacy-sold-out', cardId: '0501', cardType: undefined, cardName: undefined, rarity: undefined, status: 'sold_out' },
+    ]);
+    repositories.listSellerSales.mockResolvedValue([]);
+    repositories.listCards.mockResolvedValue([
+      { key: 'card_character', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+      { key: 'card_event', cardId: '0501', cardType: 'event', cardName: '事件 0501', rarities: ['C'] },
+    ]);
+
+    render(<DashboardPage />);
+
+    expect(await screen.findAllByRole('heading', { name: '卡片資料不明確' })).toHaveLength(2);
+    expect(screen.queryByRole('heading', { name: '諸伏高明' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '事件 0501' })).toBeNull();
   });
 });

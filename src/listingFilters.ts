@@ -1,4 +1,10 @@
 import type { CardType } from './domain/cardType';
+import {
+  normalizeCardIdQuery,
+  validateCardIdQuery as validateVisibleCardIdQuery,
+} from './domain/cardId';
+
+export { validateCardIdQuery } from './domain/cardId';
 
 export interface FilterableListing {
   hasSleeve: boolean;
@@ -23,17 +29,12 @@ export interface ListingFilters {
   rarity?: string;
 }
 
-export function validateCardIdQuery(value: string | undefined): string | undefined {
-  const query = value?.trim() ?? '';
-  return /^\d{0,4}$/.test(query) ? undefined : '卡片 ID 只能輸入最多 4 位數字。';
-}
-
 export function filterListings<TListing extends FilterableListing>(
   listings: TListing[],
   filters: ListingFilters,
 ) {
-  const cardIdQuery = filters.cardIdQuery?.trim() ?? '';
-  const cardIdQueryError = validateCardIdQuery(filters.cardIdQuery);
+  const cardIdQuery = normalizeCardIdQuery(filters.cardIdQuery ?? '');
+  const cardIdQueryError = validateVisibleCardIdQuery(cardIdQuery);
 
   return listings.filter((listing) => {
     if (cardIdQueryError) return false;

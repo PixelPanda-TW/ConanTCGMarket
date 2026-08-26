@@ -9,18 +9,18 @@ import { PageShell } from '../../components/PageShell';
 import { ListingMetadata } from './ListingMetadata';
 
 export function ListingEditPage({ id }: { id: string }) {
-  const { user } = useAuth(); const [listing, setListing] = useState<Listing | null>(); const [card, setCard] = useState<Card | null>(); const [files, setFiles] = useState<File[]>([]); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false);
+  const { user } = useAuth(); const [listing, setListing] = useState<Listing | null>(); const [cards, setCards] = useState<readonly Card[]>([]); const [files, setFiles] = useState<File[]>([]); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false);
   useEffect(() => {
     let isCurrent = true;
     setListing(undefined);
-    setCard(undefined);
+    setCards([]);
     void getListing(id).then((value) => {
       if (!isCurrent) return;
       setListing(value);
       if (!value) return;
       void listCards()
-        .then((cards) => { if (isCurrent) setCard(cards.find((item) => item.cardId === value.cardId) ?? null); })
-        .catch(() => { if (isCurrent) setCard(null); });
+        .then((loadedCards) => { if (isCurrent) setCards(loadedCards); })
+        .catch(() => { if (isCurrent) setCards([]); });
     }).catch(() => { if (isCurrent) setListing(null); });
     return () => { isCurrent = false; };
   }, [id]);
@@ -31,7 +31,7 @@ export function ListingEditPage({ id }: { id: string }) {
   function change(patch: Partial<Listing>) { setListing({ ...editable, ...patch, updatedAt: new Date() }); }
   async function submit(event: FormEvent) { event.preventDefault(); const sold = editable.originalQuantity - editable.remainingQuantity; if (editable.remainingQuantity < sold || editable.remainingQuantity > editable.originalQuantity || editable.listingPrice <= 0 || (files.length && (files.length > 3 || files.some((file) => !file.type.startsWith('image/'))))) { setError('價格、庫存或圖片不正確。'); return; } try { const imageUrls = files.length ? await uploadListingImages(sellerId, editable.id, files) : editable.imageUrls; await updateListing({ ...editable, imageUrls, status: editable.remainingQuantity === 0 ? 'sold_out' : 'active' }); if (files.length) void deleteListingImages(sellerId, editable.imageUrls).catch(() => undefined); setSaved(true); setError(null); } catch (caught) { setError(caught instanceof Error ? caught.message : '無法更新商品。'); } }
   async function remove() { if (!window.confirm('確定要刪除這筆商品嗎？此操作無法復原。')) return; try { await deleteListingAndImages(editable, deleteListing, deleteListingImages); window.location.hash = '#/dashboard'; } catch (caught) { setError(caught instanceof Error ? caught.message : '無法刪除商品。'); } }
-  return <PageShell><section className="profile-page"><a href={`#/listing/${id}`}>返回商品</a><h1>編輯商品</h1><ListingMetadata listing={editable} card={card} /><form className="profile-form listing-form" onSubmit={submit}>
+  return <PageShell><section className="profile-page"><a href={`#/listing/${id}`}>返回商品</a><h1>編輯商品</h1><ListingMetadata listing={editable} cards={cards} /><form className="profile-form listing-form" onSubmit={submit}>
     <ListingForm
       price={editable.listingPrice}
       quantity={editable.remainingQuantity}

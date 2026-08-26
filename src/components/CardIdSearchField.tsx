@@ -1,3 +1,5 @@
+import { normalizeCardIdQuery } from '../domain/cardId';
+
 interface CardIdSearchFieldProps {
   value: string;
   onChange: (value: string) => void;
@@ -14,9 +16,10 @@ export function CardIdSearchField({ value, onChange, error }: CardIdSearchFieldP
         aria-describedby={error ? errorId : undefined}
         aria-invalid={error ? 'true' : undefined}
         aria-label="搜尋卡片 ID"
-        inputMode="numeric"
+        autoCapitalize="characters"
         maxLength={4}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => onChange(normalizeCardIdQuery(event.target.value))}
+        spellCheck={false}
         type="text"
         value={value}
       />

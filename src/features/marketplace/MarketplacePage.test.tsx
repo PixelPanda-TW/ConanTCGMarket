@@ -261,6 +261,32 @@ describe('MarketplacePage', () => {
     expect(loadCards).toHaveBeenCalledTimes(1);
   });
 
+  it('shows ambiguity instead of choosing the first Firestore Card sharing a visible ID', async () => {
+    const legacyListing = {
+      ...activeListing,
+      id: 'legacy-shared-id',
+      cardId: '0501',
+      characterName: undefined,
+      rarity: undefined,
+    };
+    const sharedCards: Card[] = [
+      { key: 'card_character', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+      { key: 'card_event', cardId: '0501', cardType: 'event', cardName: '事件 0501', rarities: ['C'] },
+    ];
+
+    render(
+      <MarketplacePage
+        loadListings={async () => [legacyListing]}
+        loadCards={async () => sharedCards}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { name: '卡片資料不明確' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '諸伏高明' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '事件 0501' })).toBeNull();
+  });
+
   it('shows the field error and no results for an invalid ID without fetching again', async () => {
     const loadListings = vi.fn(async () => [activeListing]);
     const loadCards = vi.fn(async () => cards);
@@ -269,7 +295,7 @@ describe('MarketplacePage', () => {
     await screen.findByRole('heading', { name: '諸伏景光' });
     fireEvent.change(screen.getByLabelText('搜尋卡片 ID'), { target: { value: '05a' } });
 
-    expect(screen.getByRole('alert').textContent).toBe('卡片 ID 只能輸入最多 4 位數字。');
+    expect(screen.getByRole('alert').textContent).toBe('卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。');
     expect(screen.getByText('目前沒有符合條件的商品。')).toBeTruthy();
     expect(loadListings).toHaveBeenCalledTimes(1);
     expect(loadCards).toHaveBeenCalledTimes(1);

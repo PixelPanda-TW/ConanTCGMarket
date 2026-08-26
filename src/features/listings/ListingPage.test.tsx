@@ -105,4 +105,22 @@ describe('ListingPage character subscriptions', () => {
     expect(screen.getByText('事件卡')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
   });
+
+  it('shows ambiguity and no subscription for a card-ID-only Listing with shared candidates', async () => {
+    repositories.getListing.mockResolvedValue({
+      ...listing,
+      cardId: '0501',
+      characterName: undefined,
+      rarity: undefined,
+    });
+    repositories.listCards.mockResolvedValue([
+      { key: 'card_character', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+      { key: 'card_event', cardId: '0501', cardType: 'event', cardName: '事件 0501', rarities: ['C'] },
+    ]);
+
+    render(<ListingPage id="listing-1" />);
+
+    expect(await screen.findByRole('heading', { name: '卡片資料不明確' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
+  });
 });

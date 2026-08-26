@@ -45,12 +45,26 @@ describe('filterListings', () => {
     expect(filterListings([listing0501, listing0590], base({ cardType: 'event', cardIdQuery: '05', supportsMyShip: true }))).toEqual([listing0501]);
   });
 
-  it('rejects non-digits and more than four digits without matching', () => {
+  it('normalizes and filters P-prefixed IDs by prefix below four characters and exactly at four', () => {
+    const p001Listing = {
+      id: 'P001', cardId: 'P001', hasSleeve: false, supportsMyShip: true,
+    };
+    const p082Listing = {
+      id: 'P082', cardId: 'P082', hasSleeve: false, supportsMyShip: true,
+    };
+    const base = (overrides = {}) => ({ hasSleeve: false, supportsMyShip: false, ...overrides });
+
+    expect(filterListings([p001Listing, p082Listing], base({ cardIdQuery: 'p' }))).toEqual([p001Listing, p082Listing]);
+    expect(filterListings([p001Listing, p082Listing], base({ cardIdQuery: 'P00' }))).toEqual([p001Listing]);
+    expect(filterListings([p001Listing, p082Listing], base({ cardIdQuery: 'P001' }))).toEqual([p001Listing]);
+  });
+
+  it('rejects malformed or overlong visible-ID queries without matching', () => {
     const listing = { id: '0501', cardId: '0501', hasSleeve: false, supportsMyShip: true };
 
     expect(validateCardIdQuery(' 05 ')).toBeUndefined();
-    expect(validateCardIdQuery('05a')).toBe('卡片 ID 只能輸入最多 4 位數字。');
-    expect(validateCardIdQuery('05012')).toBe('卡片 ID 只能輸入最多 4 位數字。');
+    expect(validateCardIdQuery('05a')).toBe('卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。');
+    expect(validateCardIdQuery('P0001')).toBe('卡片 ID 請輸入 4 位數字，或 P 加 3 位數字。');
     expect(filterListings([listing], { hasSleeve: false, supportsMyShip: false, cardIdQuery: '05a' })).toEqual([]);
   });
 });

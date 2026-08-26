@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { CardMetadataSelector, type CardMetadataSelection } from '../../components/CardMetadataSelector';
 import { CardIdSearchField } from '../../components/CardIdSearchField';
 import { PageShell } from '../../components/PageShell';
@@ -11,10 +11,9 @@ import { filterListings, validateCardIdQuery } from '../../listingFilters';
 import { cardTypeLabel } from '../../domain/cardType';
 import { AuthStatus } from '../auth/AuthStatus';
 import { CharacterSubscriptionControl } from '../notifications/CharacterSubscriptionControl';
-import { resolveListingCard, resolveMarketplaceListingMetadata } from './marketplaceCatalog';
+import { resolveMarketplaceListingMetadata } from './marketplaceCatalog';
 
 interface MarketplaceListing extends Listing {
-  card: Card | null;
   cardName: string;
   rarity: string;
   seller: string;
@@ -59,10 +58,8 @@ export function MarketplacePage({
           activeListings
             .filter((listing) => listing.status === 'active')
             .map(async (listing) => {
-              const card = resolveListingCard(listing.cardId, loadedCards, developmentCards);
               return {
                 listing,
-                card,
                 metadata: resolveMarketplaceListingMetadata(listing, loadedCards, developmentCards),
                 profile: await loadSeller(listing.sellerId),
               };
@@ -71,9 +68,8 @@ export function MarketplacePage({
 
         if (!isCurrent) return;
         setCards(loadedCards);
-        setListings(records.map(({ listing, card, metadata, profile }) => ({
+        setListings(records.map(({ listing, metadata, profile }) => ({
           ...listing,
-          card,
           cardType: metadata.cardType,
           cardName: metadata.cardName,
           rarity: metadata.rarity,
@@ -88,12 +84,13 @@ export function MarketplacePage({
     return () => { isCurrent = false; };
   }, [loadCards, loadListings, loadSeller]);
 
-  const hasExactKnownCardName = Boolean(filters.cardType
-    && hasKnownCardName(cards, filters.cardType, filters.cardName ?? ''));
+  const deferredFilters = useDeferredValue(filters);
+  const deferredHasExactKnownCardName = Boolean(deferredFilters.cardType
+    && hasKnownCardName(cards, deferredFilters.cardType, deferredFilters.cardName ?? ''));
   const visibleListings = useMemo(() => filterListings(listings, {
-    ...filters,
-    cardName: hasExactKnownCardName ? filters.cardName : '',
-  }), [filters, hasExactKnownCardName, listings]);
+    ...deferredFilters,
+    cardName: deferredHasExactKnownCardName ? deferredFilters.cardName : '',
+  }), [deferredFilters, deferredHasExactKnownCardName, listings]);
   const cardIdError = validateCardIdQuery(filters.cardIdQuery);
   const isKnownCharacter = filters.cardType === 'character'
     && cards.some((card) => card.cardType === 'character' && card.cardName === filters.cardName);

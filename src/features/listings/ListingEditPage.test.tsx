@@ -102,20 +102,56 @@ describe('ListingEditPage', () => {
     repositories.getListing.mockResolvedValue({
       ...listing,
       id: 'legacy-listing',
-      cardId: 'CT-P01-001',
+      cardId: '0501',
       cardType: undefined,
       cardName: undefined,
       rarity: undefined,
     });
     repositories.listCards.mockResolvedValue([
-      { key: 'event_CT-P01-001', cardId: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
+      { key: 'card_event', cardId: '0501', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
     ]);
 
     render(<ListingEditPage id="legacy-listing" />);
 
     expect(await screen.findByText('事件卡')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '舊版事件' })).toBeTruthy();
-    expect(screen.getByText('CP · ID CT-P01-001')).toBeTruthy();
+    expect(screen.getByText('CP · ID 0501')).toBeTruthy();
     expect(screen.getByRole('button', { name: '儲存變更' })).toBeTruthy();
+  });
+
+  it('keeps ambiguous immutable metadata unresolved when saving mutable fields', async () => {
+    const legacyListing = {
+      id: 'legacy-listing',
+      sellerId: 'seller-1',
+      cardId: '0501',
+      imageUrls: ['https://example.com/event.jpg'],
+      listingPrice: 500,
+      originalQuantity: 2,
+      remainingQuantity: 2,
+      hasSleeve: false,
+      supportsMyShip: false,
+      status: 'active' as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    repositories.getListing.mockResolvedValue(legacyListing);
+    repositories.listCards.mockResolvedValue([
+      { key: 'card_character', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+      { key: 'card_event', cardId: '0501', cardType: 'event', cardName: '事件 0501', rarities: ['C'] },
+    ]);
+
+    render(<ListingEditPage id="legacy-listing" />);
+
+    expect(await screen.findByRole('heading', { name: '卡片資料不明確' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('價格'), { target: { value: '600' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+
+    await waitFor(() => expect(repositories.updateListing).toHaveBeenCalledTimes(1));
+    const savedListing = repositories.updateListing.mock.calls[0][0];
+    expect(savedListing).toMatchObject({ cardId: '0501', listingPrice: 600 });
+    expect(savedListing).not.toHaveProperty('cardType');
+    expect(savedListing).not.toHaveProperty('cardName');
+    expect(savedListing).not.toHaveProperty('rarity');
+    expect(savedListing).not.toHaveProperty('characterName');
   });
 });
