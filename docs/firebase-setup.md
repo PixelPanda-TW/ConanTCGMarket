@@ -46,20 +46,35 @@ images, effect text, source metadata, or any other unapproved fields.
 
 Do not run `npm run import:cards` against production until an operator has
 reviewed the generated count/conflict report and obtained explicit production
-approval. The import is an upsert only: it never deletes the Card Master, and
-it writes only `cardType`, trimmed `cardName`, and normalized `rarities`.
+approval. The import is an Admin SDK upsert only: it never deletes the Card
+Master, and it writes only `cardType`, trimmed `cardName`, and normalized
+`rarities`. It accepts only the normalized four-field JSON records `cardId`,
+`cardType`, `cardName`, and `rarities`; `cardId` is exactly four decimal digits
+and is the document ID. Duplicate records may merge only when their ID, type,
+and trimmed name match; a type/name conflict rejects the full input before
+Admin initialization or a write.
 
 The latest read-only Rugia diagnostic found 895 valid unique `character` IDs,
 69 `event`, 119 `case`, and 1 `partner`, with no identity conflicts. It also
 rejected 83 invalid IDs. A clean artifact is currently unavailable because the
 strict synchronizer rejects the alphanumeric ID `P001` (and other non-four-digit
-IDs); do not weaken that safety check. The following production import command
-is deliberately unexecuted and remains blocked until a clean artifact/report
-and explicit production approval exist:
+IDs); do not weaken that safety check. The importer authenticates as a trusted
+operator using Firebase Admin SDK Application Default Credentials (ADC), not a
+browser `FIREBASE_CONFIG`. Set ADC with `gcloud auth application-default login`
+or `GOOGLE_APPLICATION_CREDENTIALS`, then set the target project with
+`GOOGLE_CLOUD_PROJECT`. The following production import command is deliberately
+unexecuted and remains blocked until a clean artifact/report and explicit
+production approval exist:
 
 ```sh
-FIREBASE_CONFIG='{"apiKey":"…","projectId":"…","appId":"…"}' npm run import:cards -- /tmp/conan-card-master-multi-type.json
+GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-multi-type.json
 ```
+
+The importer sorts upserts by `cardId` and commits at most 450 documents per
+batch. The full import is not atomic across batches: if batch N fails, earlier
+batches may already be committed. After correcting an ADC or network failure,
+the same idempotent upsert command can be rerun safely; it never deletes Card
+Master documents.
 
 ## Notification Functions deployment
 
