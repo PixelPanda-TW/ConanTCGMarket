@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { ref, uploadBytes } from 'firebase/storage';
 
 let environment: RulesTestEnvironment;
@@ -18,11 +18,18 @@ const eventCardMaster = {
   cardName: '事件測試卡',
   rarities: ['SR'],
 };
+const partnerCardMaster = {
+  cardId: 'P001',
+  cardType: 'partner',
+  cardName: '江戶川柯南',
+  rarities: ['P'],
+};
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-conan-tcg', firestore: { rules: await readFile('firestore.rules', 'utf8') }, storage: { rules: await readFile('storage.rules', 'utf8') } });
   await environment.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), 'cards', '0123'), eventCardMaster);
+    await setDoc(doc(context.firestore(), 'cards', 'card_test_hash'), partnerCardMaster);
     await setDoc(doc(context.firestore(), 'listings', 'active'), activeListing);
     await setDoc(doc(context.firestore(), 'listings', 'sold'), { ...activeListing, status: 'sold_out' });
   });
@@ -49,11 +56,22 @@ describe('Firebase rules', () => {
   it('allows public Card Master reads while keeping client writes protected', async () => {
     const publicDb = environment.unauthenticatedContext().firestore();
     const sellerA = environment.authenticatedContext('seller-a').firestore();
-    const sellerB = environment.authenticatedContext('seller-b').firestore();
-    const card = await assertSucceeds(getDoc(doc(publicDb, 'cards', '0123')));
+    const publicCard = doc(publicDb, 'cards', 'card_test_hash');
+    const authenticatedCard = doc(sellerA, 'cards', 'card_test_hash');
+    const card = await assertSucceeds(getDoc(publicCard));
 
-    expect(card.data()).toEqual(eventCardMaster);
-    await assertFails(setDoc(doc(sellerA, 'cards', 'CP-001'), { rarity: 'CP', nameZh: '諸伏景光' }));
+    expect(card.data()).toEqual(partnerCardMaster);
+    await assertFails(setDoc(doc(publicDb, 'cards', 'card_public_create'), partnerCardMaster));
+    await assertFails(updateDoc(publicCard, { cardName: '公開篡改' }));
+    await assertFails(deleteDoc(publicCard));
+    await assertFails(setDoc(doc(sellerA, 'cards', 'card_authenticated_create'), partnerCardMaster));
+    await assertFails(updateDoc(authenticatedCard, { cardName: '認證篡改' }));
+    await assertFails(deleteDoc(authenticatedCard));
+  });
+  it('preserves seller profile ownership', async () => {
+    const sellerA = environment.authenticatedContext('seller-a').firestore();
+    const sellerB = environment.authenticatedContext('seller-b').firestore();
+
     await assertSucceeds(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'A', contactType: 'line', contactValue: 'a' }));
     await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), { displayName: 'B', contactType: 'line', contactValue: 'b' }));
   });

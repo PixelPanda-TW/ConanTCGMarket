@@ -1,38 +1,51 @@
 # Card Master 匯入
 
-匯入 JSON 必須是陣列。每筆只允許 `cardId`、`cardType`、`cardName`、`rarities`；不得加入官方卡圖、卡牌效果文字、來源 metadata 或其他欄位。
+匯入 JSON 必須是陣列。每筆只允許 `cardId`、`cardType`、`cardName`、`rarities`；不得加入 `officialImage`、圖片 URL、`effect`／牌效、特徵、來源 metadata，或路基亞內部編號如 `PR226`。
 
 ```json
 [
-  {
-    "cardId": "0001",
-    "cardType": "character",
-    "cardName": "江戶川柯南",
-    "rarities": ["R", "SR"]
-  }
+  {"cardId":"0501","cardType":"character","cardName":"諸伏高明","rarities":["D"]},
+  {"cardId":"0501","cardType":"event","cardName":"事件 0501","rarities":["D"]},
+  {"cardId":"P001","cardType":"partner","cardName":"江戶川柯南","rarities":["P"]}
 ]
 ```
 
-`cardId` 必須是恰好四個十進位數字（保留前導零），並會成為 `cards/{cardId}` 的文件 ID。`cardType` 只能是 `character`、`event`、`case` 或 `partner`；`cardName` 與每個 `rarities` 值都必須是非空字串。
+`cardId` 是玩家可見的字串，必須是四位數字（保留前導零）或 `P` 加三位數字。匯入邊界會 trim 並轉為大寫。`cardType` 只能是 `character`、`event`、`case` 或 `partner`；`cardName` 與每個 `rarities` 值都必須是非空字串。
 
-匯入器會先解析、白名單驗證並合併整份檔案，再初始化 Firebase Admin 或寫入資料。同一 `cardId` 只有在 `cardType` 與修剪後的 `cardName` 完全相同時才能重複出現；這種紀錄的稀有度會修剪、去重並排序。相同 ID 對應不同類型或名稱會拒絕整份檔案。寫入只會 upsert 以下欄位，絕不刪除 Card Master：
+Card Master identity 是 `cardType + NFC-trimmed cardName + normalized cardId`，rarity 不參與 identity。匯入器以 canonical tuple JSON 的完整 SHA-256 hex 建立 deterministic key，寫入 `cards/{card_<full-sha256>}`。文件 data 仍保留可見 `cardId`，且只寫入：
 
 ```json
-{"cardType":"character","cardName":"江戶川柯南","rarities":["R","SR"]}
+{"cardId":"P001","cardType":"partner","cardName":"江戶川柯南","rarities":["P"]}
 ```
 
-先以受控同步器產生候選檔，確認其乾淨報告（四種 type 的筆數與 `conflicts=0`），並取得明確的 production approval；未完成這兩個條件前不得匯入 production。
+匯入器會先完整解析、欄位白名單驗證、正規化、複合 identity 合併、key generation 與 collision 檢查，全部通過後才初始化 Firebase Admin。同一 identity 會合併、去重並排序 rarities；同一可見 `cardId` 對應不同類型或名稱是合法的不同 Card Master 記錄。相同 key 若對應不同 canonical tuple，整份輸入會在 Admin 初始化前拒絕。
 
-此 CLI 使用 Firebase Admin SDK 的 Application Default Credentials（ADC），不是瀏覽器 Firebase config。請以有最小必要 Firestore 寫入權限的受控 operator 身分設定 ADC，例如 `gcloud auth application-default login`，或將 `GOOGLE_APPLICATION_CREDENTIALS` 指向該身分的服務帳戶憑證；同時設定目標專案：
+## 候選檔與報告門檻
+
+只能用受控同步器產生候選檔。來源 ID 的唯一受控修正是 `B0982 -> 0982`；不得建立通用的去字母規則。候選檔只能在完整報告確認 `unknownIds=0` 與 `keyCollisions=0`，並明列 `B0982->0982` 的修正次數後進入人工審核。
+
+匯入前先執行 dry run；它會重新驗證完整 artifact、顯示 `records`、`batches` 與 `keyCollisions=0`，且不初始化 Firebase Admin：
+
+```sh
+node scripts/import-card-master.mjs --dry-run /tmp/conan-card-master-composite.json
+```
+
+## Production 認證與禁止指令
+
+實際 CLI 使用 Firebase Admin SDK 的 Application Default Credentials（ADC），不是瀏覽器 Firebase config。只能以有最小必要 Firestore 寫入權限的受控 operator 身分設定 ADC，並明確設定目標專案。
 
 ```sh
 export GOOGLE_CLOUD_PROJECT='your-project-id'
 ```
 
-目前仍未執行、且在取得乾淨候選報告與明確 production approval 前保持禁止的命令是：
+**禁止執行 production 匯入：**除非使用者已明確批准這一份 exact generated artifact 與下列 exact command，否則不得執行：
 
 ```sh
-GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-multi-type.json
+GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-composite.json
 ```
 
-一次 Firestore batch 最多寫入 450 筆，並依 `cardId` 排序後依序提交。整個檔案不是跨 batch 原子交易：若第 N 個 batch 失敗，前面的 batches 可能已經提交。修正認證或網路問題後，可安全地重新執行相同的 idempotent upsert 命令；它不會刪除文件。
+## 分批、重試與 legacy 文件
+
+每個 Firestore batch 最多 450 筆，並依已驗證的 deterministic plan 依序提交。整份檔案不是跨 batch 原子交易：若第 N 個 batch 失敗，前面的 batches 可能已提交。修正認證或網路問題後，可安全重跑同一 artifact；deterministic keys 與 idempotent upsert 會使已完成的寫入安全重複。
+
+這次遷移只 upsert 新的 composite-key 文件，不會呼叫 delete API，也不會刪除現有 `cards/{cardId}` legacy 文件。legacy 清理必須是日後獨立、明確批准且可稽核的工作。

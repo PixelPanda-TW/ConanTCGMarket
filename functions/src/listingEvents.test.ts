@@ -12,7 +12,7 @@ import {
 const now = new Date('2026-08-25T02:00:00.000Z');
 
 const listing: ListingSnapshot = {
-  cardId: 'CT-P01-001',
+  cardId: 'P001',
   characterName: '諸伏景光',
   rarity: 'SR',
   listingPrice: 120,
@@ -27,7 +27,7 @@ const event: ListingEvent = {
   characterKey: '諸伏景光',
   characterName: '諸伏景光',
   rarity: 'SR',
-  cardId: 'CT-P01-001',
+  cardId: 'P001',
   listingPrice: 120,
   remainingQuantity: 2,
   createdAt: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),

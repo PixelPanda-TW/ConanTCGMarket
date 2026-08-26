@@ -30,7 +30,7 @@ function listingEvent(
     characterKey: characterName,
     characterName,
     rarity: 'SR',
-    cardId: 'CT-P01-001',
+    cardId: 'P001',
     listingPrice: 120,
     remainingQuantity: 2,
     createdAt: Timestamp.fromDate(new Date(createdAt)),
@@ -513,11 +513,12 @@ describe('runDailyDigest', () => {
     expect(message?.text).toContain('角色：諸伏景光');
     expect(message?.text).toContain('價格：NT$ 120');
     expect(message?.text).toContain('稀有度：SR');
-    expect(message?.text).toContain('卡片 ID：CT-P01-001');
+    expect(message?.text).toContain('卡片 ID：P001');
     expect(message?.text).toContain('剩餘數量：2');
     expect(message?.text).toContain('/#/listing/listing-1');
     expect(message?.text).toContain('/#/notifications');
     expect(message?.html).toContain('/#/listing/listing-1');
+    expect(message?.html).toContain('卡片 ID：P001');
     expect(message?.html).toContain('/#/notifications');
     expect(`${message?.text}${message?.html}`).not.toMatch(/<img|imageUrl|firebasestorage/i);
   });

@@ -2,80 +2,56 @@
 
 **Acceptance date:** 2026-08-26
 
-**Environment:** `feature/multi-card-types` in
-`/Users/erinli/Desktop/projects/ConanTCGMarket/.worktrees/multi-card-types`;
-local Vite with the existing root `.env` loaded (values not recorded); Google
-Chrome 151 headless, localhost-only CDP, and temporary `/tmp` browser profile.
-The Vite server and Chrome profile were stopped and removed after the smoke
-check.
+**Status:** Automated application coverage supports shared visible IDs and `P001`; production acceptance remains blocked until the exact generated artifact, report, dry run, and production command pass the controlled gate below and receive explicit user approval.
 
-## Fresh automated verification
+## Acceptance fixture
 
-The following commands were run on this branch on 2026-08-26:
+The representative artifact contains two distinct canonical Cards sharing visible ID `0501`, plus a prefixed Partner ID:
 
-```sh
-set -a; source ../../.env; set +a
-NODE_OPTIONS=--no-experimental-webstorage npm test
-NODE_OPTIONS=--no-experimental-webstorage npm run build
+```json
+[
+  {"cardId":"0501","cardType":"character","cardName":"諸伏高明","rarities":["D"]},
+  {"cardId":"0501","cardType":"event","cardName":"事件 0501","rarities":["D"]},
+  {"cardId":"P001","cardType":"partner","cardName":"江戶川柯南","rarities":["P"]}
+]
 ```
 
-- PASS — `npm test`: 40 test files and 178 tests passed.
-- PASS — `npm run build`: TypeScript and Vite production build completed.
-  Vite emitted its existing advisory that the 814.71 kB JavaScript chunk exceeds
-  the 500 kB warning threshold; this was not a build failure.
+Each canonical identity is `cardType + NFC-trimmed cardName + normalized cardId`. The importer writes it to `cards/{card_<full-sha256>}` and retains the visible `cardId` in document data. Shared `cardId` values are valid when type or name differs; Listings continue storing visible snapshots and never store a Card Master key.
 
-## Browser smoke: Marketplace and public Card Master
+## Automated and browser acceptance
 
-Smoke pages were loaded locally at the Marketplace route and `#/cards` public
-Card Master route. The welcome notice was dismissed in the temporary browser
-profile before the Marketplace controls were checked.
+Before handoff, run the root tests and production build, Functions tests/build, Rules Emulator tests, and sync/import Node tests documented in the implementation plan. The Rules Emulator must prove that the Admin-seeded `cards/card_test_hash` record with visible `P001` is publicly readable while unauthenticated and authenticated clients cannot create, update, or delete any Card Master document. Existing Listing owner-only mutation behavior must remain unchanged.
 
-| Viewport | Marketplace result | Card Master result |
-| --- | --- | --- |
-| Desktop 1440 × 900 | PASS — document and body widths were both 1440; no horizontal overflow. The `卡片類型` select (including `事件卡`), `搜尋卡片 ID` text input, shipping checkboxes, and login control were present and within the viewport. | PASS — document and body widths were both 1440; no horizontal overflow. `卡牌資料庫`, the `搜尋卡牌` input, return link, and card rows with type/name/ID text rendered and were within the viewport. |
-| Mobile 375 × 812 | PASS — document and body widths were both 375; no horizontal overflow. The type select and ID search occupied x=35–340, and the visible shipping/login controls were within the 375px viewport. Name and rarity are intentionally disabled until a type/name selection is made. | PASS — document and body widths were both 375; no horizontal overflow. The Card Master search and visible card rows occupied x=37–338, while the return link remained reachable at x=20–123. |
+At desktop and 375px mobile widths, verify:
 
-This is a rendering/reachability smoke check only. The live Card Master currently
-does not provide a clean approved event-card dataset, so it cannot establish a
-real event-card Listing through the public UI.
-
-## Blocked end-to-end event-card scenario
-
-**BLOCKED — not PASS.** Do not run this scenario against production until the
-controlled Card Master gate below is cleared:
-
-1. Select `事件卡`, type/select a source-approved event name, choose rarity and ID, then create a Listing.
-2. Verify Marketplace can find it using only the first two ID digits and then the exact four digits.
-3. Verify type/name/rarity filters compose with ID, sleeve, and MyShip filters.
-4. Verify Listing detail and Dashboard show type, name, rarity, and ID.
-5. Verify no character subscription control appears for the event card.
-6. Verify a legacy character Listing still renders and remains subscribable.
+1. Sell flow can enter and select `P001` with a text keyboard and creates a Listing containing the visible `cardId`, not a hash.
+2. Character `0501` and event `0501` remain separately selectable by type and name.
+3. Marketplace searches `P`, `P0`, `P00`, and `P001` correctly, while numeric prefix and exact searches remain intact.
+4. Listing detail, Dashboard, Sale, email, and Discord display visible IDs unchanged.
+5. A card-ID-only legacy Listing resolves only with exactly one canonical Card Master candidate; shared-ID ambiguity displays `卡片資料不明確` and no character subscription control.
+6. No page displays the internal `card_<full-sha256>` key.
 
 ## Controlled Card Master gate
 
-The read-only diagnostic found valid unique IDs of `character=895`, `event=69`,
-`case=119`, and `partner=1`, with no identity conflicts. It rejected 83 invalid
-IDs. A clean generated Card Master artifact is unavailable: strict sync rejects
-the alphanumeric ID `P001` and other non-four-digit IDs. Keep the four-digit
-contract intact; production import remains blocked pending a clean artifact and
-report plus explicit user approval.
-
-The six-step manual scenario is unblocked only when the user supplies or
-approves a clean source artifact whose IDs meet the four-decimal-digit contract
-(including a decision resolving `P001` and every other alphanumeric ID), a
-fresh count/conflict report is produced, and the user explicitly authorizes the
-production import. Until then, no production import or Firebase mutation is
-authorized.
-
-Before any approved import, the controlled operator must configure Firebase
-Admin SDK Application Default Credentials (ADC), for example with
-`gcloud auth application-default login`, as described in the
-[canonical Card Master import guide](card-master-import.md). Browser Firebase
-configuration is not an import credential and is intentionally not reproduced
-here.
-
-This exact production command remains intentionally unexecuted:
+Generate the candidate without importing it and retain the complete report:
 
 ```sh
-GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-multi-type.json
+npm run sync:cards -- /tmp/conan-card-master-composite.json
+node scripts/import-card-master.mjs --dry-run /tmp/conan-card-master-composite.json
 ```
+
+The report gate requires `unknownIds=0` and `keyCollisions=0`, both approved ID formats, shared-ID statistics, duplicate-occurrence statistics, and the controlled `B0982 -> 0982` correction with its count. Any other unknown format stops the sync; it must never be guessed or repaired by stripping an arbitrary prefix. The dry run must report canonical `records`, `batches`, and `keyCollisions=0` without initializing Firebase Admin.
+
+The artifact and Firestore documents may contain only `cardId`, `cardType`, `cardName`, and `rarities`. They must not contain `officialImage`, image URLs, `effect` or 牌效, traits, or source-internal IDs such as `PR226`.
+
+The migration is a retry-safe, bounded sequence of deterministic idempotent upserts. A failed later batch can be retried with the same artifact. It performs no deletes and specifically does not delete existing `cards/{cardId}` legacy documents.
+
+## Production prohibition
+
+**The following production command is explicitly prohibited.** It remains unexecuted unless the user approves the exact generated artifact and this exact command after reviewing the reports:
+
+```sh
+GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-composite.json
+```
+
+No production import, Firebase deploy, legacy cleanup, or push is authorized by this acceptance document.

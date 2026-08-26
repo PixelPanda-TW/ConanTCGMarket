@@ -9,7 +9,7 @@ const event = {
   characterKey: '諸伏景光',
   characterName: '諸伏景光',
   rarity: 'SR',
-  cardId: 'CT-P01-001',
+  cardId: 'P001',
   listingPrice: 120,
   remainingQuantity: 2,
   createdAt: Timestamp.fromDate(new Date('2026-08-25T01:00:00.000Z')),
@@ -42,7 +42,7 @@ describe('createDiscordClient', () => {
     };
     expect(payload.content).toContain('諸伏景光');
     expect(payload.content).toContain('SR');
-    expect(payload.content).toContain('CT-P01-001');
+    expect(payload.content).toContain('卡片 ID：P001');
     expect(payload.content).toContain('120');
     expect(payload.content).toContain('2');
     expect(payload.content).toContain('/ConanTCGMarket/#/listing/listing-1');
