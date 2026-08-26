@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as syncCardMaster from './sync-rugia-card-master.mjs';
 
-const { extractApprovedCardRecords, syncRugiaCardMaster } = syncCardMaster;
+const {
+  extractApprovedCardRecords,
+  formatSyncReport,
+  runSyncCli,
+  syncRugiaCardMaster,
+} = syncCardMaster;
 
 test('projects all approved source card types to an occurrence with approved fields only', () => {
   const html = [
@@ -45,10 +50,24 @@ test('rejects unknown source card types before producing a partial projection', 
   assert.throws(() => extractApprovedCardRecords(html), /unknown source card type/i);
 });
 
-test('rejects a source card record with a non-four-digit ID before producing output', () => {
+test('accepts a complete P-prefixed source card ID', () => {
   const html = "<span class='cardHolder'><img onclick='showCard(\"PR001_P001\",\"PR001\",\"拍檔卡\")'/><div class='infoBox'><a>PR001</a> / <a>P001</a> (PR)<br><a class='fontsize2'>江戶川柯南</a></div></span>";
 
-  assert.throws(() => extractApprovedCardRecords(html), /invalid card ID/i);
+  assert.deepEqual(extractApprovedCardRecords(html), [
+    { cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarity: 'PR' },
+  ]);
+});
+
+test('corrects only B0982 while keeping the occurrence projection allowlisted', () => {
+  const html = "<span class='cardHolder'><img onclick='showCard(\"B0982\",\"B0982\",\"角色卡\")'/><div class='infoBox'><a>B0982</a> / <a>B0982</a> (sr)<br><a class='fontsize2'>中森青子</a><br><span>不得保存的效果</span></div></span>";
+
+  assert.deepEqual(extractApprovedCardRecords(html), [
+    { cardId: '0982', cardType: 'character', cardName: '中森青子', rarity: 'sr' },
+  ]);
+  assert.throws(
+    () => extractApprovedCardRecords(html.replaceAll('B0982', 'B0123')),
+    /invalid card ID/i,
+  );
 });
 
 test('rejects a source card record without a card name before producing output', () => {
@@ -57,37 +76,101 @@ test('rejects a source card record without a card name before producing output',
   assert.throws(() => extractApprovedCardRecords(html), /missing an approved field/i);
 });
 
-test('merges identical card identity occurrences and sorts deduplicated rarities', async () => {
+test('syncs corrected, prefixed, shared-ID, and duplicate mocked occurrences into a structured result', async () => {
   const requested = [];
-  const htmlFor = (rarity) => `<span class='cardHolder'><img onclick='showCard("B10036_1096","B10036","角色卡")'/><div class='infoBox'><a>B10036</a> / <a>1096</a> (${rarity})<br><a class='fontsize2'>鈴木園子</a></div></span>`;
-  const records = await syncRugiaCardMaster(async (url) => {
+  const holder = (sourceCode, cardId, sourceType, name, rarity) => `<span class='cardHolder'><img onclick='showCard("${sourceCode}_${cardId}","${sourceCode}","${sourceType}")'/><div class='infoBox'><a>${sourceCode}</a> / <a>${cardId}</a> (${rarity})<br><a class='fontsize2'>${name}</a></div></span>`;
+  const fixture = [
+    holder('PR001', 'P001', '拍檔卡', '江戶川柯南', 'PR'),
+    holder('B0982', 'B0982', '角色卡', '中森青子', 'R'),
+    holder('B0501', '0501', '角色卡', '黑羽快斗', 'SR'),
+    holder('D0501', '0501', '事件卡', '快斗的謎題', 'C'),
+    holder('B0501', '0501', '角色卡', '黑羽快斗', 'SR'),
+  ].join('');
+
+  const result = await syncRugiaCardMaster(async (url) => {
     requested.push(url);
-    return new Response(url.endsWith('Version=PR') ? htmlFor('SR') : url.endsWith('Version=B01') ? htmlFor('CP') : htmlFor('SR'));
+    return new Response(url.endsWith('Version=PR') ? fixture : '');
   });
 
   assert.equal(requested.length, 23);
-  assert.deepEqual(records, [{ cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['CP', 'SR'] }]);
+  assert.deepEqual(result.cards, [
+    { cardId: '0501', cardType: 'character', cardName: '黑羽快斗', rarities: ['SR'] },
+    { cardId: '0501', cardType: 'event', cardName: '快斗的謎題', rarities: ['C'] },
+    { cardId: '0982', cardType: 'character', cardName: '中森青子', rarities: ['R'] },
+    { cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['PR'] },
+  ]);
+  assert.deepEqual(result.report, {
+    versionCount: 23,
+    occurrenceCount: 5,
+    canonicalCardCount: 4,
+    cardTypeCounts: { character: 2, event: 1, case: 0, partner: 1 },
+    idFormatCounts: { numeric: 3, prefixedP: 1 },
+    sharedCardIdCount: 1,
+    duplicateOccurrenceCount: 1,
+    corrections: [{ from: 'B0982', to: '0982', count: 1 }],
+    keyCollisionCount: 0,
+  });
 });
 
-test('rejects a card ID whose type or name conflicts across versions before returning output', async () => {
-  const htmlFor = (type, name) => `<span class='cardHolder'><img onclick='showCard("B10036_1096","B10036","${type}")'/><div class='infoBox'><a>B10036</a> / <a>1096</a> (SR)<br><a class='fontsize2'>${name}</a></div></span>`;
-
-  await assert.rejects(
-    syncRugiaCardMaster(async (url) => new Response(url.endsWith('Version=PR') ? htmlFor('角色卡', '鈴木園子') : htmlFor('事件卡', '追跡開始'))),
-    /1096/,
-  );
-});
-
-test('formats a clean sync report with every approved type and zero conflicts', () => {
-  assert.equal(typeof syncCardMaster.formatSyncReport, 'function');
+test('formats every structured audit field', () => {
   assert.equal(
-    syncCardMaster.formatSyncReport([
-      { cardId: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R'] },
-      { cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
-      { cardId: '1150', cardType: 'case', cardName: '緋色の真相', rarities: ['C'] },
-      { cardId: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
-      { cardId: '0002', cardType: 'character', cardName: '灰原哀', rarities: ['SR'] },
-    ]),
-    'Rugia Card Master sync report: character=2, event=1, case=1, partner=1, conflicts=0.',
+    formatSyncReport({
+      versionCount: 23,
+      occurrenceCount: 6,
+      canonicalCardCount: 4,
+      cardTypeCounts: { character: 2, event: 1, case: 0, partner: 1 },
+      idFormatCounts: { numeric: 3, prefixedP: 1 },
+      sharedCardIdCount: 1,
+      duplicateOccurrenceCount: 1,
+      corrections: [{ from: 'B0982', to: '0982', count: 1 }],
+      keyCollisionCount: 0,
+    }),
+    'Rugia Card Master sync report: versions=23, occurrences=6, canonicalCards=4, types(character=2,event=1,case=0,partner=1), idFormats(numeric=3,prefixedP=1), sharedCardIds=1, duplicateOccurrences=1, corrections=B0982->0982(1), keyCollisions=0.',
   );
+});
+
+test('CLI writes only cards and refuses to write a result with key collisions', async () => {
+  const cleanResult = {
+    cards: [{ cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['PR'] }],
+    report: {
+      versionCount: 23,
+      occurrenceCount: 1,
+      canonicalCardCount: 1,
+      cardTypeCounts: { character: 0, event: 0, case: 0, partner: 1 },
+      idFormatCounts: { numeric: 0, prefixedP: 1 },
+      sharedCardIdCount: 0,
+      duplicateOccurrenceCount: 0,
+      corrections: [],
+      keyCollisionCount: 0,
+    },
+  };
+  const writes = [];
+  const logs = [];
+
+  await runSyncCli('/tmp/cards.json', {
+    sync: async () => cleanResult,
+    write: async (...args) => writes.push(args),
+    log: (message) => logs.push(message),
+  });
+
+  assert.deepEqual(writes, [[
+    '/tmp/cards.json',
+    `${JSON.stringify(cleanResult.cards, null, 2)}\n`,
+    'utf8',
+  ]]);
+  assert.equal(logs.at(-1), formatSyncReport(cleanResult.report));
+
+  let collisionWrites = 0;
+  await assert.rejects(
+    runSyncCli('/tmp/cards.json', {
+      sync: async () => ({
+        ...cleanResult,
+        report: { ...cleanResult.report, keyCollisionCount: 1 },
+      }),
+      write: async () => { collisionWrites += 1; },
+      log: () => {},
+    }),
+    /key collision/i,
+  );
+  assert.equal(collisionWrites, 0);
 });

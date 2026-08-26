@@ -1,5 +1,9 @@
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import {
+  buildSyncResult,
+  normalizeSourceCardId,
+} from './card-master-domain.mjs';
 
 const sourceUrl = 'https://rugiacreation.com/conan/search';
 const productVersions = [
@@ -28,7 +32,6 @@ const sourceCardTypes = new Map([
   ['情境卡', 'case'],
   ['拍檔卡', 'partner'],
 ]);
-const approvedCardTypes = ['character', 'event', 'case', 'partner'];
 
 function cardNameFromInfoBox(infoBox) {
   const markedName = infoBox.match(/<a\b(?=[^>]*\bclass=(?:"[^"]*\bfontsize2\b[^"]*"|'[^']*\bfontsize2\b[^']*'))[^>]*>([\s\S]*?)<\/a>/iu)?.[1];
@@ -42,7 +45,7 @@ function cardNameFromInfoBox(infoBox) {
  * Projects source HTML to the only fields we are allowed to retain.
  * The card title is the first non-empty text line after a `code / 0000 (rarity)` line.
  */
-export function extractApprovedCardRecords(html) {
+export function extractApprovedCardRecords(html, { onCorrection = () => {} } = {}) {
   const records = [];
 
   const cardHolders = html.match(/<span\b[^>]*\bclass=(?:['"])cardHolder(?:['"])[^>]*>[\s\S]*?(?=<span\b[^>]*\bclass=(?:['"])cardHolder(?:['"])[^>]*>|$)/giu) ?? [];
@@ -64,50 +67,53 @@ export function extractApprovedCardRecords(html) {
     if (!match || !cardName || !match[2].trim()) {
       throw new Error('Rugia Card Master card record is missing an approved field.');
     }
-    if (!/^\d{4}$/.test(match[1])) throw new Error(`Rugia Card Master has invalid card ID ${match[1]}.`);
-    records.push({ cardId: match[1], cardType, cardName, rarity: match[2].trim() });
+    const { cardId, correction } = normalizeSourceCardId(match[1]);
+    if (correction) onCorrection(correction);
+    records.push({ cardId, cardType, cardName, rarity: match[2].trim() });
   }
 
   return records;
 }
 
 export async function syncRugiaCardMaster(fetchImpl = fetch) {
-  const cardsById = new Map();
+  const occurrences = [];
+  const corrections = [];
 
   for (const version of productVersions) {
     const response = await fetchImpl(`${sourceUrl}?Version=${version}`, { headers: { Accept: 'text/html' } });
     if (!response.ok) throw new Error(`Rugia Card Master request failed for ${version}: ${response.status}`);
 
-    for (const record of extractApprovedCardRecords(await response.text())) {
-      const existing = cardsById.get(record.cardId);
-      if (existing && (existing.cardType !== record.cardType || existing.cardName !== record.cardName)) {
-        throw new Error(`Rugia Card Master has conflicting identity for card ID ${record.cardId}.`);
-      }
-      if (existing) existing.rarities.add(record.rarity);
-      else cardsById.set(record.cardId, { cardId: record.cardId, cardType: record.cardType, cardName: record.cardName, rarities: new Set([record.rarity]) });
-    }
+    occurrences.push(...extractApprovedCardRecords(await response.text(), {
+      onCorrection: (correction) => corrections.push(correction),
+    }));
   }
 
-  return Array.from(cardsById.values(), ({ cardId, cardType, cardName, rarities }) => ({
-    cardId,
-    cardType,
-    cardName,
-    rarities: Array.from(rarities).sort(),
-  })).sort((left, right) => left.cardId.localeCompare(right.cardId));
+  return buildSyncResult(occurrences, corrections, { versionCount: productVersions.length });
 }
 
-export function formatSyncReport(records) {
-  const counts = Object.fromEntries(approvedCardTypes.map((cardType) => [cardType, 0]));
-  for (const { cardType } of records) counts[cardType] += 1;
-  return `Rugia Card Master sync report: character=${counts.character}, event=${counts.event}, case=${counts.case}, partner=${counts.partner}, conflicts=0.`;
+export function formatSyncReport(report) {
+  const corrections = report.corrections.length === 0
+    ? 'none'
+    : report.corrections.map(({ from, to, count }) => `${from}->${to}(${count})`).join(',');
+  return `Rugia Card Master sync report: versions=${report.versionCount}, occurrences=${report.occurrenceCount}, canonicalCards=${report.canonicalCardCount}, types(character=${report.cardTypeCounts.character},event=${report.cardTypeCounts.event},case=${report.cardTypeCounts.case},partner=${report.cardTypeCounts.partner}), idFormats(numeric=${report.idFormatCounts.numeric},prefixedP=${report.idFormatCounts.prefixedP}), sharedCardIds=${report.sharedCardIdCount}, duplicateOccurrences=${report.duplicateOccurrenceCount}, corrections=${corrections}, keyCollisions=${report.keyCollisionCount}.`;
+}
+
+export async function runSyncCli(
+  outputPath,
+  { sync = syncRugiaCardMaster, write = writeFile, log = console.log } = {},
+) {
+  const { cards, report } = await sync();
+  if (cards.length === 0) throw new Error('Rugia Card Master response did not contain any approved card records.');
+  if (report.keyCollisionCount !== 0) {
+    throw new Error(`Rugia Card Master has ${report.keyCollisionCount} card key collision(s); refusing to write artifact.`);
+  }
+  await write(outputPath, `${JSON.stringify(cards, null, 2)}\n`, 'utf8');
+  log(`Wrote ${cards.length} approved Card Master records to ${outputPath}.`);
+  log(formatSyncReport(report));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const outputPath = process.argv[2];
   if (!outputPath) throw new Error('Usage: npm run sync:cards -- <output-file>');
-  const records = await syncRugiaCardMaster();
-  if (records.length === 0) throw new Error('Rugia Card Master response did not contain any four-digit card records.');
-  await writeFile(outputPath, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
-  console.log(`Wrote ${records.length} approved Card Master records to ${outputPath}.`);
-  console.log(formatSyncReport(records));
+  await runSyncCli(outputPath);
 }
