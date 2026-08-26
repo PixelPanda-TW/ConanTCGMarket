@@ -88,4 +88,21 @@ describe('ListingPage character subscriptions', () => {
     expect(await screen.findByRole('heading', { name: '諸伏' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /訂閱諸伏/ })).toBeNull();
   });
+
+  it('does not offer character subscription for a resolved event Listing', async () => {
+    repositories.getListing.mockResolvedValue({
+      ...listing,
+      cardId: '1100',
+      cardType: 'event',
+      cardName: '追跡開始',
+      characterName: '諸伏景光',
+      rarity: 'C',
+    });
+
+    render(<ListingPage id="listing-1" />);
+
+    expect(await screen.findByRole('heading', { name: '追跡開始' })).toBeTruthy();
+    expect(screen.getByText('事件卡')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
+  });
 });

@@ -4,6 +4,7 @@ import { getListing, getPublicSellerProfile, listCards } from '../../data/firest
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
 import { CharacterSubscriptionControl } from '../notifications/CharacterSubscriptionControl';
+import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
 
 export function ListingPage({ id }: { id: string }) {
   const { user } = useAuth();
@@ -33,10 +34,12 @@ export function ListingPage({ id }: { id: string }) {
           getPublicSellerProfile(value.sellerId),
         ]);
         if (!isCurrent) return;
-        setCard(cards.find((item) => item.id === value.cardId) ?? null);
+        const resolvedCard = cards.find((item) => item.id === value.cardId) ?? null;
+        const metadata = resolveListingMetadata(value, resolvedCard);
+        setCard(resolvedCard);
         setIsKnownCharacter(Boolean(
-          value.characterName
-          && cards.some((item) => item.cardType === 'character' && item.cardName === value.characterName),
+          metadata.cardType === 'character'
+          && cards.some((item) => item.cardType === 'character' && item.cardName === metadata.cardName),
         ));
         setSeller(profile);
       })
@@ -59,24 +62,26 @@ export function ListingPage({ id }: { id: string }) {
       </PageShell>
     );
   }
-  const name = listing.characterName ?? card?.cardName ?? '未提供角色／人名';
-  const rarity = listing.rarity ?? card?.rarities[0] ?? '未提供稀有度';
+  const metadata = resolveListingMetadata(listing, card);
   return (
     <PageShell width="listing" backToMarketplace>
       <article className="listing-page">
         <header className="listing-page-header">
-          <p className="eyebrow">{rarity}</p>
-          <h1>{name}</h1>
-          <CharacterSubscriptionControl
-            characterName={listing.characterName ?? ''}
-            isKnownCharacter={isKnownCharacter}
-          />
+          <p className="eyebrow">商品詳情</p>
+          <h1>商品詳情</h1>
+          <ListingMetadata listing={listing} card={card} />
+          {metadata.cardType === 'character' && (
+            <CharacterSubscriptionControl
+              characterName={metadata.cardName}
+              isKnownCharacter={isKnownCharacter}
+            />
+          )}
           <p>商品詳情與聯絡資訊</p>
         </header>
         <div className="listing-page-layout">
           <div className="listing-images">
             {listing.imageUrls.map((url) => (
-              <img key={url} src={url} alt={`${name} 實卡照片`} />
+              <img key={url} src={url} alt={`${metadata.cardName} 實卡照片`} />
             ))}
           </div>
           <aside className="listing-purchase-panel">

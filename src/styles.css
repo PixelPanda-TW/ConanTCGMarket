@@ -825,6 +825,15 @@ h1 {
 .marketplace .rarity { color: var(--primary-color); font-size: 13px; }
 .marketplace .card-id { color: hsl(var(--muted-foreground)); font-size: 12px; font-variant-numeric: tabular-nums; }
 .marketplace .card-type-badge { display: inline-flex; width: fit-content; margin: 0 0 4px; border-radius: 999px; background: hsl(var(--primary) / .12); color: hsl(var(--primary)); padding: 3px 7px; font-size: 11px; font-weight: 800; }
+.listing-metadata { display: grid; gap: 4px; }
+.listing-metadata h2 { margin: 0; color: var(--ink); font-size: clamp(20px, 3vw, 28px); line-height: 1.25; }
+.listing-metadata__details { margin: 0; color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.listing-metadata .card-type-badge { display: inline-flex; width: fit-content; margin: 0; border-radius: 999px; background: hsl(var(--primary) / .12); color: hsl(var(--primary)); padding: 3px 7px; font-size: 11px; font-weight: 800; }
+.listing-metadata--compact { gap: 2px; }
+.listing-metadata--compact h2 { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.listing-metadata--compact .listing-metadata__details { font-size: 12px; }
+.dashboard-sold-out-listing { display: block; width: fit-content; max-width: 100%; border: 1px solid #e9d5ff; border-radius: 12px; background: var(--surface); padding: 10px; }
+.dashboard-sold-out-listing:hover { border-color: var(--primary-color); }
 .dashboard-summary p { border: 1px solid #e9d5ff; border-radius: 12px; background: #fff; color: var(--ink); padding: 16px; font-weight: 800; }
 .dashboard-section { display: grid; gap: 12px; margin-top: 28px; }
 .dashboard-section h2 { margin: 0; color: var(--ink); font-size: 20px; }
