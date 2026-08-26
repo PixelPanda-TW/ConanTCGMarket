@@ -459,7 +459,7 @@ h1 {
 .listing-card-fields,
 .listing-price-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -780,7 +780,7 @@ h1 {
 
 .card-metadata-selector {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -789,7 +789,7 @@ h1 {
   gap: 6px;
 }
 
-.card-metadata-selector__character {
+.card-metadata-selector__name {
   min-width: 0;
 }
 

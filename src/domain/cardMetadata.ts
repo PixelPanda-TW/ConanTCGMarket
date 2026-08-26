@@ -1,44 +1,51 @@
+import type { CardType } from './cardType';
 import type { Card } from './models';
 
 export interface CardMetadataValue {
-  cardId: string;
-  characterName: string;
+  cardType: CardType;
+  cardName: string;
   rarity: string;
+  cardId: string;
 }
 
-export function cardRarities(card: Card): readonly string[] {
-  return card.rarities ?? (card.rarity ? [card.rarity] : []);
+function matchesCardType(card: Card, cardType: CardType): boolean {
+  return card.cardType === cardType;
 }
 
-export function getCharacterNameSuggestions(cards: readonly Card[], query: string): string[] {
+export function getCardNameSuggestions(cards: readonly Card[], cardType: CardType, query: string): string[] {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return [];
 
   return [...new Set(cards
-    .map((card) => card.characterName)
-    .filter((name): name is string => Boolean(name?.startsWith(normalizedQuery))))];
+    .filter((card) => matchesCardType(card, cardType))
+    .map((card) => card.cardName)
+    .filter((name) => name.startsWith(normalizedQuery)))];
 }
 
-export function getRaritiesForCharacter(cards: readonly Card[], characterName: string): string[] {
-  if (!characterName.trim()) return [];
-
+export function getRaritiesForMetadata(cards: readonly Card[], cardType: CardType, cardName: string): string[] {
   return [...new Set(cards
-    .filter((card) => card.characterName === characterName)
-    .flatMap(cardRarities))]
+    .filter((card) => matchesCardType(card, cardType) && (!cardName.trim() || card.cardName === cardName))
+    .flatMap((card) => card.rarities))]
     .sort();
 }
 
-export function getCardIdsForMetadata(cards: readonly Card[], characterName: string, rarity: string): string[] {
-  if (!characterName.trim() || !rarity.trim()) return [];
+export function getCardIdsForMetadata(
+  cards: readonly Card[],
+  cardType: CardType,
+  cardName: string,
+  rarity: string,
+): string[] {
+  if (!cardName.trim() || !rarity.trim()) return [];
 
   return cards
-    .filter((card) => card.characterName === characterName && cardRarities(card).includes(rarity))
+    .filter((card) => matchesCardType(card, cardType) && card.cardName === cardName && card.rarities.includes(rarity))
     .map((card) => card.id)
     .sort((first, second) => first.localeCompare(second));
 }
 
 export function hasKnownCardMetadata(cards: readonly Card[], values: CardMetadataValue): boolean {
   return cards.some((card) => card.id === values.cardId
-    && card.characterName === values.characterName
-    && cardRarities(card).includes(values.rarity));
+    && matchesCardType(card, values.cardType)
+    && card.cardName === values.cardName
+    && card.rarities.includes(values.rarity));
 }
