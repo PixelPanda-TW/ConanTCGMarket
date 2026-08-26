@@ -13,10 +13,16 @@ const eventListing = {
   cardName: '事件測試卡',
   rarity: 'SR',
 };
+const eventCardMaster = {
+  cardType: 'event',
+  cardName: '事件測試卡',
+  rarities: ['SR'],
+};
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-conan-tcg', firestore: { rules: await readFile('firestore.rules', 'utf8') }, storage: { rules: await readFile('storage.rules', 'utf8') } });
   await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'cards', '0123'), eventCardMaster);
     await setDoc(doc(context.firestore(), 'listings', 'active'), activeListing);
     await setDoc(doc(context.firestore(), 'listings', 'sold'), { ...activeListing, status: 'sold_out' });
   });
@@ -40,9 +46,13 @@ describe('Firebase rules', () => {
   it('rejects a seller modifying another seller listing', async () => {
     await assertFails(setDoc(doc(environment.authenticatedContext('seller-b').firestore(), 'listings', 'active'), { ...activeListing, listingPrice: 1 }));
   });
-  it('keeps Card Master client-write protected and profiles owner-write only', async () => {
+  it('allows public Card Master reads while keeping client writes protected', async () => {
+    const publicDb = environment.unauthenticatedContext().firestore();
     const sellerA = environment.authenticatedContext('seller-a').firestore();
     const sellerB = environment.authenticatedContext('seller-b').firestore();
+    const card = await assertSucceeds(getDoc(doc(publicDb, 'cards', '0123')));
+
+    expect(card.data()).toEqual(eventCardMaster);
     await assertFails(setDoc(doc(sellerA, 'cards', 'CP-001'), { rarity: 'CP', nameZh: '諸伏景光' }));
     await assertSucceeds(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'A', contactType: 'line', contactValue: 'a' }));
     await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), { displayName: 'B', contactType: 'line', contactValue: 'b' }));
