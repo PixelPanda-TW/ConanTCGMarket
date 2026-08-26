@@ -135,6 +135,84 @@ describe('MarketplacePage', () => {
     expect(screen.queryByRole('button', { name: /訂閱諸伏/ })).toBeNull();
   });
 
+  it('filters all cards of a type by rarity when the card name is incomplete or unrecognized', async () => {
+    const eventR = {
+      ...activeListing,
+      id: 'event-r',
+      cardId: '1101',
+      cardType: 'event' as const,
+      cardName: '另一張事件卡',
+      characterName: undefined,
+      rarity: 'R',
+    };
+    const eventC = {
+      ...activeListing,
+      id: 'event-c',
+      cardId: '1100',
+      cardType: 'event' as const,
+      cardName: '追跡開始',
+      characterName: undefined,
+      rarity: 'C',
+    };
+    const eventCards: Card[] = [
+      { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
+      { id: '1101', cardType: 'event', cardName: '另一張事件卡', rarities: ['R'] },
+    ];
+    render(<MarketplacePage loadListings={async () => [activeListing, eventC, eventR]} loadCards={async () => eventCards} loadSeller={async () => seller} />);
+
+    await screen.findByRole('heading', { name: '追跡開始' });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'event' } });
+
+    const rarity = screen.getByLabelText('稀有度') as HTMLSelectElement;
+    expect(rarity.disabled).toBe(false);
+    expect([...rarity.options].map((option) => option.value)).toEqual(['', 'C', 'R']);
+
+    fireEvent.change(rarity, { target: { value: 'R' } });
+    expect(screen.getByRole('heading', { name: '另一張事件卡' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '追跡開始' })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '不存在' } });
+    fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
+    expect(screen.getByRole('heading', { name: '另一張事件卡' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '追跡開始' })).toBeNull();
+  });
+
+  it('narrows a Marketplace rarity to the exact known card name', async () => {
+    const eventR = {
+      ...activeListing,
+      id: 'event-r',
+      cardId: '1101',
+      cardType: 'event' as const,
+      cardName: '另一張事件卡',
+      characterName: undefined,
+      rarity: 'R',
+    };
+    const eventC = {
+      ...activeListing,
+      id: 'event-c',
+      cardId: '1100',
+      cardType: 'event' as const,
+      cardName: '追跡開始',
+      characterName: undefined,
+      rarity: 'R',
+    };
+    const eventCards: Card[] = [
+      { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C', 'R'] },
+      { id: '1101', cardType: 'event', cardName: '另一張事件卡', rarities: ['R'] },
+    ];
+    render(<MarketplacePage loadListings={async () => [eventC, eventR]} loadCards={async () => eventCards} loadSeller={async () => seller} />);
+
+    await screen.findByRole('heading', { name: '追跡開始' });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'event' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '追跡開始' } });
+
+    expect([...screen.getByLabelText('稀有度').querySelectorAll('option')].map((option) => option.value)).toEqual(['', 'C', 'R']);
+    fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
+
+    expect(screen.getByRole('heading', { name: '追跡開始' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '另一張事件卡' })).toBeNull();
+  });
+
   it('shows a dedicated character notification panel after selecting 諸伏高明／D／0501', async () => {
     render(
       <MarketplacePage

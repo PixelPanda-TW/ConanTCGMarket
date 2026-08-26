@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Card } from '../../domain/models';
+import { cardTypeLabel } from '../../domain/cardType';
 import { searchCards } from '../../data/cards/cardSearch';
 
 interface CardSelectorProps {
@@ -14,6 +15,10 @@ function cardName(card: Card): string {
 
 function cardRarities(card: Card): string {
   return card.rarities.join('、');
+}
+
+function cardOptionLabel(card: Card): string {
+  return `${cardTypeLabel(card.cardType)} · ${cardName(card)} · ID ${card.id} · ${cardRarities(card)}`;
 }
 
 export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
@@ -35,7 +40,7 @@ export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
       {value && (
         <div className="card-selector-selected" aria-live="polite">
           <p>
-            已選擇：{cardName(value)} · {cardRarities(value)}
+            已選擇：{cardOptionLabel(value)}
           </p>
           <button type="button" onClick={() => onChange(null)} aria-label="清除已選擇的卡牌">
             清除
@@ -55,9 +60,10 @@ export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
               className="card-selector-option"
               key={card.id}
               onClick={() => onChange(card)}
-              aria-label={`${cardName(card)} · ${cardRarities(card)}`}
+              aria-label={cardOptionLabel(card)}
             >
-              <span>{cardName(card)}</span>
+              <span>{cardTypeLabel(card.cardType)} · {cardName(card)}</span>
+              <span className="card-selector-id">ID {card.id}</span>
               <span className="card-selector-rarity">{cardRarities(card)}</span>
             </button>
           ))

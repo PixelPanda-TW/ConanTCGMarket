@@ -7,7 +7,7 @@ import type { Card } from '../../domain/models';
 import { CardMasterPage } from './CardMasterPage';
 
 const cards: Card[] = [
-  { id: '0003', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+  { id: '0003', cardType: 'event', cardName: '追跡開始', rarities: ['R'] },
 ];
 
 afterEach(() => cleanup());
@@ -24,16 +24,26 @@ describe('CardMasterPage', () => {
     expect(screen.getByText('載入卡牌資料中')).toBeTruthy();
 
     resolveCards(cards);
-    expect(await screen.findByRole('button', { name: '諸伏景光 · R' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '事件卡 · 追跡開始 · ID 0003 · R' })).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: '諸伏景光 · R' }));
+    await user.click(screen.getByRole('button', { name: '事件卡 · 追跡開始 · ID 0003 · R' }));
     expect(screen.getByText('卡號')).toBeTruthy();
     expect(screen.getByText('0003')).toBeTruthy();
+    expect(screen.getByText('卡片類型')).toBeTruthy();
+    expect(screen.getByText('事件卡')).toBeTruthy();
+    expect(screen.getByText('卡片名稱')).toBeTruthy();
+    expect(screen.getByText('追跡開始')).toBeTruthy();
   });
 
   it('shows a loader error state', async () => {
     render(<CardMasterPage loadCards={() => Promise.reject(new Error('卡牌資料讀取失敗'))} />);
 
     expect((await screen.findByRole('alert')).textContent).toContain('卡牌資料讀取失敗');
+  });
+
+  it('shows an empty state after the real Card Master loader returns no cards', async () => {
+    render(<CardMasterPage loadCards={async () => []} />);
+
+    expect(await screen.findByText('目前沒有可顯示的卡牌資料。')).toBeTruthy();
   });
 });

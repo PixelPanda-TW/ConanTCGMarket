@@ -14,6 +14,9 @@ export interface LegacyCardMetadataValue {
   cardId: string;
 }
 
+/** Controls whether rarity selection is constrained to an exact card name. */
+export type CardMetadataRarityMode = 'sell' | 'marketplace';
+
 interface LegacyCard {
   id: string;
   characterName: string;
@@ -53,9 +56,20 @@ export function getCardNameSuggestions(cards: readonly MetadataCard[], cardType:
     .filter((name) => name.startsWith(normalizedQuery)))];
 }
 
-export function getRaritiesForMetadata(cards: readonly MetadataCard[], cardType: CardType, cardName: string): string[] {
+export function hasKnownCardName(cards: readonly MetadataCard[], cardType: CardType, cardName: string): boolean {
+  return Boolean(cardName.trim()) && cards.some((card) => matchesCardType(card, cardType) && cardNameOf(card) === cardName);
+}
+
+export function getRaritiesForMetadata(
+  cards: readonly MetadataCard[],
+  cardType: CardType,
+  cardName: string,
+  mode: CardMetadataRarityMode = 'sell',
+): string[] {
+  const shouldUseExactName = mode === 'sell' || hasKnownCardName(cards, cardType, cardName);
+
   return [...new Set(cards
-    .filter((card) => matchesCardType(card, cardType) && (!cardName.trim() || cardNameOf(card) === cardName))
+    .filter((card) => matchesCardType(card, cardType) && (!shouldUseExactName || cardNameOf(card) === cardName))
     .flatMap(cardRarities))]
     .sort();
 }

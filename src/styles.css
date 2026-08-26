@@ -606,6 +606,7 @@ h1 {
 
 .card-selector-option {
   display: flex;
+  flex-wrap: wrap;
   min-height: 52px;
   align-items: center;
   justify-content: space-between;
@@ -618,6 +619,9 @@ h1 {
   text-align: left;
   cursor: pointer;
 }
+
+.card-selector-option > :first-child { flex: 1 1 100%; }
+.card-selector-id { color: hsl(var(--muted-foreground)); font-size: 13px; font-variant-numeric: tabular-nums; }
 
 .card-selector-option:hover {
   border-color: #0969da;

@@ -4,6 +4,8 @@ import {
   getCardIdsForMetadata,
   getCardNameSuggestions,
   getRaritiesForMetadata,
+  hasKnownCardName,
+  type CardMetadataRarityMode,
   type CardMetadataValue,
   type LegacyCardMetadataValue,
 } from '../domain/cardMetadata';
@@ -17,11 +19,15 @@ export interface CardMetadataSelection {
   cardId: string;
 }
 
+export type CardMetadataSelectorMode = CardMetadataRarityMode;
+
 interface CardMetadataSelectorProps {
   cards: readonly Card[];
   value: CardMetadataSelection;
   onChange: (value: CardMetadataSelection) => void;
   showCardId?: boolean;
+  /** Marketplace mode permits type-wide rarity filtering until an exact name is selected. */
+  mode?: CardMetadataSelectorMode;
   /** @deprecated Use showCardId={false} for the independent Marketplace ID search. */
   requireCardId?: boolean;
   required?: boolean;
@@ -33,6 +39,7 @@ export function CardMetadataSelector({
   value,
   onChange,
   showCardId = true,
+  mode = 'sell',
   requireCardId,
   required = false,
   className,
@@ -41,7 +48,8 @@ export function CardMetadataSelector({
   const cardType = value.cardType ?? (isLegacySelection ? 'character' : '');
   const cardName = value.cardName ?? value.characterName ?? '';
   const nameSuggestions = cardType ? getCardNameSuggestions(cards, cardType, cardName) : [];
-  const rarityOptions = cardType ? getRaritiesForMetadata(cards, cardType, cardName) : [];
+  const hasExactKnownName = Boolean(cardType && hasKnownCardName(cards, cardType, cardName));
+  const rarityOptions = cardType ? getRaritiesForMetadata(cards, cardType, cardName, mode) : [];
   const cardIdOptions = cardType ? getCardIdsForMetadata(cards, cardType, cardName, value.rarity) : [];
   const selectorClassName = ['card-metadata-selector', className].filter(Boolean).join(' ');
 
@@ -113,7 +121,7 @@ export function CardMetadataSelector({
           aria-label="稀有度"
           value={value.rarity}
           onChange={(event) => updateRarity(event.target.value)}
-          disabled={!cardName}
+          disabled={mode === 'marketplace' ? !cardType : !hasExactKnownName}
           required={required}
         >
           <option value="">{requireCardId === false ? '全部稀有度' : '請選擇稀有度'}</option>

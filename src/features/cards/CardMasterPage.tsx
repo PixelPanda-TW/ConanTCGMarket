@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { developmentCards } from '../../data/cards/developmentCards';
+import { listCards } from '../../data/firestore/repositories';
+import { cardTypeLabel } from '../../domain/cardType';
 import type { Card } from '../../domain/models';
 import { CardSelector } from './CardSelector';
 import { PageShell } from '../../components/PageShell';
@@ -13,8 +14,6 @@ interface CardMasterPageProps {
   loadCards?: () => Promise<readonly Card[]>;
 }
 
-const loadDevelopmentCards = async (): Promise<readonly Card[]> => developmentCards;
-
 function cardName(card: Card): string {
   return card.cardName;
 }
@@ -23,7 +22,7 @@ function cardRarities(card: Card): string {
   return card.rarities.join('、');
 }
 
-export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterPageProps) {
+export function CardMasterPage({ loadCards = listCards }: CardMasterPageProps) {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [cardState, setCardState] = useState<CardMasterState>({ status: 'loading' });
 
@@ -65,6 +64,8 @@ export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterP
           <p className="card-master-state" role="alert">
             {cardState.message}
           </p>
+        ) : cardState.cards.length === 0 ? (
+          <p className="card-master-state" role="status">目前沒有可顯示的卡牌資料。</p>
         ) : (
           <>
             <CardSelector cards={cardState.cards} value={selectedCard} onChange={setSelectedCard} />
@@ -77,7 +78,11 @@ export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterP
                     <dd>{selectedCard.id}</dd>
                   </div>
                   <div>
-                    <dt>角色／人名</dt>
+                    <dt>卡片類型</dt>
+                    <dd>{cardTypeLabel(selectedCard.cardType)}</dd>
+                  </div>
+                  <div>
+                    <dt>卡片名稱</dt>
                     <dd>{cardName(selectedCard)}</dd>
                   </div>
                   <div>

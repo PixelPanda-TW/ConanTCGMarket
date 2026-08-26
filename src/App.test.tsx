@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { developmentCards } from './data/cards/developmentCards';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listCards } from './data/firestore/repositories';
 import App from './App';
+
+vi.mock('./data/firestore/repositories', () => ({
+  listCards: vi.fn(),
+}));
 
 vi.mock('./features/marketplace/MarketplacePage', () => ({
   MarketplacePage: () => <h1>marketplace page</h1>,
@@ -20,7 +24,12 @@ vi.mock('./features/notifications/NotificationSettingsPage', () => ({
 
 afterEach(() => {
   window.location.hash = '';
+  vi.mocked(listCards).mockReset();
   cleanup();
+});
+
+beforeEach(() => {
+  vi.mocked(listCards).mockResolvedValue([]);
 });
 
 describe('App routes', () => {
@@ -32,18 +41,21 @@ describe('App routes', () => {
     expect(screen.getByRole('heading', { name: '卡牌資料庫' })).toBeTruthy();
   });
 
-  it('uses development cards and shows the selected card summary', async () => {
+  it('loads public Card Master records through the repository by default', async () => {
     window.location.hash = '#/cards';
     const user = (await import('@testing-library/user-event')).default.setup();
+    vi.mocked(listCards).mockResolvedValue([
+      { id: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
+    ]);
 
     render(<App />);
 
-    const option = await screen.findByRole('button', { name: '諸伏景光 · SEC' });
+    const option = await screen.findByRole('button', { name: 'Partner 卡（拍檔卡） · 江戶川柯南 · ID 1167 · P' });
     await user.click(option);
 
-    expect(developmentCards.some((card) => card.id === '0005')).toBe(true);
-    expect(screen.getByText('0005')).toBeTruthy();
-    expect(screen.getAllByText('SEC').length).toBeGreaterThan(0);
+    expect(listCards).toHaveBeenCalledOnce();
+    expect(screen.getByText('1167')).toBeTruthy();
+    expect(screen.getByText('Partner 卡（拍檔卡）')).toBeTruthy();
   });
 
   it('preserves marketplace and profile routes', () => {

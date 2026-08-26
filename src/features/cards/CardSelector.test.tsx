@@ -10,6 +10,7 @@ const cards: readonly Card[] = [
   { id: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R', 'CP'] },
   { id: '0003', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
   { id: '0005', cardType: 'character', cardName: '諸伏景光', rarities: ['SEC'] },
+  { id: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
 ];
 
 afterEach(() => {
@@ -20,7 +21,14 @@ describe('CardSelector', () => {
   it('displays all normalized rarities for each card', () => {
     render(<CardSelector cards={cards} value={null} onChange={vi.fn()} />);
 
-    expect(screen.getByRole('button', { name: '江戶川柯南 · R、CP' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '角色卡 · 江戶川柯南 · ID 0001 · R、CP' })).toBeTruthy();
+  });
+
+  it('labels same-name cards with their type and ID', () => {
+    render(<CardSelector cards={cards} value={null} onChange={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: '角色卡 · 江戶川柯南 · ID 0001 · R、CP' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Partner 卡（拍檔卡） · 江戶川柯南 · ID 1167 · P' })).toBeTruthy();
   });
 
   it('filters visible options from the query without treating typed text as a selected card', async () => {
@@ -31,9 +39,9 @@ describe('CardSelector', () => {
 
     await user.type(screen.getByRole('textbox', { name: '搜尋卡牌' }), '諸伏');
 
-    expect(screen.getByRole('button', { name: '諸伏景光 · R' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '諸伏景光 · SEC' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '江戶川柯南 · R、CP' })).toBeNull();
+    expect(screen.getByRole('button', { name: '角色卡 · 諸伏景光 · ID 0003 · R' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '角色卡 · 諸伏景光 · ID 0005 · SEC' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '角色卡 · 江戶川柯南 · ID 0001 · R、CP' })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -43,7 +51,7 @@ describe('CardSelector', () => {
 
     render(<CardSelector cards={cards} value={null} onChange={onChange} />);
 
-    await user.click(screen.getByRole('button', { name: '諸伏景光 · SEC' }));
+    await user.click(screen.getByRole('button', { name: '角色卡 · 諸伏景光 · ID 0005 · SEC' }));
 
     expect(onChange).toHaveBeenCalledOnce();
     expect(onChange).toHaveBeenCalledWith({
@@ -72,8 +80,8 @@ describe('CardSelector', () => {
 
     render(<CardSelector cards={cards} value={cards[1]} onChange={onChange} />);
 
-    expect(screen.getByRole('button', { name: '諸伏景光 · R' }).getAttribute('aria-pressed')).toBeNull();
-    await user.click(screen.getByRole('button', { name: '諸伏景光 · R' }));
+    expect(screen.getByRole('button', { name: '角色卡 · 諸伏景光 · ID 0003 · R' }).getAttribute('aria-pressed')).toBeNull();
+    await user.click(screen.getByRole('button', { name: '角色卡 · 諸伏景光 · ID 0003 · R' }));
     expect(onChange).toHaveBeenCalledWith(cards[1]);
   });
 });

@@ -16,12 +16,18 @@ const cards: readonly Card[] = [
 
 afterEach(() => cleanup());
 
-function SelectorHarness({ showCardId = true }: { showCardId?: boolean }) {
+function SelectorHarness({
+  showCardId = true,
+  mode = 'sell',
+}: {
+  showCardId?: boolean;
+  mode?: 'sell' | 'marketplace';
+}) {
   const [value, setValue] = useState<CardMetadataSelection>({
     cardType: 'character', cardName: '', rarity: '', cardId: '',
   });
 
-  return <CardMetadataSelector cards={cards} value={value} onChange={setValue} showCardId={showCardId} required />;
+  return <CardMetadataSelector cards={cards} value={value} onChange={setValue} showCardId={showCardId} mode={mode} required />;
 }
 
 function LegacySelectorHarness() {
@@ -82,6 +88,27 @@ describe('CardMetadataSelector', () => {
     render(<SelectorHarness showCardId={false} />);
 
     expect(screen.queryByLabelText('卡片 ID')).toBeNull();
+  });
+
+  it('enables Marketplace rarity filtering across a card type before a known name is selected', () => {
+    render(<SelectorHarness showCardId={false} mode="marketplace" />);
+
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏' } });
+
+    const rarity = screen.getByLabelText('稀有度') as HTMLSelectElement;
+    expect(rarity.disabled).toBe(false);
+    expect([...rarity.options].map((option) => option.value)).toEqual(['', 'R']);
+  });
+
+  it('keeps Sell rarity disabled until the typed name is an exact known card', () => {
+    render(<SelectorHarness />);
+
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '江戶川' } });
+    expect((screen.getByLabelText('稀有度') as HTMLSelectElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '江戶川柯南' } });
+    expect((screen.getByLabelText('稀有度') as HTMLSelectElement).disabled).toBe(false);
   });
 
   it('keeps the legacy character-only name field enabled for real user editing', async () => {

@@ -5,6 +5,7 @@ import { PageShell } from '../../components/PageShell';
 import { WelcomeNoticeDialog } from '../../components/WelcomeNoticeDialog';
 import { developmentCards } from '../../data/cards/developmentCards';
 import { getPublicSellerProfile, listActiveListings, listCards } from '../../data/firestore/repositories';
+import { hasKnownCardName } from '../../domain/cardMetadata';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { filterListings, validateCardIdQuery } from '../../listingFilters';
 import { cardTypeLabel } from '../../domain/cardType';
@@ -87,7 +88,12 @@ export function MarketplacePage({
     return () => { isCurrent = false; };
   }, [loadCards, loadListings, loadSeller]);
 
-  const visibleListings = useMemo(() => filterListings(listings, filters), [filters, listings]);
+  const hasExactKnownCardName = Boolean(filters.cardType
+    && hasKnownCardName(cards, filters.cardType, filters.cardName ?? ''));
+  const visibleListings = useMemo(() => filterListings(listings, {
+    ...filters,
+    cardName: hasExactKnownCardName ? filters.cardName : '',
+  }), [filters, hasExactKnownCardName, listings]);
   const cardIdError = validateCardIdQuery(filters.cardIdQuery);
   const isKnownCharacter = filters.cardType === 'character'
     && cards.some((card) => card.cardType === 'character' && card.cardName === filters.cardName);
@@ -122,6 +128,7 @@ export function MarketplacePage({
               value={filters}
               onChange={(metadata) => setFilters((current) => ({ ...current, ...metadata }))}
               showCardId={false}
+              mode="marketplace"
               className="marketplace-card-metadata-selector"
             />
             <CardIdSearchField
