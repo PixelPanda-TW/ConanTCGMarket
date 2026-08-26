@@ -16,6 +16,7 @@ import {
   type Sale,
   type SellerProfile,
 } from '../../domain/models';
+import { normalizeCardId } from '../../domain/cardId';
 
 type FirestoreData = Record<string, unknown>;
 
@@ -40,6 +41,7 @@ export const cardConverter: FirestoreDataConverter<Card> = {
     const cardData = card as Card;
     validateCard(cardData);
     return {
+      cardId: cardData.cardId,
       cardType: cardData.cardType,
       cardName: cardData.cardName,
       rarities: cardData.rarities,
@@ -47,11 +49,12 @@ export const cardConverter: FirestoreDataConverter<Card> = {
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
-    const cardName = data.cardName ?? data.characterName ?? data.nameZh ?? data.nameJa;
+    const explicitCardId = typeof data.cardId === 'string' ? normalizeCardId(data.cardId) : undefined;
     const card: Card = {
-      id: snapshot.id,
+      key: snapshot.id,
+      cardId: explicitCardId ?? normalizeCardId(snapshot.id),
       cardType: (data.cardType ?? 'character') as Card['cardType'],
-      cardName: cardName as string,
+      cardName: (data.cardName ?? data.characterName ?? data.nameZh ?? data.nameJa) as string,
       rarities: Array.isArray(data.rarities)
         ? data.rarities as string[]
         : [data.rarity as string],

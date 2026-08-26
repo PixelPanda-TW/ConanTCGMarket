@@ -24,7 +24,7 @@ describe('card repository', () => {
 
   it('lists cards through the cards collection and card converter', async () => {
     const cards: Card[] = [
-      { id: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R'] },
+      { key: '0001', cardId: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R'] },
     ];
     firestore.getDocs.mockResolvedValue({ docs: cards.map((card) => ({ data: () => card })) });
 
@@ -35,11 +35,35 @@ describe('card repository', () => {
     expect(firestore.getDocs).toHaveBeenCalledWith(convertedCollection);
   });
 
+  it('merges legacy and composite-key cards by canonical identity without merging same-ID different names', async () => {
+    const legacyCard: Card = {
+      key: '0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'],
+    };
+    const compositeCard: Card = {
+      key: 'card_abc', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['SR', 'D'],
+    };
+    const sameIdDifferentName: Card = {
+      key: 'card_def', cardId: '0501', cardType: 'character', cardName: '諸伏景光', rarities: ['R'],
+    };
+    const sameIdDifferentType: Card = {
+      key: 'card_ghi', cardId: '0501', cardType: 'event', cardName: '諸伏高明', rarities: ['C'],
+    };
+    firestore.getDocs.mockResolvedValue({
+      docs: [legacyCard, compositeCard, sameIdDifferentName, sameIdDifferentType].map((card) => ({ data: () => card })),
+    });
+
+    await expect(listCards()).resolves.toEqual([
+      { key: 'card_def', cardId: '0501', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+      { key: 'card_abc', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D', 'SR'] },
+      { key: 'card_ghi', cardId: '0501', cardType: 'event', cardName: '諸伏高明', rarities: ['C'] },
+    ]);
+  });
+
   it('matches normalized Chinese names and returns all matching rarities', () => {
     const cards: Card[] = [
-      { id: '0001', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
-      { id: '0002', cardType: 'character', cardName: '諸伏高明', rarities: ['SR'] },
-      { id: '0003', cardType: 'character', cardName: '江戶川柯南', rarities: ['UR'] },
+      { key: '0001', cardId: '0001', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+      { key: '0002', cardId: '0002', cardType: 'character', cardName: '諸伏高明', rarities: ['SR'] },
+      { key: '0003', cardId: '0003', cardType: 'character', cardName: '江戶川柯南', rarities: ['UR'] },
     ];
 
     expect(searchCards(cards, '  諸伏  ')).toEqual(cards.slice(0, 2));
@@ -50,8 +74,8 @@ describe('card repository', () => {
 
   it('matches normalized Japanese names', () => {
     const cards: Card[] = [
-      { id: '0001', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'] },
-      { id: '0002', cardType: 'character', cardName: '毛利 蘭', rarities: ['SR'] },
+      { key: '0001', cardId: '0001', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'] },
+      { key: '0002', cardId: '0002', cardType: 'character', cardName: '毛利 蘭', rarities: ['SR'] },
     ];
 
     expect(searchCards(cards, '江戸川')).toEqual([cards[0]]);
@@ -59,7 +83,7 @@ describe('card repository', () => {
   });
 
   it('returns every card for an empty or whitespace-only query', () => {
-    const cards: readonly Card[] = [{ id: '0001', cardType: 'character', cardName: '柯南', rarities: ['R'] }];
+    const cards: readonly Card[] = [{ key: '0001', cardId: '0001', cardType: 'character', cardName: '柯南', rarities: ['R'] }];
 
     expect(searchCards(cards, '')).toEqual(cards);
     expect(searchCards(cards, '   ')).toEqual(cards);

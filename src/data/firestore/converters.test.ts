@@ -40,38 +40,27 @@ describe('Firestore converters', () => {
     });
   });
 
-  it('writes only allowlisted Card Master fields', () => {
-    expect(
-      cardConverter.toFirestore({
-        id: '1096',
-        cardType: 'character',
-        cardName: '鈴木園子',
-        rarities: ['SR', 'CP'],
-        officialImageUrl: 'https://example.com/official.jpg',
-        effectText: 'private card text',
-        unknown: 'unknown',
-      } as never),
-    ).toEqual({
-      cardType: 'character',
-      cardName: '鈴木園子',
-      rarities: ['SR', 'CP'],
-    });
-  });
-
-  it('converts legacy Card Master character metadata to the normalized shape', () => {
+  it('converts a composite-key Card Master document to the normalized shape', () => {
     const snapshot = {
-      id: '0501',
+      id: 'card_abc',
       data: () => ({
-        characterName: '諸伏高明',
-        rarities: ['D'],
+        cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'],
       }),
     };
 
-    expect(cardConverter.fromFirestore(snapshot as never, {} as never)).toMatchObject({
+    expect(cardConverter.fromFirestore(snapshot as never)).toEqual({
+      key: 'card_abc', cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'],
+    });
+  });
+
+  it('converts a legacy Card Master document using its document ID as cardId', () => {
+    const snapshot = {
       id: '0501',
-      cardType: 'character',
-      cardName: '諸伏高明',
-      rarities: ['D'],
+      data: () => ({ characterName: '諸伏高明', rarities: ['D'] }),
+    };
+
+    expect(cardConverter.fromFirestore(snapshot as never, {} as never)).toEqual({
+      key: '0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'],
     });
   });
 
@@ -81,8 +70,8 @@ describe('Firestore converters', () => {
       data: () => ({ nameZh: '毛利蘭', rarities: ['SR'] }),
     };
 
-    expect(cardConverter.fromFirestore(snapshot as never)).toMatchObject({
-      id: '0502', cardType: 'character', cardName: '毛利蘭', rarities: ['SR'],
+    expect(cardConverter.fromFirestore(snapshot as never)).toEqual({
+      key: '0502', cardId: '0502', cardType: 'character', cardName: '毛利蘭', rarities: ['SR'],
     });
   });
 
@@ -92,8 +81,17 @@ describe('Firestore converters', () => {
       data: () => ({ nameJa: '江戸川コナン', rarities: ['R'] }),
     };
 
-    expect(cardConverter.fromFirestore(snapshot as never)).toMatchObject({
-      id: '0503', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'],
+    expect(cardConverter.fromFirestore(snapshot as never)).toEqual({
+      key: '0503', cardId: '0503', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'],
+    });
+  });
+
+  it('writes cardId with the allowlisted Card Master fields', () => {
+    expect(cardConverter.toFirestore({
+      key: 'card_abc', cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'],
+      officialImageUrl: 'https://example.com/official.jpg', effectText: 'private card text', unknown: 'unknown',
+    } as never)).toEqual({
+      cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'],
     });
   });
 
