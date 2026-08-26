@@ -449,6 +449,7 @@ h1 {
 
 .profile-form textarea { min-height: 112px; resize: vertical; border: 1px solid #d8b4fe; border-radius: 8px; padding: 10px 12px; font: inherit; }
 .profile-form input:focus, .profile-form select:focus, .profile-form textarea:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px hsl(var(--ring) / 14%); outline: 0; }
+.profile-form input:focus-visible, .profile-form select:focus-visible, .profile-form textarea:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .profile-form input[aria-invalid='true'] { border-color: var(--danger); box-shadow: 0 0 0 3px rgb(180 35 24 / 14%); }
 
 .listing-form input[type="file"] {

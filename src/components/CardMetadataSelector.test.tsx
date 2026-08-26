@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card } from '../domain/models';
 import { CardMetadataSelector, type CardMetadataSelection } from './CardMetadataSelector';
+
+const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
 const cards: readonly Card[] = [
   { key: 'card_a', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
@@ -158,6 +162,39 @@ describe('CardMetadataSelector', () => {
     fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏高明' } });
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'D' } });
     expect((screen.getByLabelText('卡片 ID') as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('keeps the sell ID input keyboard-visible, touch-sized, and mobile-width safe', () => {
+    const style = document.createElement('style');
+    style.textContent = styles;
+    document.head.append(style);
+
+    try {
+      render(
+        <form className="profile-form" style={{ width: '375px' }}>
+          <CardMetadataSelector
+            cards={cards}
+            value={{ cardType: 'partner', cardName: '江戶川柯南', rarity: 'P', cardId: '' }}
+            onChange={vi.fn()}
+          />
+        </form>,
+      );
+
+      const cardId = screen.getByLabelText('卡片 ID') as HTMLInputElement;
+      cardId.focus();
+
+      expect(cardId.matches(':focus-visible')).toBe(true);
+      const cardIdStyle = getComputedStyle(cardId);
+      expect(cardIdStyle.outline.toLowerCase()).toContain('2px');
+      expect(cardIdStyle.outline.toLowerCase()).toContain('solid');
+      expect(cardIdStyle.outlineOffset).toBe('2px');
+      expect(cardIdStyle.minHeight).toBe('44px');
+      expect(cardIdStyle.width).toBe('100%');
+      expect(cardIdStyle.boxSizing).toBe('border-box');
+      expect(getComputedStyle(cardId.closest('label') as HTMLLabelElement).minWidth).toBe('0px');
+    } finally {
+      style.remove();
+    }
   });
 
 });
