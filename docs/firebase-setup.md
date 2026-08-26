@@ -49,6 +49,18 @@ reviewed the generated count/conflict report and obtained explicit production
 approval. The import is an upsert only: it never deletes the Card Master, and
 it writes only `cardType`, trimmed `cardName`, and normalized `rarities`.
 
+The latest read-only Rugia diagnostic found 895 valid unique `character` IDs,
+69 `event`, 119 `case`, and 1 `partner`, with no identity conflicts. It also
+rejected 83 invalid IDs. A clean artifact is currently unavailable because the
+strict synchronizer rejects the alphanumeric ID `P001` (and other non-four-digit
+IDs); do not weaken that safety check. The following production import command
+is deliberately unexecuted and remains blocked until a clean artifact/report
+and explicit production approval exist:
+
+```sh
+FIREBASE_CONFIG='{"apiKey":"…","projectId":"…","appId":"…"}' npm run import:cards -- /tmp/conan-card-master-multi-type.json
+```
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

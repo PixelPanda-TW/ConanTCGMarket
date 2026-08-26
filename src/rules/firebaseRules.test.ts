@@ -6,6 +6,13 @@ import { ref, uploadBytes } from 'firebase/storage';
 
 let environment: RulesTestEnvironment;
 const activeListing = { sellerId: 'seller-a', cardId: 'CP-001', imageUrls: ['https://example.test/card.jpg'], listingPrice: 500, originalQuantity: 5, remainingQuantity: 5, hasSleeve: true, supportsMyShip: true, status: 'active', createdAt: new Date(), updatedAt: new Date() };
+const eventListing = {
+  ...activeListing,
+  cardId: '0123',
+  cardType: 'event',
+  cardName: '事件測試卡',
+  rarity: 'SR',
+};
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-conan-tcg', firestore: { rules: await readFile('firestore.rules', 'utf8') }, storage: { rules: await readFile('storage.rules', 'utf8') } });
@@ -17,6 +24,14 @@ beforeAll(async () => {
 afterAll(async () => environment?.cleanup());
 
 describe('Firebase rules', () => {
+  it('allows an owner to create a generic Listing but rejects another seller mutation', async () => {
+    const sellerA = environment.authenticatedContext('seller-a').firestore();
+    const sellerB = environment.authenticatedContext('seller-b').firestore();
+    const listing = doc(sellerA, 'listings', 'event-listing');
+
+    await assertSucceeds(setDoc(listing, eventListing));
+    await assertFails(setDoc(doc(sellerB, 'listings', 'event-listing'), { ...eventListing, listingPrice: 1 }));
+  });
   it('allows public active-listing reads but rejects sold-out reads', async () => {
     const db = environment.unauthenticatedContext().firestore();
     await assertSucceeds(getDocs(query(collection(db, 'listings'), where('status', '==', 'active'))));
