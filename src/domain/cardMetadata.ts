@@ -97,10 +97,32 @@ export function getCardIdsForMetadata(
   const rarity = isLegacyCall ? cardNameOrRarity : maybeRarity;
   if (!cardName.trim() || !rarity.trim()) return [];
 
+  if (!isLegacyCall) {
+    return getCardsForMetadata(cards, cardType, cardName, rarity).map((card) => card.cardId);
+  }
+
   return cards
-    .filter((card) => matchesCardType(card, cardType) && cardNameOf(card) === cardName && cardRarities(card).includes(rarity))
+    .filter((card): card is LegacyCard => isLegacyCard(card)
+      && card.characterName === cardName
+      && cardRarities(card).includes(rarity))
     .map((card) => card.id)
     .sort((first, second) => first.localeCompare(second));
+}
+
+export function getCardsForMetadata(
+  cards: readonly MetadataCard[],
+  cardType: CardType,
+  cardName: string,
+  rarity: string,
+): Card[] {
+  if (!cardName.trim() || !rarity.trim()) return [];
+
+  return cards
+    .filter((card): card is Card => !isLegacyCard(card)
+      && card.cardType === cardType
+      && card.cardName === cardName
+      && card.rarities.includes(rarity))
+    .sort((a, b) => a.cardId.localeCompare(b.cardId) || a.key.localeCompare(b.key));
 }
 
 export function hasKnownCardMetadata(
@@ -110,7 +132,7 @@ export function hasKnownCardMetadata(
   const cardType = 'cardType' in values ? values.cardType : 'character';
   const knownCardName = 'cardName' in values ? values.cardName : values.characterName;
 
-  return cards.some((card) => card.id === values.cardId
+  return cards.some((card) => (isLegacyCard(card) ? card.id : card.cardId) === values.cardId
     && matchesCardType(card, cardType)
     && cardNameOf(card) === knownCardName
     && cardRarities(card).includes(values.rarity));

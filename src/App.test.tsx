@@ -45,7 +45,7 @@ describe('App routes', () => {
     window.location.hash = '#/cards';
     const user = (await import('@testing-library/user-event')).default.setup();
     vi.mocked(listCards).mockResolvedValue([
-      { id: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
+      { key: 'partner_1167', cardId: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
     ]);
 
     render(<App />);

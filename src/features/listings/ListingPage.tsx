@@ -34,7 +34,7 @@ export function ListingPage({ id }: { id: string }) {
           getPublicSellerProfile(value.sellerId),
         ]);
         if (!isCurrent) return;
-        const resolvedCard = cards.find((item) => item.id === value.cardId) ?? null;
+        const resolvedCard = cards.find((item) => item.cardId === value.cardId) ?? null;
         const metadata = resolveListingMetadata(value, resolvedCard);
         setCard(resolvedCard);
         setIsKnownCharacter(Boolean(

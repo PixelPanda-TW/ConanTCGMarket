@@ -2,7 +2,7 @@ import { isCardType, type CardType } from '../../domain/cardType';
 import type { Card, Listing } from '../../domain/models';
 
 export function resolveListingCard(cardId: string, cardMaster: readonly Card[], fallbackCards: readonly Card[]): Card | null {
-  return cardMaster.find((card) => card.id === cardId) ?? fallbackCards.find((card) => card.id === cardId) ?? null;
+  return cardMaster.find((card) => card.cardId === cardId) ?? fallbackCards.find((card) => card.cardId === cardId) ?? null;
 }
 
 export interface MarketplaceListingMetadata {

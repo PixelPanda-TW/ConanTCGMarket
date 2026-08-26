@@ -7,7 +7,7 @@ import type { Card } from '../../domain/models';
 import { CardMasterPage } from './CardMasterPage';
 
 const cards: Card[] = [
-  { id: '0003', cardType: 'event', cardName: '追跡開始', rarities: ['R'] },
+  { key: 'card_a', cardId: '0003', cardType: 'event', cardName: '追跡開始', rarities: ['R'] },
 ];
 
 afterEach(() => cleanup());

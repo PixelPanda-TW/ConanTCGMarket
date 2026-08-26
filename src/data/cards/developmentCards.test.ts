@@ -11,7 +11,7 @@ describe('development card seed data', () => {
     expect(new Set(murofuCards.flatMap((card) => card.rarities)).size).toBeGreaterThanOrEqual(2);
 
     for (const card of developmentCards) {
-      expect(Object.keys(card).sort()).toEqual(['id', 'cardType', 'cardName', 'rarities'].sort());
+      expect(Object.keys(card).sort()).toEqual(['key', 'cardId', 'cardType', 'cardName', 'rarities'].sort());
       expect(card).not.toHaveProperty('imageUrl');
       expect(card).not.toHaveProperty('imageUrls');
       expect(card).not.toHaveProperty('effectText');

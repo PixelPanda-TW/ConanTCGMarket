@@ -108,7 +108,7 @@ describe('ListingEditPage', () => {
       rarity: undefined,
     });
     repositories.listCards.mockResolvedValue([
-      { id: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
+      { key: 'event_CT-P01-001', cardId: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
     ]);
 
     render(<ListingEditPage id="legacy-listing" />);

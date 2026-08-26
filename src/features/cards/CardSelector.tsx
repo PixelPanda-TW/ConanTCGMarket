@@ -18,7 +18,7 @@ function cardRarities(card: Card): string {
 }
 
 function cardOptionLabel(card: Card): string {
-  return `${cardTypeLabel(card.cardType)} · ${cardName(card)} · ID ${card.id} · ${cardRarities(card)}`;
+  return `${cardTypeLabel(card.cardType)} · ${cardName(card)} · ID ${card.cardId} · ${cardRarities(card)}`;
 }
 
 export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
@@ -58,12 +58,12 @@ export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
             <button
               type="button"
               className="card-selector-option"
-              key={card.id}
+              key={card.key}
               onClick={() => onChange(card)}
               aria-label={cardOptionLabel(card)}
             >
               <span>{cardTypeLabel(card.cardType)} · {cardName(card)}</span>
-              <span className="card-selector-id">ID {card.id}</span>
+              <span className="card-selector-id">ID {card.cardId}</span>
               <span className="card-selector-rarity">{cardRarities(card)}</span>
             </button>
           ))

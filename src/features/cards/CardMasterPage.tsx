@@ -75,7 +75,7 @@ export function CardMasterPage({ loadCards = listCards }: CardMasterPageProps) {
                 <dl>
                   <div>
                     <dt>卡號</dt>
-                    <dd>{selectedCard.id}</dd>
+                    <dd>{selectedCard.cardId}</dd>
                   </div>
                   <div>
                     <dt>卡片類型</dt>

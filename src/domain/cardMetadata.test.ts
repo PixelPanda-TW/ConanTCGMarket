@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Card } from './models';
 import {
+  getCardsForMetadata,
   getCardIdsForMetadata,
   getCardNameSuggestions,
   getCharacterNameSuggestions,
@@ -10,25 +11,29 @@ import {
 } from './cardMetadata';
 
 const cards: readonly Card[] = [
-  { id: '1001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R'] },
-  { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
-  { id: '1200', cardType: 'case', cardName: '緋色の真相', rarities: ['C'] },
-  { id: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
+  { key: 'card_a', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+  { key: 'card_b', cardId: '0501', cardType: 'event', cardName: '事件 0501', rarities: ['D'] },
+  { key: 'card_c', cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
 ];
 
 describe('card metadata', () => {
   it('narrows metadata candidates within the selected card type', () => {
-    expect(getCardNameSuggestions(cards, 'event', '追')).toEqual(['追跡開始']);
-    expect(getRaritiesForMetadata(cards, 'case', '緋色の真相')).toEqual(['C']);
-    expect(getCardIdsForMetadata(cards, 'partner', '江戶川柯南', 'P')).toEqual(['1167']);
+    expect(getCardNameSuggestions(cards, 'event', '事')).toEqual(['事件 0501']);
+    expect(getRaritiesForMetadata(cards, 'event', '事件 0501')).toEqual(['D']);
+    expect(getCardIdsForMetadata(cards, 'partner', '江戶川柯南', 'P')).toEqual(['P001']);
+  });
+
+  it('returns the matching normalized card when visible IDs are shared', () => {
+    expect(getCardsForMetadata(cards, 'character', '諸伏高明', 'D')).toEqual([cards[0]]);
+    expect(getCardsForMetadata(cards, 'event', '事件 0501', 'D')).toEqual([cards[1]]);
   });
 
   it('recognizes only a complete known type-aware metadata combination', () => {
     expect(hasKnownCardMetadata(cards, {
-      cardType: 'event', cardName: '追跡開始', rarity: 'C', cardId: '1100',
+      cardType: 'event', cardName: '事件 0501', rarity: 'D', cardId: '0501',
     })).toBe(true);
     expect(hasKnownCardMetadata(cards, {
-      cardType: 'character', cardName: '江戶川柯南', rarity: 'P', cardId: '1167',
+      cardType: 'character', cardName: '江戶川柯南', rarity: 'P', cardId: 'P001',
     })).toBe(false);
   });
 

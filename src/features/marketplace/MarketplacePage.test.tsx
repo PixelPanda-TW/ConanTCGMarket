@@ -22,10 +22,10 @@ vi.mock('../auth/AuthProvider', () => ({
 }));
 
 const cards: Card[] = [
-  { id: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R', 'CP'] },
-  { id: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
-  { id: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
-  { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
+  { key: 'character_0338', cardId: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R', 'CP'] },
+  { key: 'character_0590', cardId: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+  { key: 'character_0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+  { key: 'event_1100', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
 ];
 
 const activeListing: Listing = {
@@ -155,8 +155,8 @@ describe('MarketplacePage', () => {
       rarity: 'C',
     };
     const eventCards: Card[] = [
-      { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
-      { id: '1101', cardType: 'event', cardName: '另一張事件卡', rarities: ['R'] },
+      { key: 'event_1100', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
+      { key: 'event_1101', cardId: '1101', cardType: 'event', cardName: '另一張事件卡', rarities: ['R'] },
     ];
     render(<MarketplacePage loadListings={async () => [activeListing, eventC, eventR]} loadCards={async () => eventCards} loadSeller={async () => seller} />);
 
@@ -197,8 +197,8 @@ describe('MarketplacePage', () => {
       rarity: 'R',
     };
     const eventCards: Card[] = [
-      { id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C', 'R'] },
-      { id: '1101', cardType: 'event', cardName: '另一張事件卡', rarities: ['R'] },
+      { key: 'event_1100', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C', 'R'] },
+      { key: 'event_1101', cardId: '1101', cardType: 'event', cardName: '另一張事件卡', rarities: ['R'] },
     ];
     render(<MarketplacePage loadListings={async () => [eventC, eventR]} loadCards={async () => eventCards} loadSeller={async () => seller} />);
 

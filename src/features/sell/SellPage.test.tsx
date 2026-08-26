@@ -56,9 +56,9 @@ describe('SellPage', () => {
 
   it('preloads Card Master and narrows the rarity and ID autocomplete options', async () => {
     listCardsMock.mockResolvedValue([
-      { id: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R', 'CP'] },
-      { id: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
-      { id: '1010', cardType: 'character', cardName: '諸伏高明', rarities: ['SR'] },
+      { key: 'character_0338', cardId: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R', 'CP'] },
+      { key: 'character_0590', cardId: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+      { key: 'character_1010', cardId: '1010', cardType: 'character', cardName: '諸伏高明', rarities: ['SR'] },
     ]);
 
     render(<SellPage loadSellerProfile={loadSellerProfile} />);
@@ -75,7 +75,7 @@ describe('SellPage', () => {
   });
 
   it('creates an event Listing snapshot without characterName', async () => {
-    listCardsMock.mockResolvedValue([{ id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] }]);
+    listCardsMock.mockResolvedValue([{ key: 'event_1100', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] }]);
     createListingIdMock.mockReturnValue('listing-event');
     uploadListingImagesMock.mockResolvedValue(['https://example.com/event.jpg']);
     createListingMock.mockResolvedValue('listing-event');
@@ -99,7 +99,7 @@ describe('SellPage', () => {
   });
 
   it('creates a character Listing snapshot whose characterName matches cardName', async () => {
-    listCardsMock.mockResolvedValue([{ id: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }]);
+    listCardsMock.mockResolvedValue([{ key: 'character_1096', cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }]);
     createListingIdMock.mockReturnValue('listing-character');
     uploadListingImagesMock.mockResolvedValue(['https://example.com/character.jpg']);
     createListingMock.mockResolvedValue('listing-character');
@@ -121,7 +121,7 @@ describe('SellPage', () => {
   });
 
   it('rejects an unknown metadata combination before uploading images', async () => {
-    listCardsMock.mockResolvedValue([{ id: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] }]);
+    listCardsMock.mockResolvedValue([{ key: 'event_1100', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] }]);
     render(<SellPage loadSellerProfile={loadSellerProfile} />);
 
     await screen.findByLabelText('卡片類型');

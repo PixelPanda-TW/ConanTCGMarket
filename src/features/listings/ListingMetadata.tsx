@@ -30,7 +30,7 @@ export function resolveListingMetadata(listing: Listing, card?: Card | null): Re
     cardType,
     cardName: cardName ?? '未提供卡片名稱',
     rarity: hasText(listing.rarity) ? listing.rarity : card?.rarities[0] ?? '未提供稀有度',
-    cardId: hasText(listing.cardId) ? listing.cardId : card?.id ?? '未提供卡片 ID',
+    cardId: hasText(listing.cardId) ? listing.cardId : card?.cardId ?? '未提供卡片 ID',
   };
 }
 

@@ -22,7 +22,7 @@ vi.mock('../auth/AuthProvider', () => ({
   }),
 }));
 
-const card: Card = { id: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] };
+const card: Card = { key: 'character_0338', cardId: '0338', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] };
 const listing: Listing = {
   id: 'listing-1',
   sellerId: 'seller-1',

@@ -45,8 +45,8 @@ describe('DashboardPage', () => {
     ]);
     repositories.listSellerSales.mockResolvedValue([]);
     repositories.listCards.mockResolvedValue([
-      { id: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
-      { id: 'CT-P01-002', cardType: 'partner', cardName: '舊版拍檔', rarities: ['P'] },
+      { key: 'event_CT-P01-001', cardId: 'CT-P01-001', cardType: 'event', cardName: '舊版事件', rarities: ['CP'] },
+      { key: 'partner_CT-P01-002', cardId: 'CT-P01-002', cardType: 'partner', cardName: '舊版拍檔', rarities: ['P'] },
     ]);
 
     render(<DashboardPage />);

@@ -1,7 +1,7 @@
 import { CARD_TYPES, cardTypeLabel, type CardType } from '../domain/cardType';
 import type { Card } from '../domain/models';
 import {
-  getCardIdsForMetadata,
+  getCardsForMetadata,
   getCardNameSuggestions,
   getRaritiesForMetadata,
   hasKnownCardName,
@@ -50,7 +50,7 @@ export function CardMetadataSelector({
   const nameSuggestions = cardType ? getCardNameSuggestions(cards, cardType, cardName) : [];
   const hasExactKnownName = Boolean(cardType && hasKnownCardName(cards, cardType, cardName));
   const rarityOptions = cardType ? getRaritiesForMetadata(cards, cardType, cardName, mode) : [];
-  const cardIdOptions = cardType ? getCardIdsForMetadata(cards, cardType, cardName, value.rarity) : [];
+  const cardOptions = cardType ? getCardsForMetadata(cards, cardType, cardName, value.rarity) : [];
   const selectorClassName = ['card-metadata-selector', className].filter(Boolean).join(' ');
 
   function updateCardType(cardType: CardType | '') {
@@ -140,7 +140,7 @@ export function CardMetadataSelector({
             required={required}
           >
             <option value="">{requireCardId === false ? '全部卡片 ID' : '請選擇卡片 ID'}</option>
-            {cardIdOptions.map((cardId) => <option key={cardId} value={cardId}>{cardId}</option>)}
+            {cardOptions.map((card) => <option key={card.key} value={card.cardId}>{card.cardId}</option>)}
           </select>
         </label>
       )}

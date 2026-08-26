@@ -19,7 +19,7 @@ export function ListingEditPage({ id }: { id: string }) {
       setListing(value);
       if (!value) return;
       void listCards()
-        .then((cards) => { if (isCurrent) setCard(cards.find((item) => item.id === value.cardId) ?? null); })
+        .then((cards) => { if (isCurrent) setCard(cards.find((item) => item.cardId === value.cardId) ?? null); })
         .catch(() => { if (isCurrent) setCard(null); });
     }).catch(() => { if (isCurrent) setListing(null); });
     return () => { isCurrent = false; };

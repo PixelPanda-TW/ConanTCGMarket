@@ -25,12 +25,12 @@ describe('sell form', () => {
   });
 
   it('accepts only character names present in Card Master', () => {
-    expect(hasKnownCharacterName([{ id: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }], '鈴木園子')).toBe(true);
-    expect(hasKnownCharacterName([{ id: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }], '不存在的人名')).toBe(false);
+    expect(hasKnownCharacterName([{ key: 'character_1096', cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }], '鈴木園子')).toBe(true);
+    expect(hasKnownCharacterName([{ key: 'character_1096', cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['SR'] }], '不存在的人名')).toBe(false);
   });
 
   it('accepts only a matching generic Card Master metadata combination', () => {
-    const cards = [{ id: '1096', cardType: 'character' as const, cardName: '鈴木園子', rarities: ['SR', 'CP'] }];
+    const cards = [{ key: 'character_1096', cardId: '1096', cardType: 'character' as const, cardName: '鈴木園子', rarities: ['SR', 'CP'] }];
 
     expect(hasKnownCardMetadata(cards, { cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarity: 'CP' })).toBe(true);
     expect(hasKnownCardMetadata(cards, { cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarity: 'R' })).toBe(false);
