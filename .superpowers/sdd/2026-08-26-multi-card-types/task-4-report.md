@@ -52,3 +52,31 @@
 
 - `Listing.cardType` and `Listing.cardName` remain optional in TypeScript strictly to represent old documents during compatibility reads; `validateListing` requires them for every new write. Future Task 5/6 presentation code must retain its documented fallback path for truly old data.
 - This task deliberately does not alter Firestore rules, Marketplace filtering, display/detail pages, or notification Functions; those are Tasks 5–7.
+
+## Review round 1 fix
+
+An Important review finding identified that `allowLegacyCardMetadata` also allowed a partially normalized Listing to bypass the non-character `characterName` invariant. The fix distinguishes fully legacy documents from partially normalized ones:
+
+- the non-character `characterName` rejection executes before the legacy missing-metadata allowance;
+- the allowance now applies only when **neither** normalized metadata field is present;
+- the converter maps `characterName` to `cardType: 'character'` and `cardName` only when both normalized source fields are absent; a document without any card metadata remains an unnormalized legacy value for downstream display fallback.
+
+### Review RED/GREEN evidence
+
+Added two converter regressions, then ran:
+
+```sh
+npm test -- src/domain/models/domainModels.test.ts src/data/firestore/converters.test.ts
+```
+
+RED: 2 failures / 37 tests. A partial `{ cardType: 'event', characterName: '偽角色' }` Listing was accepted, and a partial character Listing incorrectly received the legacy card-name fallback.
+
+GREEN: the same command passed: 2 files, 37 tests. The existing fully legacy character Listing regression remains green.
+
+### Review-round verification
+
+- Task 4/Sell compatibility suite: 4 files, 47 tests passed.
+- Relevant app/listing suite with root `.env` and `NODE_OPTIONS=--no-experimental-webstorage`: 4 files, 17 tests passed.
+- Full root suite with the same environment: 36 files, 152 tests passed.
+- `NODE_OPTIONS=--no-experimental-webstorage npm run build` passed; Vite emitted only the non-failing 810.33 kB chunk-size advisory.
+- `git diff --check` passed.

@@ -169,6 +169,36 @@ describe('Firestore converters', () => {
     });
   });
 
+  it('rejects a partial normalized event Listing that contains characterName', () => {
+    const snapshot = {
+      id: 'partial-event-listing',
+      data: () => ({
+        sellerId: 'seller-1', cardId: '1100', cardType: 'event', characterName: '偽角色', rarity: 'C', imageUrls: ['https://example.com/card.jpg'],
+        listingPrice: 500, originalQuantity: 1, remainingQuantity: 1, hasSleeve: false, supportsMyShip: false, status: 'active',
+        createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+        updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
+      }),
+    };
+
+    expect(() => listingConverter.fromFirestore(snapshot as never))
+      .toThrow('Non-character Listing cannot contain characterName.');
+  });
+
+  it('does not map characterName to cardName when a normalized Listing field is present', () => {
+    const snapshot = {
+      id: 'partial-character-listing',
+      data: () => ({
+        sellerId: 'seller-1', cardId: '1096', cardType: 'character', characterName: '鈴木園子', rarity: 'SR', imageUrls: ['https://example.com/card.jpg'],
+        listingPrice: 500, originalQuantity: 1, remainingQuantity: 1, hasSleeve: false, supportsMyShip: false, status: 'active',
+        createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+        updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
+      }),
+    };
+
+    expect(() => listingConverter.fromFirestore(snapshot as never))
+      .toThrow('Listing requires cardType, cardName, and rarity snapshots.');
+  });
+
   it('converts seller profile timestamps to Date values', () => {
     const snapshot = {
       id: 'seller-1',

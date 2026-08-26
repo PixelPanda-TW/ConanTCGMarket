@@ -40,16 +40,19 @@ export function validateListing(listing: Listing, allowLegacyCardMetadata = fals
   const hasCharacterName = typeof listing.characterName === 'string' && listing.characterName.trim().length > 0;
   const hasCardName = typeof listing.cardName === 'string' && listing.cardName.trim().length > 0;
   const hasRarity = typeof listing.rarity === 'string' && listing.rarity.trim().length > 0;
+  const hasNormalizedMetadata = listing.cardType !== undefined || listing.cardName !== undefined;
+  if (isCardType(listing.cardType) && listing.cardType !== 'character' && listing.characterName !== undefined) {
+    throw new Error('Non-character Listing cannot contain characterName.');
+  }
+
   if (!isCardType(listing.cardType) || !hasCardName || !hasRarity) {
-    if (!allowLegacyCardMetadata) {
+    if (!allowLegacyCardMetadata || hasNormalizedMetadata) {
       throw new Error('Listing requires cardType, cardName, and rarity snapshots.');
     }
   } else if (listing.cardType === 'character') {
     if (!hasCharacterName || listing.characterName !== listing.cardName) {
       throw new Error('Character Listing requires characterName to equal cardName.');
     }
-  } else if (listing.characterName !== undefined) {
-    throw new Error('Non-character Listing cannot contain characterName.');
   }
 
   if (

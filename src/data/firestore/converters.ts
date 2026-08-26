@@ -100,7 +100,7 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
       id: snapshot.id,
       sellerId: data.sellerId as string,
       cardId: data.cardId as string,
-      cardType: (hasNormalizedMetadata ? data.cardType : 'character') as Listing['cardType'],
+      cardType: (hasNormalizedMetadata ? data.cardType : data.characterName ? 'character' : undefined) as Listing['cardType'],
       cardName: (hasNormalizedMetadata ? data.cardName : data.characterName) as string | undefined,
       characterName: data.characterName as string | undefined,
       rarity: data.rarity as string | undefined,
