@@ -40,7 +40,7 @@ npm run sync:cards -- /tmp/conan-card-master-composite.json
 node scripts/import-card-master.mjs --dry-run /tmp/conan-card-master-composite.json
 ```
 
-The report gate requires `unknownIds=0` and `keyCollisions=0`, both approved ID formats, shared-ID statistics, duplicate-occurrence statistics, and the controlled `B0982 -> 0982` correction with its count. Any other unknown format stops the sync; it must never be guessed or repaired by stripping an arbitrary prefix. The dry run must report canonical `records`, `batches`, and `keyCollisions=0` without initializing Firebase Admin.
+The sync must complete without an invalid-ID error or artifact refusal. Its report gate requires `keyCollisions=0`, both approved ID formats, shared-ID statistics, duplicate-occurrence statistics, and the controlled `B0982 -> 0982` correction with its count. Any other unknown format stops the sync before an artifact is written; it must never be guessed or repaired by stripping an arbitrary prefix. The dry run must report canonical `records`, `batches`, and `keyCollisions=0` without initializing Firebase Admin.
 
 The artifact and Firestore documents may contain only `cardId`, `cardType`, `cardName`, and `rarities`. They must not contain `officialImage`, image URLs, `effect` or 牌效, traits, or source-internal IDs such as `PR226`.
 

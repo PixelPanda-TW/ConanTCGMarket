@@ -32,49 +32,17 @@ does not deploy Firestore rules, indexes, or Cloud Functions.
 
 ## Controlled Card Master synchronization and import
 
-Create a review-only Card Master candidate from the authorized Rugia source:
+The authoritative synchronization, report-gate, dry-run, credentials, batching,
+composite-key migration, and no-delete instructions live in the
+[Card Master import guide](card-master-import.md). Use that guide as the single
+operator procedure; do not copy an older artifact path or a workflow that uses
+the visible ID as the document ID from historical notes.
 
-```sh
-npm run sync:cards -- /tmp/conan-card-master.json
-```
-
-The candidate contains only `cardId`, `cardType`, `cardName`, and `rarities`.
-On a clean successful sync, the CLI also prints a report with counts for
-`character`, `event`, `case`, and `partner`, plus `conflicts=0`. Its four
-approved types are `character`, `event`, `case`, and `partner`; do not add card
-images, effect text, source metadata, or any other unapproved fields.
-
-Do not run `npm run import:cards` against production until an operator has
-reviewed the generated count/conflict report and obtained explicit production
-approval. The import is an Admin SDK upsert only: it never deletes the Card
-Master, and it writes only `cardType`, trimmed `cardName`, and normalized
-`rarities`. It accepts only the normalized four-field JSON records `cardId`,
-`cardType`, `cardName`, and `rarities`; `cardId` is exactly four decimal digits
-and is the document ID. Duplicate records may merge only when their ID, type,
-and trimmed name match; a type/name conflict rejects the full input before
-Admin initialization or a write.
-
-The latest read-only Rugia diagnostic found 895 valid unique `character` IDs,
-69 `event`, 119 `case`, and 1 `partner`, with no identity conflicts. It also
-rejected 83 invalid IDs. A clean artifact is currently unavailable because the
-strict synchronizer rejects the alphanumeric ID `P001` (and other non-four-digit
-IDs); do not weaken that safety check. The importer authenticates as a trusted
-operator using Firebase Admin SDK Application Default Credentials (ADC), not a
-browser `FIREBASE_CONFIG`. Set ADC with `gcloud auth application-default login`
-or `GOOGLE_APPLICATION_CREDENTIALS`, then set the target project with
-`GOOGLE_CLOUD_PROJECT`. The following production import command is deliberately
-unexecuted and remains blocked until a clean artifact/report and explicit
-production approval exist:
-
-```sh
-GOOGLE_CLOUD_PROJECT='your-project-id' npm run import:cards -- /tmp/conan-card-master-multi-type.json
-```
-
-The importer sorts upserts by `cardId` and commits at most 450 documents per
-batch. The full import is not atomic across batches: if batch N fails, earlier
-batches may already be committed. After correcting an ADC or network failure,
-the same idempotent upsert command can be rerun safely; it never deletes Card
-Master documents.
+Firebase setup does not authorize a production import. The production command
+in the canonical guide remains explicitly prohibited until the user reviews and
+approves the exact generated artifact, its successful fail-closed sync report,
+the dry-run result, and that exact command. No Card Master production mutation
+is implied by configuring Firebase, ADC, or `GOOGLE_CLOUD_PROJECT`.
 
 ## Notification Functions deployment
 

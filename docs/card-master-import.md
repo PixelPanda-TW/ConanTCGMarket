@@ -22,7 +22,7 @@ Card Master identity 是 `cardType + NFC-trimmed cardName + normalized cardId`�
 
 ## 候選檔與報告門檻
 
-只能用受控同步器產生候選檔。來源 ID 的唯一受控修正是 `B0982 -> 0982`；不得建立通用的去字母規則。候選檔只能在完整報告確認 `unknownIds=0` 與 `keyCollisions=0`，並明列 `B0982->0982` 的修正次數後進入人工審核。
+只能用受控同步器產生候選檔。來源 ID 的唯一受控修正是 `B0982 -> 0982`；不得建立通用的去字母規則。同步必須在沒有 invalid-ID error 或 artifact refusal 的情況下完整成功，才會產生候選檔；其報告還必須確認 `keyCollisions=0`，並明列 `B0982->0982` 的修正次數後才可進入人工審核。
 
 匯入前先執行 dry run；它會重新驗證完整 artifact、顯示 `records`、`batches` 與 `keyCollisions=0`，且不初始化 Firebase Admin：
 
