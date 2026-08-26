@@ -39,8 +39,10 @@ npm run sync:cards -- /tmp/conan-card-master.json
 ```
 
 The candidate contains only `cardId`, `cardType`, `cardName`, and `rarities`.
-Its four approved types are `character`, `event`, `case`, and `partner`; do not
-add card images, effect text, source metadata, or any other unapproved fields.
+On a clean successful sync, the CLI also prints a report with counts for
+`character`, `event`, `case`, and `partner`, plus `conflicts=0`. Its four
+approved types are `character`, `event`, `case`, and `partner`; do not add card
+images, effect text, source metadata, or any other unapproved fields.
 
 Do not run `npm run import:cards` against production until an operator has
 reviewed the generated count/conflict report and obtained explicit production

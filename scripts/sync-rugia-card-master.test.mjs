@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractApprovedCardRecords, syncRugiaCardMaster } from './sync-rugia-card-master.mjs';
+import * as syncCardMaster from './sync-rugia-card-master.mjs';
+
+const { extractApprovedCardRecords, syncRugiaCardMaster } = syncCardMaster;
 
 test('projects all approved source card types to an occurrence with approved fields only', () => {
   const html = [
@@ -73,5 +75,19 @@ test('rejects a card ID whose type or name conflicts across versions before retu
   await assert.rejects(
     syncRugiaCardMaster(async (url) => new Response(url.endsWith('Version=PR') ? htmlFor('角色卡', '鈴木園子') : htmlFor('事件卡', '追跡開始'))),
     /1096/,
+  );
+});
+
+test('formats a clean sync report with every approved type and zero conflicts', () => {
+  assert.equal(typeof syncCardMaster.formatSyncReport, 'function');
+  assert.equal(
+    syncCardMaster.formatSyncReport([
+      { cardId: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R'] },
+      { cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
+      { cardId: '1150', cardType: 'case', cardName: '緋色の真相', rarities: ['C'] },
+      { cardId: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
+      { cardId: '0002', cardType: 'character', cardName: '灰原哀', rarities: ['SR'] },
+    ]),
+    'Rugia Card Master sync report: character=2, event=1, case=1, partner=1, conflicts=0.',
   );
 });

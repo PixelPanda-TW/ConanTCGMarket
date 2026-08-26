@@ -15,6 +15,14 @@ describe('validateCardImport', () => {
       { cardId: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
     ]);
   });
+  it('merges duplicate normalized identities and deduplicates their rarities', () => {
+    expect(validateCardImport([
+      { cardId: '1096', cardType: 'character', cardName: ' 鈴木園子 ', rarities: ['SR', 'R'] },
+      { cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['C', 'R'] },
+    ])).toEqual([
+      { cardId: '1096', cardType: 'character', cardName: '鈴木園子', rarities: ['C', 'R', 'SR'] },
+    ]);
+  });
   it('rejects conflicting duplicate identities, invalid IDs, unknown types, and forbidden fields before any write', () => {
     for (const input of [
       [

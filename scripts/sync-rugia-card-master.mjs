@@ -28,6 +28,7 @@ const sourceCardTypes = new Map([
   ['情境卡', 'case'],
   ['拍檔卡', 'partner'],
 ]);
+const approvedCardTypes = ['character', 'event', 'case', 'partner'];
 
 function cardNameFromInfoBox(infoBox) {
   const markedName = infoBox.match(/<a\b(?=[^>]*\bclass=(?:"[^"]*\bfontsize2\b[^"]*"|'[^']*\bfontsize2\b[^']*'))[^>]*>([\s\S]*?)<\/a>/iu)?.[1];
@@ -95,6 +96,12 @@ export async function syncRugiaCardMaster(fetchImpl = fetch) {
   })).sort((left, right) => left.cardId.localeCompare(right.cardId));
 }
 
+export function formatSyncReport(records) {
+  const counts = Object.fromEntries(approvedCardTypes.map((cardType) => [cardType, 0]));
+  for (const { cardType } of records) counts[cardType] += 1;
+  return `Rugia Card Master sync report: character=${counts.character}, event=${counts.event}, case=${counts.case}, partner=${counts.partner}, conflicts=0.`;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const outputPath = process.argv[2];
   if (!outputPath) throw new Error('Usage: npm run sync:cards -- <output-file>');
@@ -102,4 +109,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (records.length === 0) throw new Error('Rugia Card Master response did not contain any four-digit card records.');
   await writeFile(outputPath, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
   console.log(`Wrote ${records.length} approved Card Master records to ${outputPath}.`);
+  console.log(formatSyncReport(records));
 }
