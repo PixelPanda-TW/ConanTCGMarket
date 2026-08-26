@@ -24,7 +24,7 @@ describe('card repository', () => {
 
   it('lists cards through the cards collection and card converter', async () => {
     const cards: Card[] = [
-      { id: 'BT-001', nameZh: '江戶川柯南', nameJa: '江戸川コナン', rarity: 'R' },
+      { id: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R'] },
     ];
     firestore.getDocs.mockResolvedValue({ docs: cards.map((card) => ({ data: () => card })) });
 
@@ -37,21 +37,21 @@ describe('card repository', () => {
 
   it('matches normalized Chinese names and returns all matching rarities', () => {
     const cards: Card[] = [
-      { id: 'BT-001', nameZh: '諸伏景光', nameJa: '諸伏景光', rarity: 'R' },
-      { id: 'BT-002', nameZh: '諸伏高明', nameJa: '諸伏高明', rarity: 'SR' },
-      { id: 'BT-003', nameZh: '江戶川柯南', nameJa: '江戸川コナン', rarity: 'UR' },
+      { id: '0001', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+      { id: '0002', cardType: 'character', cardName: '諸伏高明', rarities: ['SR'] },
+      { id: '0003', cardType: 'character', cardName: '江戶川柯南', rarities: ['UR'] },
     ];
 
     expect(searchCards(cards, '  諸伏  ')).toEqual(cards.slice(0, 2));
-    expect(new Set(searchCards(cards, '諸伏').map((card) => card.rarity))).toEqual(
+    expect(new Set(searchCards(cards, '諸伏').flatMap((card) => card.rarities))).toEqual(
       new Set(['R', 'SR']),
     );
   });
 
   it('matches normalized Japanese names', () => {
     const cards: Card[] = [
-      { id: 'BT-001', nameZh: '江戶川柯南', nameJa: '江戸川コナン', rarity: 'R' },
-      { id: 'BT-002', nameZh: '毛利蘭', nameJa: '毛利 蘭', rarity: 'SR' },
+      { id: '0001', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'] },
+      { id: '0002', cardType: 'character', cardName: '毛利 蘭', rarities: ['SR'] },
     ];
 
     expect(searchCards(cards, '江戸川')).toEqual([cards[0]]);
@@ -59,7 +59,7 @@ describe('card repository', () => {
   });
 
   it('returns every card for an empty or whitespace-only query', () => {
-    const cards: readonly Card[] = [{ id: 'BT-001', nameZh: '柯南', rarity: 'R' }];
+    const cards: readonly Card[] = [{ id: '0001', cardType: 'character', cardName: '柯南', rarities: ['R'] }];
 
     expect(searchCards(cards, '')).toEqual(cards);
     expect(searchCards(cards, '   ')).toEqual(cards);

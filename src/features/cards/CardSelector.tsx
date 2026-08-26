@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Card } from '../../domain/models';
+import { searchCards } from '../../data/cards/cardSearch';
 
 interface CardSelectorProps {
   cards: readonly Card[];
@@ -15,18 +16,9 @@ function cardRarities(card: Card): string {
   return card.rarities.join('、');
 }
 
-function normalizeSearchText(value: string): string {
-  return value.normalize('NFKC').replace(/\s+/gu, '').toLocaleLowerCase();
-}
-
 export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
   const [query, setQuery] = useState('');
-  const matchingCards = useMemo(() => {
-    const normalizedQuery = normalizeSearchText(query);
-    if (normalizedQuery.length === 0) return [...cards];
-
-    return cards.filter((card) => normalizeSearchText(card.cardName).includes(normalizedQuery));
-  }, [cards, query]);
+  const matchingCards = useMemo(() => searchCards(cards, query), [cards, query]);
 
   return (
     <div className="card-selector">

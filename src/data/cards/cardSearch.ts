@@ -10,9 +10,5 @@ export function searchCards(cards: readonly Card[], query: string): Card[] {
     return [...cards];
   }
 
-  return cards.filter((card) =>
-    [card.characterName, card.nameZh, card.nameJa]
-      .filter((name): name is string => name !== undefined)
-      .some((name) => normalizeSearchText(name).includes(normalizedQuery)),
-  );
+  return cards.filter((card) => normalizeSearchText(card.cardName).includes(normalizedQuery));
 }

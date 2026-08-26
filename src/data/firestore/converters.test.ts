@@ -71,6 +71,28 @@ describe('Firestore converters', () => {
     });
   });
 
+  it('converts a legacy nameZh Card Master field to cardName', () => {
+    const snapshot = {
+      id: '0502',
+      data: () => ({ nameZh: '毛利蘭', rarities: ['SR'] }),
+    };
+
+    expect(cardConverter.fromFirestore(snapshot as never)).toMatchObject({
+      id: '0502', cardType: 'character', cardName: '毛利蘭', rarities: ['SR'],
+    });
+  });
+
+  it('converts a legacy nameJa Card Master field to cardName', () => {
+    const snapshot = {
+      id: '0503',
+      data: () => ({ nameJa: '江戸川コナン', rarities: ['R'] }),
+    };
+
+    expect(cardConverter.fromFirestore(snapshot as never)).toMatchObject({
+      id: '0503', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'],
+    });
+  });
+
   it('writes only allowlisted listing fields and omits an undefined note', () => {
     const result = listingConverter.toFirestore({
       id: 'listing-1',
