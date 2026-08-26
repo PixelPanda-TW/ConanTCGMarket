@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
-import { toListingEvent, type ListingSnapshot } from './domain.js';
+import { toCharacterListingEvent, toListingEvent, type ListingSnapshot } from './domain.js';
 
 const listing: ListingSnapshot = {
   cardId: 'CT-P01-001',
@@ -90,5 +90,31 @@ describe('toListingEvent', () => {
   ])('rejects an %s before creating an event', (_label, listingId) => {
     expect(() => toListingEvent(listingId, listing))
       .toThrow(/Invalid Listing snapshot/);
+  });
+});
+
+describe('toCharacterListingEvent', () => {
+  it('returns null for an explicit non-character card before building an event', () => {
+    expect(toCharacterListingEvent('event-1', {
+      ...listing,
+      cardType: 'event',
+      cardName: '追跡開始',
+      characterName: undefined,
+    })).toBeNull();
+  });
+
+  it('uses legacy character metadata when card type is missing', () => {
+    expect(toCharacterListingEvent('legacy-1', listing)).toMatchObject({
+      characterName: '諸伏景光',
+      characterKey: '諸伏景光',
+    });
+  });
+
+  it('requires explicit character Listing metadata to match the card name', () => {
+    expect(() => toCharacterListingEvent('character-1', {
+      ...listing,
+      cardType: 'character',
+      cardName: '安室透',
+    })).toThrow('characterName must match cardName.');
   });
 });

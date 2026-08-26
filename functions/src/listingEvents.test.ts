@@ -79,6 +79,26 @@ function createDependencies(overrides: Partial<ListingEventStore> = {}) {
 }
 
 describe('captureListingEvent', () => {
+  it('ignores an explicit non-character Listing without creating an event', async () => {
+    const deps = createDependencies();
+    const eventListing = {
+      ...listing,
+      cardType: 'event',
+      cardName: '追跡開始',
+      characterName: undefined,
+    };
+
+    await expect(captureListingEvent({
+      params: { listingId: 'event-1' },
+      data: eventListing,
+    }, deps)).resolves.toEqual({
+      status: 'ignored',
+      reason: 'non-character-card',
+    });
+
+    expect(deps.events.create).not.toHaveBeenCalled();
+  });
+
   it('creates one durable pending event from duplicate Listing-created deliveries', async () => {
     const stored = new Map<string, Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>>();
     let successfulCreates = 0;

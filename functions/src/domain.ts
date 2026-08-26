@@ -5,6 +5,8 @@ export type DiscordStatus = 'pending' | 'sent' | 'failed';
 
 export interface ListingSnapshot {
   cardId: string;
+  cardType?: 'character' | 'event' | 'case' | 'partner';
+  cardName?: string;
   characterName?: string;
   rarity?: string;
   listingPrice: number;
@@ -163,4 +165,34 @@ export function toListingEvent(
     discordStatus: 'pending',
     attempts: 0,
   };
+}
+
+export function toCharacterListingEvent(
+  listingId: string,
+  listing: unknown,
+): ListingEventDraft | null {
+  if (typeof listing !== 'object' || listing === null || Array.isArray(listing)) {
+    return toListingEvent(listingId, listing);
+  }
+
+  const data = listing as Record<string, unknown>;
+  if (data.cardType === 'event' || data.cardType === 'case' || data.cardType === 'partner') {
+    return null;
+  }
+
+  if (data.cardType === 'character') {
+    const characterName = readMetadata(
+      data.characterName,
+      'characterName',
+      MAX_CHARACTER_NAME_LENGTH,
+    );
+    const cardName = readMetadata(data.cardName, 'cardName', MAX_CHARACTER_NAME_LENGTH);
+    if (characterName !== cardName) {
+      return invalidSnapshot('characterName must match cardName.');
+    }
+  } else if (data.cardType !== undefined) {
+    return invalidSnapshot('cardType must be character, event, case, or partner.');
+  }
+
+  return toListingEvent(listingId, listing);
 }
