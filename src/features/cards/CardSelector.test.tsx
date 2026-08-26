@@ -7,9 +7,9 @@ import type { Card } from '../../domain/models';
 import { CardSelector } from './CardSelector';
 
 const cards: readonly Card[] = [
-  { id: 'BT-001', nameZh: '江戶川柯南', nameJa: '江戸川コナン', rarity: 'R' },
-  { id: 'BT-003', nameZh: '諸伏景光', nameJa: '諸伏景光', rarity: 'R' },
-  { id: 'BT-005', nameZh: '諸伏景光', nameJa: '諸伏景光', rarity: 'SEC' },
+  { id: '0001', cardType: 'character', cardName: '江戶川柯南', rarities: ['R', 'CP'] },
+  { id: '0003', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+  { id: '0005', cardType: 'character', cardName: '諸伏景光', rarities: ['SEC'] },
 ];
 
 afterEach(() => {
@@ -17,6 +17,12 @@ afterEach(() => {
 });
 
 describe('CardSelector', () => {
+  it('displays all normalized rarities for each card', () => {
+    render(<CardSelector cards={cards} value={null} onChange={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: '江戶川柯南 · R、CP' })).toBeTruthy();
+  });
+
   it('filters visible options from the query without treating typed text as a selected card', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -27,7 +33,7 @@ describe('CardSelector', () => {
 
     expect(screen.getByRole('button', { name: '諸伏景光 · R' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '諸伏景光 · SEC' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '江戶川柯南 · R' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '江戶川柯南 · R、CP' })).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -41,10 +47,10 @@ describe('CardSelector', () => {
 
     expect(onChange).toHaveBeenCalledOnce();
     expect(onChange).toHaveBeenCalledWith({
-      id: 'BT-005',
-      nameZh: '諸伏景光',
-      nameJa: '諸伏景光',
-      rarity: 'SEC',
+      id: '0005',
+      cardType: 'character',
+      cardName: '諸伏景光',
+      rarities: ['SEC'],
     });
   });
 

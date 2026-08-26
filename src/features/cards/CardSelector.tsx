@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import type { Card } from '../../domain/models';
-import { searchCards } from '../../data/cards/cardSearch';
 
 interface CardSelectorProps {
   cards: readonly Card[];
@@ -9,12 +8,25 @@ interface CardSelectorProps {
 }
 
 function cardName(card: Card): string {
-  return card.characterName ?? card.nameZh ?? card.nameJa ?? '未提供角色／人名';
+  return card.cardName;
+}
+
+function cardRarities(card: Card): string {
+  return card.rarities.join('、');
+}
+
+function normalizeSearchText(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/gu, '').toLocaleLowerCase();
 }
 
 export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
   const [query, setQuery] = useState('');
-  const matchingCards = useMemo(() => searchCards(cards, query), [cards, query]);
+  const matchingCards = useMemo(() => {
+    const normalizedQuery = normalizeSearchText(query);
+    if (normalizedQuery.length === 0) return [...cards];
+
+    return cards.filter((card) => normalizeSearchText(card.cardName).includes(normalizedQuery));
+  }, [cards, query]);
 
   return (
     <div className="card-selector">
@@ -31,7 +43,7 @@ export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
       {value && (
         <div className="card-selector-selected" aria-live="polite">
           <p>
-            已選擇：{cardName(value)} · {value.rarity}
+            已選擇：{cardName(value)} · {cardRarities(value)}
           </p>
           <button type="button" onClick={() => onChange(null)} aria-label="清除已選擇的卡牌">
             清除
@@ -51,10 +63,10 @@ export function CardSelector({ cards, value, onChange }: CardSelectorProps) {
               className="card-selector-option"
               key={card.id}
               onClick={() => onChange(card)}
-              aria-label={`${cardName(card)} · ${card.rarity}`}
+              aria-label={`${cardName(card)} · ${cardRarities(card)}`}
             >
               <span>{cardName(card)}</span>
-              <span className="card-selector-rarity">{card.rarity}</span>
+              <span className="card-selector-rarity">{cardRarities(card)}</span>
             </button>
           ))
         )}

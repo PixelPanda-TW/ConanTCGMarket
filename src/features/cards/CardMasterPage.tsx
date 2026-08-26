@@ -16,7 +16,11 @@ interface CardMasterPageProps {
 const loadDevelopmentCards = async (): Promise<readonly Card[]> => developmentCards;
 
 function cardName(card: Card): string {
-  return card.characterName ?? card.nameZh ?? card.nameJa ?? '未提供角色／人名';
+  return card.cardName;
+}
+
+function cardRarities(card: Card): string {
+  return card.rarities.join('、');
 }
 
 export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterPageProps) {
@@ -78,7 +82,7 @@ export function CardMasterPage({ loadCards = loadDevelopmentCards }: CardMasterP
                   </div>
                   <div>
                     <dt>稀有度</dt>
-                    <dd>{selectedCard.rarity}</dd>
+                    <dd>{cardRarities(selectedCard)}</dd>
                   </div>
                 </dl>
                 <p>{cardName(selectedCard)} 已作為完整卡牌物件選擇。</p>
