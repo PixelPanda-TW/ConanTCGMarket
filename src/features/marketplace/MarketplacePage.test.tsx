@@ -103,7 +103,9 @@ describe('MarketplacePage', () => {
 
     const cardIdInput = screen.getByLabelText('搜尋卡片 ID');
     expect((cardIdInput as HTMLInputElement).value).toBe('');
+    expect((cardIdInput as HTMLInputElement).disabled).toBe(false);
     expect(screen.queryByLabelText('卡片 ID')).toBeNull();
+    expect((screen.getByLabelText('卡片名稱') as HTMLInputElement).disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
     fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏' } });

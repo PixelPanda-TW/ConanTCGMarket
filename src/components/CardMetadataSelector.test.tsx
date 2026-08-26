@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card } from '../domain/models';
 import { CardMetadataSelector, type CardMetadataSelection } from './CardMetadataSelector';
@@ -21,6 +22,14 @@ function SelectorHarness({ showCardId = true }: { showCardId?: boolean }) {
   });
 
   return <CardMetadataSelector cards={cards} value={value} onChange={setValue} showCardId={showCardId} required />;
+}
+
+function LegacySelectorHarness() {
+  const [value, setValue] = useState<CardMetadataSelection>({
+    characterName: '江戶川柯南', rarity: 'R', cardId: '1001',
+  });
+
+  return <CardMetadataSelector cards={cards} value={value} onChange={setValue} requireCardId={false} />;
 }
 
 describe('CardMetadataSelector', () => {
@@ -75,20 +84,16 @@ describe('CardMetadataSelector', () => {
     expect(screen.queryByLabelText('卡片 ID')).toBeNull();
   });
 
-  it('adapts the legacy character-only selection without changing its callbacks', () => {
-    const onChange = vi.fn();
-    render(
-      <CardMetadataSelector
-        cards={cards}
-        value={{ characterName: '江戶川柯南', rarity: 'R', cardId: '1001' } as never}
-        onChange={onChange}
-        requireCardId={false}
-      />,
-    );
+  it('keeps the legacy character-only name field enabled for real user editing', async () => {
+    const user = userEvent.setup();
+    render(<LegacySelectorHarness />);
 
-    fireEvent.change(screen.getByLabelText('角色／人名'), { target: { value: '江戶川' } });
+    const input = screen.getByLabelText('角色／人名') as HTMLInputElement;
+    expect(input.disabled).toBe(false);
+    await user.clear(input);
+    await user.type(input, '江戶川');
 
-    expect(onChange).toHaveBeenLastCalledWith({ characterName: '江戶川', rarity: '', cardId: '' });
+    expect(input.value).toBe('江戶川');
     expect(screen.getByRole('option', { name: '全部卡片 ID' })).toBeTruthy();
   });
 

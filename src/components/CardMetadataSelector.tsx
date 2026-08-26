@@ -38,7 +38,7 @@ export function CardMetadataSelector({
   className,
 }: CardMetadataSelectorProps) {
   const isLegacySelection = value.cardType === undefined && value.characterName !== undefined;
-  const cardType = value.cardType ?? '';
+  const cardType = value.cardType ?? (isLegacySelection ? 'character' : '');
   const cardName = value.cardName ?? value.characterName ?? '';
   const nameSuggestions = cardType ? getCardNameSuggestions(cards, cardType, cardName) : [];
   const rarityOptions = cardType ? getRaritiesForMetadata(cards, cardType, cardName) : [];
