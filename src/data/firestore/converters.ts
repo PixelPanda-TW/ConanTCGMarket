@@ -194,7 +194,7 @@ export const notificationSubscriptionConverter: FirestoreDataConverter<Notificat
     validateNotificationSubscription(subscriptionData);
 
     return {
-      characterKeys: subscriptionData.characterKeys,
+      cardNames: subscriptionData.cardNames,
       emailDailyEnabled: subscriptionData.emailDailyEnabled,
       updatedAt: dateToTimestamp(subscriptionData.updatedAt),
     };
@@ -203,7 +203,7 @@ export const notificationSubscriptionConverter: FirestoreDataConverter<Notificat
     const data = readData(snapshot, options);
     const subscription: NotificationSubscription = {
       uid: snapshot.id,
-      characterKeys: data.characterKeys as string[],
+      cardNames: data.cardNames as string[],
       emailDailyEnabled: data.emailDailyEnabled as boolean,
       updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
     };

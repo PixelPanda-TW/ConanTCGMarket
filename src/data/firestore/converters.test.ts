@@ -283,28 +283,28 @@ describe('Firestore converters', () => {
     });
   });
 
-  it('writes only character subscription fields with an updatedAt Timestamp', () => {
+  it('writes only card-name subscription fields with an updatedAt Timestamp', () => {
     expect(
       notificationSubscriptionConverter.toFirestore({
         uid: 'buyer-1',
-        characterKeys: ['suzuki-sonoko', 'mouri-ran'],
+        cardNames: ['江戶川柯南', '洗牌情緣'],
         emailDailyEnabled: true,
         updatedAt: new Date('2026-08-25T00:00:00.000Z'),
         email: 'buyer@example.com',
         unknown: 'unknown',
       } as never),
     ).toEqual({
-      characterKeys: ['suzuki-sonoko', 'mouri-ran'],
+      cardNames: ['江戶川柯南', '洗牌情緣'],
       emailDailyEnabled: true,
-      updatedAt: Timestamp.fromDate(new Date('2026-08-25T00:00:00.000Z')),
+      updatedAt: expect.any(Timestamp),
     });
   });
 
-  it('converts a character subscription Timestamp to a Date value', () => {
+  it('converts a card-name subscription Timestamp to a Date value', () => {
     const snapshot = {
       id: 'buyer-1',
       data: () => ({
-        characterKeys: ['suzuki-sonoko'],
+        cardNames: ['江戶川柯南'],
         emailDailyEnabled: false,
         updatedAt: Timestamp.fromDate(new Date('2026-08-25T00:00:00.000Z')),
       }),
@@ -312,10 +312,23 @@ describe('Firestore converters', () => {
 
     expect(notificationSubscriptionConverter.fromFirestore(snapshot as never)).toEqual({
       uid: 'buyer-1',
-      characterKeys: ['suzuki-sonoko'],
+      cardNames: ['江戶川柯南'],
       emailDailyEnabled: false,
       updatedAt: new Date('2026-08-25T00:00:00.000Z'),
     });
+  });
+
+  it('rejects a legacy character-key subscription document', () => {
+    const snapshot = {
+      id: 'buyer-1',
+      data: () => ({
+        characterKeys: ['suzuki-sonoko'],
+        emailDailyEnabled: true,
+        updatedAt: Timestamp.fromDate(new Date('2026-08-25T00:00:00.000Z')),
+      }),
+    };
+
+    expect(() => notificationSubscriptionConverter.fromFirestore(snapshot as never)).toThrow('cardNames');
   });
 
   it('rejects malformed Firestore listing data', () => {

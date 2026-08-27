@@ -29,7 +29,7 @@ describe('notification subscription repository', () => {
   const withConverter = vi.fn(() => convertedDocument);
   const subscription: NotificationSubscription = {
     uid: 'buyer-1',
-    characterKeys: ['suzuki-sonoko'],
+    cardNames: ['鈴木園子'],
     emailDailyEnabled: true,
     updatedAt: new Date('2026-08-25T00:00:00.000Z'),
   };
