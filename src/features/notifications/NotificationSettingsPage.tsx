@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageShell } from '../../components/PageShell';
 import {
   getNotificationSubscription,
-  saveNotificationSubscription,
+  removeNotificationCardName,
+  setNotificationEmailDailyEnabled,
 } from '../../data/firestore/repositories';
 import type { NotificationSubscription } from '../../domain/models';
 import { useAuth } from '../auth/AuthProvider';
@@ -75,24 +76,19 @@ export function NotificationSettingsPage() {
       });
   }, [currentUid, isAuthLoading]);
 
-  async function persistSettings(cardNames: string[], emailDailyEnabled: boolean) {
+  async function persistSettings(
+    mutation: () => Promise<NotificationSubscription | null>,
+  ) {
     if (!user) return;
 
     const requestContext = committedContextRef.current;
     if (saveOperationContextRef.current === requestContext) return;
     saveOperationContextRef.current = requestContext;
 
-    const nextSubscription: NotificationSubscription = {
-      uid: user.uid,
-      cardNames,
-      emailDailyEnabled,
-      updatedAt: new Date(),
-    };
-
     setIsSaving(true);
     setSaveError(false);
     try {
-      await saveNotificationSubscription(nextSubscription);
+      const nextSubscription = await mutation();
       if (committedContextRef.current === requestContext) {
         setSubscription(nextSubscription);
       }
@@ -147,10 +143,9 @@ export function NotificationSettingsPage() {
                         type="button"
                         aria-label={`移除${cardName}訂閱`}
                         disabled={contextualIsSaving}
-                        onClick={() => persistSettings(
-                          cardNames.filter((name) => name !== cardName),
-                          emailDailyEnabled,
-                        )}
+                        onClick={() => persistSettings(() => (
+                          removeNotificationCardName(user.uid, cardName)
+                        ))}
                       >
                         移除
                       </button>
@@ -167,7 +162,9 @@ export function NotificationSettingsPage() {
                   type="checkbox"
                   checked={emailDailyEnabled}
                   disabled={contextualIsSaving}
-                  onChange={(event) => persistSettings(cardNames, event.target.checked)}
+                  onChange={(event) => persistSettings(() => (
+                    setNotificationEmailDailyEnabled(user.uid, event.target.checked)
+                  ))}
                 />
                 每日彙整 Email 通知
               </label>

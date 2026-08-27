@@ -79,6 +79,15 @@ describe('domain model validation', () => {
     })).toThrow();
   });
 
+  it('rejects a non-boolean daily email preference', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      cardNames: ['江戶川柯南'],
+      emailDailyEnabled: 'true',
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toThrow('boolean emailDailyEnabled');
+  });
+
   it('accepts normalized promotional Card Master metadata with a stable key', () => {
     expect(() => validateCard({
       key: 'card_hash', cardId: 'P001', cardType: 'event', cardName: '追跡開始', rarities: ['C'],

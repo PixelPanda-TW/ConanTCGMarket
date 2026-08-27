@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
+  addNotificationCardName,
   getNotificationSubscription,
-  saveNotificationSubscription,
+  removeNotificationCardName,
 } from '../../data/firestore/repositories';
 import { findCoveringSubscription } from '../../domain/cardNameSubscription';
 import type { NotificationSubscription } from '../../domain/models';
@@ -40,6 +41,7 @@ export function CardNameSubscriptionControl({
     key: subscriptionContext,
     generation: 0,
   });
+  const saveOperationContextRef = useRef<CommittedSubscriptionContext | null>(null);
   const isSubscriptionLoading = subscriptionContext !== null
     && loadedSubscriptionContext !== subscriptionContext;
   const hasLoadedSubscriptionContext = loadedSubscriptionContext === subscriptionContext;
@@ -58,6 +60,7 @@ export function CardNameSubscriptionControl({
       generation: committedContextRef.current.generation + 1,
     };
     committedContextRef.current = committedContext;
+    saveOperationContextRef.current = null;
 
     return () => {
       if (committedContextRef.current === committedContext) {
@@ -125,8 +128,7 @@ export function CardNameSubscriptionControl({
     }
 
     await persistSubscription(
-      (contextualSubscription?.cardNames ?? []).filter((name) => name !== cardName),
-      contextualSubscription?.emailDailyEnabled ?? false,
+      () => removeNotificationCardName(user.uid, cardName),
       `已取消訂閱「${cardName}」。`,
     );
   }
@@ -135,32 +137,26 @@ export function CardNameSubscriptionControl({
     if (!user || !emailDeliverySelected) return;
 
     await persistSubscription(
-      [...(contextualSubscription?.cardNames ?? []), cardName],
-      true,
+      () => addNotificationCardName(user.uid, cardName),
       `已訂閱「${cardName}」的每日摘要通知。`,
     );
   }
 
   async function persistSubscription(
-    cardNames: string[],
-    emailDailyEnabled: boolean,
+    mutation: () => Promise<NotificationSubscription | null>,
     successMessage: string,
   ) {
     if (!user) return;
 
-    const nextSubscription: NotificationSubscription = {
-      uid: user.uid,
-      cardNames,
-      emailDailyEnabled,
-      updatedAt: new Date(),
-    };
     const requestContext = committedContextRef.current;
+    if (saveOperationContextRef.current === requestContext) return;
+    saveOperationContextRef.current = requestContext;
 
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
     try {
-      await saveNotificationSubscription(nextSubscription);
+      const nextSubscription = await mutation();
       if (committedContextRef.current === requestContext) {
         setSubscription(nextSubscription);
         setIsConfirmingSubscription(false);
@@ -173,6 +169,9 @@ export function CardNameSubscriptionControl({
     } finally {
       if (committedContextRef.current === requestContext) {
         setIsSaving(false);
+      }
+      if (saveOperationContextRef.current === requestContext) {
+        saveOperationContextRef.current = null;
       }
     }
   }

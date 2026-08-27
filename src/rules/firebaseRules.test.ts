@@ -110,6 +110,19 @@ describe('Firebase rules', () => {
     await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: ['江戶川柯南', '江戶川柯南'] }));
     await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: Array.from({ length: 101 }, (_, index) => `卡名-${index}`) }));
   });
+  it('rejects a non-boolean daily email preference', async () => {
+    const buyer = environment.authenticatedContext('buyer-preference-type').firestore();
+    const subscription = doc(
+      buyer,
+      'notificationSubscriptions',
+      'buyer-preference-type',
+    );
+
+    await assertFails(setDoc(subscription, {
+      ...subscriptionData,
+      emailDailyEnabled: 'true',
+    }));
+  });
   it('rejects all browser reads and writes of notification events and delivery state', async () => {
     const buyer = environment.authenticatedContext('buyer-a').firestore();
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));

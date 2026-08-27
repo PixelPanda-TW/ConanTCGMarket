@@ -21,7 +21,8 @@ const authState = vi.hoisted(() => ({
 
 const subscriptions = vi.hoisted(() => ({
   getNotificationSubscription: vi.fn(),
-  saveNotificationSubscription: vi.fn(),
+  removeNotificationCardName: vi.fn(),
+  setNotificationEmailDailyEnabled: vi.fn(),
 }));
 
 vi.mock('../auth/AuthProvider', () => ({
@@ -45,7 +46,16 @@ describe('NotificationSettingsPage', () => {
     authState.current.user = { uid: 'buyer-1', displayName: 'Buyer', photoURL: null };
     authState.current.isLoading = false;
     subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription);
-    subscriptions.saveNotificationSubscription.mockResolvedValue(undefined);
+    subscriptions.removeNotificationCardName.mockImplementation(async (uid, cardName) => ({
+      ...savedSubscription,
+      uid,
+      cardNames: savedSubscription.cardNames.filter((name) => name !== cardName),
+    }));
+    subscriptions.setNotificationEmailDailyEnabled.mockImplementation(async (uid, enabled) => ({
+      ...savedSubscription,
+      uid,
+      emailDailyEnabled: enabled,
+    }));
   });
 
   it('presents raw card names in zh-Hant order without mutating persisted order', async () => {
@@ -65,12 +75,8 @@ describe('NotificationSettingsPage', () => {
 
     await user.click(await screen.findByRole('button', { name: '移除江戶川柯南訂閱' }));
 
-    await waitFor(() => expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      uid: 'buyer-1',
-      cardNames: ['洗牌情緣'],
-      emailDailyEnabled: true,
-      updatedAt: expect.any(Date),
-    })));
+    await waitFor(() => expect(subscriptions.removeNotificationCardName)
+      .toHaveBeenCalledWith('buyer-1', '江戶川柯南'));
     expect(screen.queryByText('江戶川柯南')).toBeNull();
   });
 
@@ -79,14 +85,17 @@ describe('NotificationSettingsPage', () => {
       ...savedSubscription,
       cardNames: ['江戶川柯南'],
     });
+    subscriptions.removeNotificationCardName.mockResolvedValue({
+      ...savedSubscription,
+      cardNames: [],
+    });
     const user = userEvent.setup();
     render(<NotificationSettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: '移除江戶川柯南訂閱' }));
 
-    await waitFor(() => expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      cardNames: [],
-    })));
+    await waitFor(() => expect(subscriptions.removeNotificationCardName)
+      .toHaveBeenCalledWith('buyer-1', '江戶川柯南'));
     expect(screen.getByText('尚未訂閱任何卡名。')).toBeTruthy();
   });
 
@@ -98,10 +107,8 @@ describe('NotificationSettingsPage', () => {
     expect((checkbox as HTMLInputElement).checked).toBe(true);
     await user.click(checkbox);
 
-    await waitFor(() => expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      cardNames: ['洗牌情緣', '江戶川柯南'],
-      emailDailyEnabled: false,
-    })));
+    await waitFor(() => expect(subscriptions.setNotificationEmailDailyEnabled)
+      .toHaveBeenCalledWith('buyer-1', false));
     expect((checkbox as HTMLInputElement).checked).toBe(false);
   });
 
@@ -133,7 +140,8 @@ describe('NotificationSettingsPage', () => {
     expect(screen.getByRole('status').textContent).toBe('我的訂閱載入中');
     expect(screen.queryByRole('checkbox', { name: '每日彙整 Email 通知' })).toBeNull();
     expect(screen.queryByRole('button', { name: /移除.*訂閱/ })).toBeNull();
-    expect(subscriptions.saveNotificationSubscription).not.toHaveBeenCalled();
+    expect(subscriptions.removeNotificationCardName).not.toHaveBeenCalled();
+    expect(subscriptions.setNotificationEmailDailyEnabled).not.toHaveBeenCalled();
   });
 
   it('starts a signed-in server render in loading state before the subscription effect runs', () => {
@@ -153,7 +161,7 @@ describe('NotificationSettingsPage', () => {
   });
 
   it('disables every mutation control and announces a pending save', async () => {
-    subscriptions.saveNotificationSubscription.mockReturnValue(new Promise(() => undefined));
+    subscriptions.removeNotificationCardName.mockReturnValue(new Promise(() => undefined));
     const user = userEvent.setup();
     render(<NotificationSettingsPage />);
 
@@ -165,8 +173,8 @@ describe('NotificationSettingsPage', () => {
   });
 
   it('rejects a second same-render removal before deferred saves can complete in reverse', async () => {
-    const finishSaves: Array<() => void> = [];
-    subscriptions.saveNotificationSubscription.mockImplementation(() => new Promise<void>((resolve) => {
+    const finishSaves: Array<(value: NotificationSubscription) => void> = [];
+    subscriptions.removeNotificationCardName.mockImplementation(() => new Promise<NotificationSubscription>((resolve) => {
       finishSaves.push(resolve);
     }));
     render(<NotificationSettingsPage />);
@@ -180,21 +188,41 @@ describe('NotificationSettingsPage', () => {
     expect(screen.getByRole('status').textContent).toBe('訂閱儲存中');
 
     await act(async () => {
-      finishSaves[1]?.();
+      finishSaves[1]?.(savedSubscription);
       await Promise.resolve();
-      finishSaves[0]?.();
+      finishSaves[0]?.({ ...savedSubscription, cardNames: ['洗牌情緣'] });
     });
 
-    expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledTimes(1);
-    expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      cardNames: ['洗牌情緣'],
-    }));
+    expect(subscriptions.removeNotificationCardName).toHaveBeenCalledTimes(1);
+    expect(subscriptions.removeNotificationCardName)
+      .toHaveBeenCalledWith('buyer-1', '江戶川柯南');
     expect(screen.queryByText('江戶川柯南')).toBeNull();
     expect(screen.getByText('洗牌情緣')).toBeTruthy();
   });
 
+  it('adopts the atomic server result after deferred cross-surface mutations finish in reverse', async () => {
+    let finishRemoval: ((value: NotificationSubscription) => void) | undefined;
+    subscriptions.removeNotificationCardName.mockReturnValue(
+      new Promise<NotificationSubscription>((resolve) => {
+        finishRemoval = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<NotificationSettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '移除江戶川柯南訂閱' }));
+    await act(async () => finishRemoval?.({
+      ...savedSubscription,
+      cardNames: ['赤井秀一'],
+    }));
+
+    expect(screen.getByText('赤井秀一')).toBeTruthy();
+    expect(screen.queryByText('江戶川柯南')).toBeNull();
+    expect(screen.queryByText('洗牌情緣')).toBeNull();
+  });
+
   it('announces a failed save, retains the prior names, and re-enables controls', async () => {
-    subscriptions.saveNotificationSubscription.mockRejectedValue(new Error('write failed'));
+    subscriptions.removeNotificationCardName.mockRejectedValue(new Error('write failed'));
     const user = userEvent.setup();
     render(<NotificationSettingsPage />);
 
@@ -231,8 +259,8 @@ describe('NotificationSettingsPage', () => {
   });
 
   it('does not expose a completed save from a previous authenticated buyer', async () => {
-    let finishSave: (() => void) | undefined;
-    subscriptions.saveNotificationSubscription.mockReturnValue(new Promise<void>((resolve) => {
+    let finishSave: ((value: NotificationSubscription) => void) | undefined;
+    subscriptions.removeNotificationCardName.mockReturnValue(new Promise<NotificationSubscription>((resolve) => {
       finishSave = resolve;
     }));
     const user = userEvent.setup();
@@ -250,7 +278,7 @@ describe('NotificationSettingsPage', () => {
 
     expect(await screen.findByText('赤井秀一')).toBeTruthy();
     expect((screen.getByRole('button', { name: '移除赤井秀一訂閱' }) as HTMLButtonElement).disabled).toBe(false);
-    await act(async () => finishSave?.());
+    await act(async () => finishSave?.({ ...savedSubscription, cardNames: ['洗牌情緣'] }));
     expect(screen.getByText('赤井秀一')).toBeTruthy();
     expect(screen.queryByText('洗牌情緣')).toBeNull();
   });

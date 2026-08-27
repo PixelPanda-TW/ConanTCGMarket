@@ -21,8 +21,9 @@ const authState = vi.hoisted(() => ({
 }));
 
 const subscriptions = vi.hoisted(() => ({
+  addNotificationCardName: vi.fn(),
   getNotificationSubscription: vi.fn(),
-  saveNotificationSubscription: vi.fn(),
+  removeNotificationCardName: vi.fn(),
 }));
 
 vi.mock('../auth/AuthProvider', () => ({
@@ -48,7 +49,14 @@ describe('CardNameSubscriptionControl', () => {
     authState.current.user = { uid: 'buyer-1', displayName: 'Buyer', photoURL: null };
     authState.current.isLoading = false;
     subscriptions.getNotificationSubscription.mockResolvedValue(null);
-    subscriptions.saveNotificationSubscription.mockResolvedValue(undefined);
+    subscriptions.addNotificationCardName.mockImplementation(async (uid, cardName) => ({
+      ...savedSubscription([cardName]),
+      uid,
+    }));
+    subscriptions.removeNotificationCardName.mockImplementation(async (uid) => ({
+      ...savedSubscription([]),
+      uid,
+    }));
   });
 
   it('uses the theme ring and background separation for subscription focus indicators', () => {
@@ -112,7 +120,7 @@ describe('CardNameSubscriptionControl', () => {
 
     expect(await screen.findByRole('heading', { name: '選擇通知方式' })).toBeTruthy();
     expect(screen.getByText('寄送至你的 Google 登入信箱（已驗證）')).toBeTruthy();
-    expect(subscriptions.saveNotificationSubscription).not.toHaveBeenCalled();
+    expect(subscriptions.addNotificationCardName).not.toHaveBeenCalled();
 
     const emailDelivery = screen.getByRole('checkbox', { name: '以 Google 登入信箱接收每日摘要' });
     expect((emailDelivery as HTMLInputElement).checked).toBe(false);
@@ -121,12 +129,8 @@ describe('CardNameSubscriptionControl', () => {
     await user.click(emailDelivery);
     await user.click(screen.getByRole('button', { name: '確認訂閱' }));
 
-    await waitFor(() => expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      uid: 'buyer-1',
-      cardNames: ['江戶川柯南'],
-      emailDailyEnabled: true,
-      updatedAt: expect.any(Date),
-    })));
+    await waitFor(() => expect(subscriptions.addNotificationCardName)
+      .toHaveBeenCalledWith('buyer-1', '江戶川柯南'));
     expect(await screen.findByRole('button', { name: '取消訂閱江戶川柯南' })).toBeTruthy();
   });
 
@@ -137,10 +141,8 @@ describe('CardNameSubscriptionControl', () => {
 
     await user.click(await screen.findByRole('button', { name: '取消訂閱江戶川柯南' }));
 
-    await waitFor(() => expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
-      cardNames: ['洗牌情緣'],
-      emailDailyEnabled: true,
-    })));
+    await waitFor(() => expect(subscriptions.removeNotificationCardName)
+      .toHaveBeenCalledWith('buyer-1', '江戶川柯南'));
     expect(await screen.findByRole('button', { name: '訂閱江戶川柯南' })).toBeTruthy();
   });
 
@@ -171,15 +173,19 @@ describe('CardNameSubscriptionControl', () => {
     expect(document.activeElement).toBe(subscribe);
   });
 
-  it('announces exact compound unsubscription and focuses management when a shorter name still covers it', async () => {
+  it('adopts a deferred atomic removal result that includes a concurrent covering addition', async () => {
     subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription([
-      '江戶川柯南',
       '江戶川柯南＆灰原哀',
     ]));
+    let finishRemoval: ((value: NotificationSubscription) => void) | undefined;
+    subscriptions.removeNotificationCardName.mockReturnValue(new Promise((resolve) => {
+      finishRemoval = resolve;
+    }));
     const user = userEvent.setup();
     render(<CardNameSubscriptionControl cardName="江戶川柯南＆灰原哀" isKnownCardName />);
 
     await user.click(await screen.findByRole('button', { name: '取消訂閱江戶川柯南＆灰原哀' }));
+    await act(async () => finishRemoval?.(savedSubscription(['江戶川柯南'])));
 
     const success = await screen.findByText('已取消訂閱「江戶川柯南＆灰原哀」。');
     expect(success.parentElement?.getAttribute('aria-live')).toBe('polite');
@@ -228,7 +234,7 @@ describe('CardNameSubscriptionControl', () => {
   });
 
   it('announces a failed save while retaining the prior unsubscribed state', async () => {
-    subscriptions.saveNotificationSubscription.mockRejectedValue(new Error('write failed'));
+    subscriptions.addNotificationCardName.mockRejectedValue(new Error('write failed'));
     const user = userEvent.setup();
     render(<CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />);
 
@@ -258,8 +264,8 @@ describe('CardNameSubscriptionControl', () => {
   });
 
   it('ignores a stale save from a previous authenticated UID', async () => {
-    let finishSave: (() => void) | undefined;
-    subscriptions.saveNotificationSubscription.mockReturnValue(new Promise<void>((resolve) => {
+    let finishSave: ((value: NotificationSubscription) => void) | undefined;
+    subscriptions.addNotificationCardName.mockReturnValue(new Promise<NotificationSubscription>((resolve) => {
       finishSave = resolve;
     }));
     const user = userEvent.setup();
@@ -276,13 +282,13 @@ describe('CardNameSubscriptionControl', () => {
 
     const secondBuyerButton = await screen.findByRole('button', { name: '訂閱江戶川柯南' });
     expect((secondBuyerButton as HTMLButtonElement).disabled).toBe(false);
-    await act(async () => finishSave?.());
+    await act(async () => finishSave?.(savedSubscription(['江戶川柯南'])));
     expect(screen.getByRole('button', { name: '訂閱江戶川柯南' })).toBeTruthy();
   });
 
   it('finishes the committed buyer save after a different auth render is interrupted', async () => {
-    let finishSave: (() => void) | undefined;
-    subscriptions.saveNotificationSubscription.mockReturnValue(new Promise<void>((resolve) => {
+    let finishSave: ((value: NotificationSubscription) => void) | undefined;
+    subscriptions.addNotificationCardName.mockReturnValue(new Promise<NotificationSubscription>((resolve) => {
       finishSave = resolve;
     }));
     let shouldSuspend = false;
@@ -314,7 +320,7 @@ describe('CardNameSubscriptionControl', () => {
 
     authState.current.user = { uid: 'buyer-1', displayName: 'Buyer', photoURL: null };
     shouldSuspend = false;
-    await act(async () => finishSave?.());
+    await act(async () => finishSave?.(savedSubscription(['江戶川柯南'])));
 
     expect(await screen.findByRole('button', { name: '取消訂閱江戶川柯南' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '儲存中' })).toBeNull();
