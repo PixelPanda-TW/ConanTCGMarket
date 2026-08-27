@@ -1,32 +1,35 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { getAuth } from 'firebase-admin/auth';
 
-import { assertSafeEmulatorEnvironment, E2E_PROJECT_ID } from './emulator-state';
+import { assertSafeEmulatorEnvironment, getEmulatorAdminApp } from './emulator-state';
 
 export interface MockGoogleIdentity {
   email: string;
   displayName: string;
 }
 
-const authAccountsUrl = `http://127.0.0.1:9099/emulator/v1/projects/${E2E_PROJECT_ID}/accounts`;
-
-async function lookupAuthEmulatorUid(email: string, required: true): Promise<string>;
-async function lookupAuthEmulatorUid(email: string, required: false): Promise<string | null>;
-async function lookupAuthEmulatorUid(email: string, required: boolean): Promise<string | null> {
+export async function lookupAuthEmulatorUid(email: string, required: true): Promise<string>;
+export async function lookupAuthEmulatorUid(email: string, required: false): Promise<string | null>;
+export async function lookupAuthEmulatorUid(
+  email: string,
+  required: boolean,
+): Promise<string | null> {
   assertSafeEmulatorEnvironment();
-  const response = await fetch(authAccountsUrl);
-  if (!response.ok) {
-    throw new Error(`GET ${authAccountsUrl} failed: ${response.status} ${await response.text()}`);
+  try {
+    return (await getAuth(getEmulatorAdminApp()).getUserByEmail(email)).uid;
+  } catch (error: unknown) {
+    if (
+      typeof error !== 'object'
+      || error === null
+      || !('code' in error)
+      || error.code !== 'auth/user-not-found'
+    ) {
+      throw error;
+    }
   }
 
-  const body = await response.json() as {
-    users?: Array<{ localId: string; email?: string }>;
-  };
-  const matches = (body.users ?? []).filter((user) => user.email === email);
-  if (matches.length === 0 && !required) return null;
-  if (matches.length !== 1) {
-    throw new Error(`Expected one Auth Emulator account for ${email}.`);
-  }
-  return matches[0].localId;
+  if (!required) return null;
+  throw new Error(`Expected one Auth Emulator account for ${email}.`);
 }
 
 export async function signInWithMockGoogle(
@@ -45,8 +48,12 @@ export async function signInWithMockGoogle(
   if (existingUid) {
     await popup.locator('.js-reuse-account').filter({ hasText: identity.email }).click();
   } else {
-    await popup.locator('#add-account-button').click();
-    await popup.locator('#email-input').fill(identity.email);
+    const emailInput = popup.locator('#email-input');
+    await expect(async () => {
+      await popup.getByRole('button', { name: 'Add new account' }).click();
+      await expect(emailInput).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+    await emailInput.fill(identity.email);
     await popup.locator('#display-name-input').fill(identity.displayName);
     await popup.locator('#sign-in').click();
   }

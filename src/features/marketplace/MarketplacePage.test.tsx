@@ -62,6 +62,18 @@ afterEach(() => {
 });
 
 describe('MarketplacePage', () => {
+  it('shows the public server-read error state when a loader rejects', async () => {
+    render(
+      <MarketplacePage
+        loadListings={() => Promise.reject(new Error('Firestore unavailable'))}
+        loadCards={async () => cards}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    expect((await screen.findByRole('alert')).textContent).toBe('無法載入商品，請稍後再試。');
+  });
+
   it('shows the welcome notice once per browser after acknowledgement', async () => {
     const props = {
       loadListings: async () => [activeListing],

@@ -103,17 +103,18 @@ export function assertSafeEmulatorEnvironment(
   }
 }
 
-function adminApp() {
+export function getEmulatorAdminApp() {
+  assertSafeEmulatorEnvironment();
   return getApps().find((app) => app.name === 'e2e-admin')
     ?? initializeApp({ projectId: E2E_PROJECT_ID, storageBucket: E2E_BUCKET }, 'e2e-admin');
 }
 
 function adminFirestore() {
-  return getFirestore(adminApp());
+  return getFirestore(getEmulatorAdminApp());
 }
 
 function adminBucket() {
-  return getStorage(adminApp()).bucket(E2E_BUCKET);
+  return getStorage(getEmulatorAdminApp()).bucket(E2E_BUCKET);
 }
 
 async function requireOk(method: string, url: string): Promise<void> {

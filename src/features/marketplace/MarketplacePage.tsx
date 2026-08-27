@@ -4,7 +4,11 @@ import { CardIdSearchField } from '../../components/CardIdSearchField';
 import { PageShell } from '../../components/PageShell';
 import { WelcomeNoticeDialog } from '../../components/WelcomeNoticeDialog';
 import { developmentCards } from '../../data/cards/developmentCards';
-import { getPublicSellerProfile, listActiveListings, listCards } from '../../data/firestore/repositories';
+import {
+  getPublicSellerProfile,
+  listActiveListingsFromServer,
+  listCardsFromServer,
+} from '../../data/firestore/repositories';
 import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { hasKnownCardName } from '../../domain/cardMetadata';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
@@ -36,8 +40,8 @@ const initialMetadata: CardMetadataSelection = {
 };
 
 export function MarketplacePage({
-  loadListings = listActiveListings,
-  loadCards = listCards,
+  loadListings = listActiveListingsFromServer,
+  loadCards = listCardsFromServer,
   loadSeller = getPublicSellerProfile,
 }: MarketplacePageProps) {
   const [filters, setFilters] = useState({

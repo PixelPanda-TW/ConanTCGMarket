@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listCards } from '../../data/firestore/repositories';
+import { listCardsFromServer } from '../../data/firestore/repositories';
 import { cardTypeLabel } from '../../domain/cardType';
 import type { Card } from '../../domain/models';
 import { CardSelector } from './CardSelector';
@@ -22,7 +22,7 @@ function cardRarities(card: Card): string {
   return card.rarities.join('、');
 }
 
-export function CardMasterPage({ loadCards = listCards }: CardMasterPageProps) {
+export function CardMasterPage({ loadCards = listCardsFromServer }: CardMasterPageProps) {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [cardState, setCardState] = useState<CardMasterState>({ status: 'loading' });
 

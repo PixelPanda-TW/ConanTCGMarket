@@ -4,12 +4,13 @@ const firestore = vi.hoisted(() => ({
   collection: vi.fn(),
   connectFirestoreEmulator: vi.fn(),
   getDocs: vi.fn(),
+  getDocsFromServer: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
 }));
 
 vi.mock('firebase/firestore', () => firestore);
 
-import { listCards, searchCards } from './cardRepository';
+import { listCards, listCardsFromServer, searchCards } from './cardRepository';
 import { cardConverter } from '../converters';
 import { collections } from '../paths';
 import type { Card } from '../../../domain/models';
@@ -34,6 +35,16 @@ describe('card repository', () => {
     expect(firestore.collection).toHaveBeenCalledWith(expect.anything(), collections.cards);
     expect(withConverter).toHaveBeenCalledWith(cardConverter);
     expect(firestore.getDocs).toHaveBeenCalledWith(convertedCollection);
+  });
+
+  it('uses a rejecting server-only read for public Card Master error handling', async () => {
+    const unavailable = new Error('Firestore unavailable');
+    firestore.getDocsFromServer.mockRejectedValue(unavailable);
+
+    await expect(listCardsFromServer()).rejects.toBe(unavailable);
+
+    expect(firestore.getDocsFromServer).toHaveBeenCalledWith(convertedCollection);
+    expect(firestore.getDocs).not.toHaveBeenCalled();
   });
 
   it('merges legacy and composite-key cards by canonical identity without merging same-ID different names', async () => {

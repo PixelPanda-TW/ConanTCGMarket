@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, getDocsFromServer } from 'firebase/firestore';
 import type { Card } from '../../../domain/models';
 import { cardConverter } from '../converters';
 import { firestoreDb } from '../database';
@@ -49,6 +49,11 @@ export function mergeCardsByCanonicalIdentity(cards: readonly Card[]): Card[] {
 
 export async function listCards(): Promise<Card[]> {
   const snapshot = await getDocs(cardCollection());
+  return mergeCardsByCanonicalIdentity(snapshot.docs.map((doc) => doc.data()));
+}
+
+export async function listCardsFromServer(): Promise<Card[]> {
+  const snapshot = await getDocsFromServer(cardCollection());
   return mergeCardsByCanonicalIdentity(snapshot.docs.map((doc) => doc.data()));
 }
 

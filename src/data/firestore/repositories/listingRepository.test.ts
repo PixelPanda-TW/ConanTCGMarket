@@ -7,6 +7,7 @@ const firestore = vi.hoisted(() => ({
   doc: vi.fn(),
   getDoc: vi.fn(),
   getDocs: vi.fn(),
+  getDocsFromServer: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
   query: vi.fn(),
   setDoc: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../../../lib/firebase/app', () => ({
 import {
   activeListingsQueryConstraints,
   listActiveListings,
+  listActiveListingsFromServer,
   listSellerListings,
   sellerListingsQueryConstraints,
   updateListing,
@@ -74,6 +76,19 @@ describe('listing repository', () => {
       source: convertedCollection,
       constraints: [{ field: 'status', operator: '==', value: 'active' }],
     });
+  });
+
+  it('uses a rejecting server-only read for public Marketplace error handling', async () => {
+    const unavailable = new Error('Firestore unavailable');
+    firestore.getDocsFromServer.mockRejectedValue(unavailable);
+
+    await expect(listActiveListingsFromServer()).rejects.toBe(unavailable);
+
+    expect(firestore.getDocsFromServer).toHaveBeenCalledWith({
+      source: convertedCollection,
+      constraints: [{ field: 'status', operator: '==', value: 'active' }],
+    });
+    expect(firestore.getDocs).not.toHaveBeenCalled();
   });
 
   it("lists a seller's listings through the listings converter", async () => {

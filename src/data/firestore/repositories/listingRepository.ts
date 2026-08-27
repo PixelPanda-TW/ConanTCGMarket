@@ -1,4 +1,4 @@
-import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, getDocsFromServer, query, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
 import { validateListing, type Listing } from '../../../domain/models';
 import { auth } from '../../../lib/firebase/app';
 import { listingConverter } from '../converters';
@@ -36,6 +36,11 @@ export function sellerListingsQuery(sellerId: string) {
 
 export async function listActiveListings(): Promise<Listing[]> {
   const snapshot = await getDocs(activeListingsQuery());
+  return snapshot.docs.map((doc) => doc.data());
+}
+
+export async function listActiveListingsFromServer(): Promise<Listing[]> {
+  const snapshot = await getDocsFromServer(activeListingsQuery());
   return snapshot.docs.map((doc) => doc.data());
 }
 

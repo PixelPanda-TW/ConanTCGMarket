@@ -2,11 +2,11 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { listCards } from './data/firestore/repositories';
+import { listCardsFromServer } from './data/firestore/repositories';
 import App from './App';
 
 vi.mock('./data/firestore/repositories', () => ({
-  listCards: vi.fn(),
+  listCardsFromServer: vi.fn(),
 }));
 
 vi.mock('./features/marketplace/MarketplacePage', () => ({
@@ -24,12 +24,12 @@ vi.mock('./features/notifications/NotificationSettingsPage', () => ({
 
 afterEach(() => {
   window.location.hash = '';
-  vi.mocked(listCards).mockReset();
+  vi.mocked(listCardsFromServer).mockReset();
   cleanup();
 });
 
 beforeEach(() => {
-  vi.mocked(listCards).mockResolvedValue([]);
+  vi.mocked(listCardsFromServer).mockResolvedValue([]);
 });
 
 describe('App routes', () => {
@@ -44,7 +44,7 @@ describe('App routes', () => {
   it('loads public Card Master records through the repository by default', async () => {
     window.location.hash = '#/cards';
     const user = (await import('@testing-library/user-event')).default.setup();
-    vi.mocked(listCards).mockResolvedValue([
+    vi.mocked(listCardsFromServer).mockResolvedValue([
       { key: 'partner_1167', cardId: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
     ]);
 
@@ -53,7 +53,7 @@ describe('App routes', () => {
     const option = await screen.findByRole('button', { name: 'Partner 卡（拍檔卡） · 江戶川柯南 · ID 1167 · P' });
     await user.click(option);
 
-    expect(listCards).toHaveBeenCalledOnce();
+    expect(listCardsFromServer).toHaveBeenCalledOnce();
     expect(screen.getByText('1167')).toBeTruthy();
     expect(screen.getByText('Partner 卡（拍檔卡）')).toBeTruthy();
   });
