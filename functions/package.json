@@ -20,6 +20,7 @@
     "googleapis": "^176.0.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.19.43",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
