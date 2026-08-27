@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => ({
   collection: vi.fn(),
+  connectFirestoreEmulator: vi.fn(),
   deleteField: vi.fn(() => ({ type: 'delete-field' })),
   doc: vi.fn(),
   getDoc: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('firebase/firestore', () => firestore);
 vi.mock('../../../lib/firebase/app', () => ({
   auth: { currentUser: { uid: 'seller-1' } },
   firebaseApp: { type: 'firebase-app' },
+  firebaseEmulatorConfig: null,
 }));
 
 import {

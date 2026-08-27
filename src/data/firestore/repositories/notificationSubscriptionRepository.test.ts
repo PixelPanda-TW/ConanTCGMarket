@@ -15,6 +15,7 @@ const firestore = vi.hoisted(() => {
 
   return {
     Timestamp,
+    connectFirestoreEmulator: vi.fn(),
     deleteDoc: vi.fn(),
     doc: vi.fn(),
     getDoc: vi.fn(),
@@ -25,6 +26,7 @@ const firestore = vi.hoisted(() => {
 const firebaseApp = vi.hoisted(() => ({
   firebaseApp: { name: 'test-app' },
   auth: { currentUser: { uid: 'buyer-1' as string | null } },
+  firebaseEmulatorConfig: null,
 }));
 
 vi.mock('firebase/firestore', () => firestore);

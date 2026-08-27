@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => ({
   doc: vi.fn(),
+  connectFirestoreEmulator: vi.fn(),
   getDoc: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
   setDoc: vi.fn(),
@@ -10,6 +11,7 @@ const firestore = vi.hoisted(() => ({
 const firebaseApp = vi.hoisted(() => ({
   firebaseApp: { name: 'test-app' },
   auth: { currentUser: { uid: 'seller-1' } },
+  firebaseEmulatorConfig: null,
 }));
 
 vi.mock('firebase/firestore', () => firestore);

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => ({
   collection: vi.fn(),
+  connectFirestoreEmulator: vi.fn(),
   getDocs: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
 }));

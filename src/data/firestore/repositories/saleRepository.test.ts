@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firestore = vi.hoisted(() => ({
   collection: vi.fn(),
+  connectFirestoreEmulator: vi.fn(),
   doc: vi.fn(),
   getDocs: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
@@ -12,7 +13,7 @@ const firestore = vi.hoisted(() => ({
 const auth = vi.hoisted(() => ({ currentUser: { uid: 'seller-1' as string | null } }));
 
 vi.mock('firebase/firestore', () => firestore);
-vi.mock('../../../lib/firebase/app', () => ({ auth, firebaseApp: { type: 'app' } }));
+vi.mock('../../../lib/firebase/app', () => ({ auth, firebaseApp: { type: 'app' }, firebaseEmulatorConfig: null }));
 
 import { listSellerSales, recordSale, sellerSalesQueryConstraints } from './saleRepository';
 import { collections } from '../paths';
