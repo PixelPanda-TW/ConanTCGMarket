@@ -4,13 +4,15 @@ import type {
   ListingEvent,
   RecipientDirectory,
 } from './domain.js';
+import {
+  matchesSubscribedCardName,
+  readSubscriptionCardNames,
+} from './cardNameSubscriptions.js';
 
 const MARKETPLACE_BASE_URL = 'https://pixelpanda-tw.github.io/ConanTCGMarket';
-const CHARACTER_QUERY_LIMIT = 30;
+const DAILY_EVENT_PAGE_SIZE = 250;
 const DAILY_DIGEST_TIME_ZONE = 'Asia/Taipei';
 const DAILY_DIGEST_RESERVED_LEASE_MS = 15 * 60_000;
-const MAX_NOTIFICATION_CHARACTER_KEYS = 100;
-const MAX_NOTIFICATION_CHARACTER_KEY_LENGTH = 100;
 
 export const DEFAULT_DAILY_RECIPIENT_CAP = 100;
 
@@ -21,7 +23,7 @@ export const DAILY_DIGEST_SCHEDULE_OPTIONS = {
 
 export interface NotificationSubscription {
   uid: string;
-  characterKeys: string[];
+  cardNames: string[];
   emailDailyEnabled: boolean;
   updatedAt: Date;
 }
@@ -34,10 +36,10 @@ export interface DailyDigestSubscriptionStore {
 }
 
 export interface DailyDigestEventStore {
-  findNewByCharacterKeys(
-    characterKeys: string[],
+  findNewInSequenceRange(
     afterSequence: number,
     throughSequence: number,
+    limit: number,
   ): Promise<ListingEvent[]>;
 }
 
@@ -260,36 +262,6 @@ export function recoverDailyDigestDelivery(
   return null;
 }
 
-function chunks<T>(values: T[], size: number): T[][] {
-  const result: T[][] = [];
-  for (let index = 0; index < values.length; index += size) {
-    result.push(values.slice(index, index + size));
-  }
-  return result;
-}
-
-function readSubscriptionCharacterKeys(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.length > MAX_NOTIFICATION_CHARACTER_KEYS) {
-    return null;
-  }
-
-  const uniqueKeys = new Set<string>();
-  for (const key of value) {
-    if (typeof key !== 'string') {
-      return null;
-    }
-    const normalized = key.normalize('NFKC').trim().replace(/\s+/g, ' ');
-    if (!normalized
-      || normalized !== key
-      || normalized.length > MAX_NOTIFICATION_CHARACTER_KEY_LENGTH
-      || uniqueKeys.has(normalized)) {
-      return null;
-    }
-    uniqueKeys.add(normalized);
-  }
-  return [...uniqueKeys];
-}
-
 export function dailyDigestRunDate(now: Date): string {
   if (Number.isNaN(now.valueOf())) {
     throw new Error('Daily digest run requires a valid scheduled time.');
@@ -323,22 +295,24 @@ function buildGroups(events: ListingEvent[]) {
   const groups = new Map<string, ListingEvent[]>();
 
   for (const event of events) {
-    const listings = groups.get(event.characterName) ?? [];
+    const listings = groups.get(event.cardName) ?? [];
     listings.push(event);
-    groups.set(event.characterName, listings);
+    groups.set(event.cardName, listings);
   }
 
-  return Array.from(groups, ([characterName, listings]) => ({ characterName, listings }));
+  return Array.from(groups, ([cardName, listings]) => ({ cardName, listings }));
 }
 
 function buildText(groups: ReturnType<typeof buildGroups>): string {
   const lines = ['柯南 TCG 新上架摘要', ''];
 
   for (const group of groups) {
-    lines.push(`角色：${group.characterName}`);
+    lines.push(`卡名：${group.cardName}`);
     for (const listing of group.listings) {
       lines.push(
-        `- 價格：NT$ ${listing.listingPrice}`,
+        `- 類型：${listing.cardType}`,
+        `  卡名：${listing.cardName}`,
+        `  價格：NT$ ${listing.listingPrice}`,
         `  稀有度：${listing.rarity}`,
         `  卡片 ID：${listing.cardId}`,
         `  剩餘數量：${listing.remainingQuantity}`,
@@ -356,6 +330,8 @@ function buildHtml(groups: ReturnType<typeof buildGroups>): string {
   const sections = groups.map((group) => {
     const listings = group.listings.map((listing) => `
       <li>
+        <div>類型：${escapeHtml(listing.cardType)}</div>
+        <div>卡名：${escapeHtml(listing.cardName)}</div>
         <div>價格：NT$ ${escapeHtml(listing.listingPrice)}</div>
         <div>稀有度：${escapeHtml(listing.rarity)}</div>
         <div>卡片 ID：${escapeHtml(listing.cardId)}</div>
@@ -363,7 +339,7 @@ function buildHtml(groups: ReturnType<typeof buildGroups>): string {
         <a href="${escapeHtml(listingUrl(String(listing.listingId)))}">查看商品</a>
       </li>`).join('');
 
-    return `<section><h2>${escapeHtml(group.characterName)}</h2><ul>${listings}</ul></section>`;
+    return `<section><h2>${escapeHtml(group.cardName)}</h2><ul>${listings}</ul></section>`;
   }).join('');
 
   return `<!doctype html><html><body><h1>柯南 TCG 新上架摘要</h1>${sections}<p><a href="${MARKETPLACE_BASE_URL}/#/notifications">通知設定</a></p></body></html>`;
@@ -379,7 +355,6 @@ export async function runDailyDigest(
     return;
   }
 
-  const pageSize = recipientCap;
   const runDate = dailyDigestRunDate(scheduledTime);
   const run = await deps.runs.getOrCreate(runDate);
   const windowEnd = run.windowEndSequence;
@@ -387,26 +362,34 @@ export async function runDailyDigest(
   let attemptedRecipients = 0;
 
   while (attemptedRecipients < recipientCap) {
+    const pageSize = recipientCap - attemptedRecipients;
     const subscriptions = await deps.subscriptions.listEmailDailyEnabled(scanCursor, pageSize);
     if (subscriptions.length === 0) {
       await deps.batchState.advance(null);
       return;
     }
 
+    type PageClaim = {
+      subscription: NotificationSubscription;
+      cardNames: string[];
+      recipient: string;
+      claimId: string;
+      claim: DailyDigestClaim;
+      eventsByListingId: Map<string, ListingEvent>;
+      state: 'reserved' | 'sending' | 'done';
+    };
+    const claimsByUid = new Map<string, PageClaim>();
+
     for (const subscription of subscriptions) {
-      const characterKeys = readSubscriptionCharacterKeys(subscription.characterKeys);
+      const cardNames = readSubscriptionCardNames(subscription.cardNames);
       if (subscription.emailDailyEnabled !== true
-        || !characterKeys
-        || characterKeys.length === 0) {
-        scanCursor = subscription.uid;
-        await deps.batchState.advance(scanCursor);
+        || !cardNames
+        || cardNames.length === 0) {
         continue;
       }
 
       const recipient = await deps.recipients.getVerifiedEmail(subscription.uid);
       if (!recipient) {
-        scanCursor = subscription.uid;
-        await deps.batchState.advance(scanCursor);
         continue;
       }
 
@@ -419,64 +402,113 @@ export async function runDailyDigest(
         runDate,
       );
       if (!claim) {
-        scanCursor = subscription.uid;
-        await deps.batchState.advance(scanCursor);
         continue;
       }
 
-      const eventsByListingId = new Map<string, ListingEvent>();
+      claimsByUid.set(subscription.uid, {
+        subscription,
+        cardNames,
+        recipient,
+        claimId,
+        claim,
+        eventsByListingId: new Map(),
+        state: 'reserved',
+      });
+    }
 
-      for (const characterKeyChunk of chunks(characterKeys, CHARACTER_QUERY_LIMIT)) {
-        const events = await deps.events.findNewByCharacterKeys(
-          characterKeyChunk,
-          claim.afterSequence,
-          claim.throughSequence,
-        );
-        for (const event of events) {
-          eventsByListingId.set(event.listingId, event);
-        }
-      }
+    const releaseReservedClaims = async () => {
+      await Promise.allSettled(Array.from(claimsByUid.values(), (pageClaim) => (
+        pageClaim.state === 'reserved'
+          ? deps.deliveryState.release(pageClaim.subscription.uid, pageClaim.claimId)
+          : Promise.resolve()
+      )));
+    };
 
-      const events = Array.from(eventsByListingId.values()).sort((left, right) => (
-        left.createdAt.toMillis() - right.createdAt.toMillis()
-          || left.listingId.localeCompare(right.listingId)
+    if (claimsByUid.size > 0) {
+      let eventCursor = Math.min(...Array.from(
+        claimsByUid.values(),
+        (pageClaim) => pageClaim.claim.afterSequence,
       ));
-      if (events.length === 0) {
-        await deps.deliveryState.completeWithoutSend(subscription.uid, claimId);
-        scanCursor = subscription.uid;
-        await deps.batchState.advance(scanCursor);
-        continue;
-      }
 
-      const groups = buildGroups(events);
-      const message = {
-        to: recipient,
-        subject: '柯南 TCG 新上架摘要',
-        groups,
-        text: buildText(groups),
-        html: buildHtml(groups),
-      };
-      const maySend = await deps.deliveryState.beginSend(subscription.uid, claimId);
-      if (!maySend) {
-        scanCursor = subscription.uid;
-        await deps.batchState.advance(scanCursor);
-        continue;
-      }
-
-      attemptedRecipients += 1;
       try {
-        await deps.gmail.sendDigest(message);
-      } catch {
+        while (eventCursor < windowEnd) {
+          const eventPage = await deps.events.findNewInSequenceRange(
+            eventCursor,
+            windowEnd,
+            DAILY_EVENT_PAGE_SIZE,
+          );
+          for (const event of eventPage) {
+            for (const pageClaim of claimsByUid.values()) {
+              if (event.capturedSequence > pageClaim.claim.afterSequence
+                && event.capturedSequence <= pageClaim.claim.throughSequence
+                && matchesSubscribedCardName(pageClaim.cardNames, event.cardName)) {
+                pageClaim.eventsByListingId.set(event.listingId, event);
+              }
+            }
+          }
+
+          if (eventPage.length < DAILY_EVENT_PAGE_SIZE) break;
+          const nextEventCursor = eventPage[eventPage.length - 1]?.capturedSequence;
+          if (nextEventCursor === undefined || nextEventCursor <= eventCursor) {
+            throw new Error('Daily digest event pagination did not advance.');
+          }
+          eventCursor = nextEventCursor;
+        }
+      } catch (error) {
+        await releaseReservedClaims();
+        throw error;
+      }
+    }
+
+    try {
+      for (const subscription of subscriptions) {
+        const pageClaim = claimsByUid.get(subscription.uid);
+        if (pageClaim) {
+          const events = Array.from(pageClaim.eventsByListingId.values())
+            .sort((left, right) => (
+              left.createdAt.toMillis() - right.createdAt.toMillis()
+                || left.listingId.localeCompare(right.listingId)
+            ));
+          if (events.length === 0) {
+            await deps.deliveryState.completeWithoutSend(subscription.uid, pageClaim.claimId);
+            pageClaim.state = 'done';
+          } else {
+            const groups = buildGroups(events);
+            const message = {
+              to: pageClaim.recipient,
+              subject: '柯南 TCG 新上架摘要',
+              groups,
+              text: buildText(groups),
+              html: buildHtml(groups),
+            };
+            const maySend = await deps.deliveryState.beginSend(
+              subscription.uid,
+              pageClaim.claimId,
+            );
+            if (maySend) {
+              pageClaim.state = 'sending';
+              attemptedRecipients += 1;
+              try {
+                await deps.gmail.sendDigest(message);
+              } catch {
+                scanCursor = subscription.uid;
+                await deps.batchState.advance(scanCursor);
+                if (attemptedRecipients >= recipientCap) return;
+                continue;
+              }
+
+              await deps.deliveryState.complete(subscription.uid, pageClaim.claimId);
+              pageClaim.state = 'done';
+            }
+          }
+        }
         scanCursor = subscription.uid;
         await deps.batchState.advance(scanCursor);
         if (attemptedRecipients >= recipientCap) return;
-        continue;
       }
-
-      await deps.deliveryState.complete(subscription.uid, claimId);
-      scanCursor = subscription.uid;
-      await deps.batchState.advance(scanCursor);
-      if (attemptedRecipients >= recipientCap) return;
+    } catch (error) {
+      await releaseReservedClaims();
+      throw error;
     }
 
     if (subscriptions.length < pageSize) {
