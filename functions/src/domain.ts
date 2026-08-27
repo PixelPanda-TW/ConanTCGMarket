@@ -9,9 +9,8 @@ export interface ListingEventOptions {
 
 export interface ListingSnapshot {
   cardId: string;
-  cardType?: 'character' | 'event' | 'case' | 'partner';
-  cardName?: string;
-  characterName?: string;
+  cardType: 'character' | 'event' | 'case' | 'partner';
+  cardName: string;
   rarity?: string;
   listingPrice: number;
   remainingQuantity: number;
@@ -22,10 +21,10 @@ export interface ListingSnapshot {
 export interface ListingEvent {
   id: string;
   listingId: string;
-  characterKey: string;
-  characterName: string;
-  rarity: string;
+  cardType: 'character' | 'event' | 'case' | 'partner';
+  cardName: string;
   cardId: string;
+  rarity: string;
   listingPrice: number;
   remainingQuantity: number;
   createdAt: Timestamp;
@@ -42,7 +41,7 @@ export interface ListingEvent {
 export type ListingEventDraft = Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>;
 
 export interface DigestGroup {
-  characterName: string;
+  cardName: string;
   listings: ListingEvent[];
 }
 
@@ -68,7 +67,7 @@ export interface RecipientDirectory {
 
 const MAX_LISTING_ID_LENGTH = 200;
 const MAX_CARD_ID_LENGTH = 100;
-const MAX_CHARACTER_NAME_LENGTH = 100;
+const MAX_CARD_NAME_LENGTH = 100;
 const MAX_RARITY_LENGTH = 50;
 const MAX_LISTING_PRICE = 10_000_000;
 const MAX_REMAINING_QUANTITY = 10_000;
@@ -89,17 +88,14 @@ function readMetadata(
   fieldName: string,
   maximumLength: number,
 ): string {
-  const legacyMetadataReason = fieldName === 'characterName' || fieldName === 'rarity'
-    ? 'Listing event requires character metadata. '
-    : '';
   if (typeof value !== 'string') {
-    return invalidSnapshot(`${legacyMetadataReason}${fieldName} must be a string.`);
+    return invalidSnapshot(`${fieldName} must be a string.`);
   }
 
   const normalized = value.normalize('NFKC').trim().replace(/\s+/g, ' ');
   if (!normalized || normalized.length > maximumLength) {
     return invalidSnapshot(
-      `${legacyMetadataReason}${fieldName} must contain 1 to ${maximumLength} characters.`,
+      `${fieldName} must contain 1 to ${maximumLength} characters.`,
     );
   }
   return normalized;
@@ -134,11 +130,14 @@ export function toListingEvent(
     return invalidSnapshot('Listing event requires an active listing. status must be active.');
   }
 
-  const characterName = readMetadata(
-    data.characterName,
-    'characterName',
-    MAX_CHARACTER_NAME_LENGTH,
-  );
+  if (data.cardType !== 'character'
+    && data.cardType !== 'event'
+    && data.cardType !== 'case'
+    && data.cardType !== 'partner') {
+    return invalidSnapshot('cardType must be character, event, case, or partner.');
+  }
+
+  const cardName = readMetadata(data.cardName, 'cardName', MAX_CARD_NAME_LENGTH);
   const rarity = readMetadata(data.rarity, 'rarity', MAX_RARITY_LENGTH);
   const cardId = readMetadata(data.cardId, 'cardId', MAX_CARD_ID_LENGTH);
 
@@ -160,45 +159,14 @@ export function toListingEvent(
   return {
     id: listingId,
     listingId,
-    characterKey: characterName,
-    characterName,
-    rarity,
+    cardType: data.cardType,
+    cardName,
     cardId,
+    rarity,
     listingPrice: data.listingPrice,
     remainingQuantity: data.remainingQuantity,
     createdAt: readCreatedAt(data.createdAt),
     discordStatus: options.discordEnabled === false ? 'disabled' : 'pending',
     attempts: 0,
   };
-}
-
-export function toCharacterListingEvent(
-  listingId: string,
-  listing: unknown,
-  options: ListingEventOptions = {},
-): ListingEventDraft | null {
-  if (typeof listing !== 'object' || listing === null || Array.isArray(listing)) {
-    return toListingEvent(listingId, listing, options);
-  }
-
-  const data = listing as Record<string, unknown>;
-  if (data.cardType === 'event' || data.cardType === 'case' || data.cardType === 'partner') {
-    return null;
-  }
-
-  if (data.cardType === 'character') {
-    const characterName = readMetadata(
-      data.characterName,
-      'characterName',
-      MAX_CHARACTER_NAME_LENGTH,
-    );
-    const cardName = readMetadata(data.cardName, 'cardName', MAX_CHARACTER_NAME_LENGTH);
-    if (characterName !== cardName) {
-      return invalidSnapshot('characterName must match cardName.');
-    }
-  } else if (data.cardType !== undefined) {
-    return invalidSnapshot('cardType must be character, event, case, or partner.');
-  }
-
-  return toListingEvent(listingId, listing, options);
 }

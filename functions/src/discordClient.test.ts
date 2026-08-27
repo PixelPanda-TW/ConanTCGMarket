@@ -6,8 +6,8 @@ import { createDiscordClient } from './discordClient.js';
 const event = {
   id: 'listing-1',
   listingId: 'listing-1',
-  characterKey: '諸伏景光',
-  characterName: '諸伏景光',
+  cardType: 'character',
+  cardName: '諸伏景光',
   rarity: 'SR',
   cardId: 'P001',
   listingPrice: 120,
@@ -40,7 +40,7 @@ describe('createDiscordClient', () => {
       content: string;
       allowed_mentions?: { parse: string[] };
     };
-    expect(payload.content).toContain('諸伏景光');
+    expect(payload.content).toContain('卡名：諸伏景光');
     expect(payload.content).toContain('SR');
     expect(payload.content).toContain('卡片 ID：P001');
     expect(payload.content).toContain('120');

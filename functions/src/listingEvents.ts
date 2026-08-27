@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import {
   InvalidListingSnapshotError,
-  toCharacterListingEvent,
+  toListingEvent,
   type DiscordClient,
   type ListingEvent,
   type ListingEventDraft,
@@ -51,7 +51,6 @@ export interface ListingCreatedEvent {
 
 export type ListingEventCaptureResult =
   | { status: 'captured' | 'duplicate' }
-  | { status: 'ignored'; reason: 'non-character-card' }
   | { status: 'invalid'; reason: string };
 
 function isAlreadyExists(error: unknown): boolean {
@@ -68,18 +67,14 @@ export async function captureListingEvent(
   deps: ListingEventCaptureDependencies,
   options: ListingEventOptions = {},
 ): Promise<ListingEventCaptureResult> {
-  let event: ListingEventDraft | null;
+  let event: ListingEventDraft;
   try {
-    event = toCharacterListingEvent(source.params.listingId, source.data, options);
+    event = toListingEvent(source.params.listingId, source.data, options);
   } catch (error) {
     if (error instanceof InvalidListingSnapshotError) {
       return { status: 'invalid', reason: error.message };
     }
     throw error;
-  }
-
-  if (!event) {
-    return { status: 'ignored', reason: 'non-character-card' };
   }
 
   try {

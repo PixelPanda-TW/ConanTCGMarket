@@ -1,10 +1,11 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
-import { toCharacterListingEvent, toListingEvent, type ListingSnapshot } from './domain.js';
+import { toListingEvent, type ListingSnapshot } from './domain.js';
 
 const listing: ListingSnapshot = {
+  cardType: 'character',
+  cardName: ' 諸伏景光 ',
   cardId: 'P001',
-  characterName: ' 諸伏景光 ',
   rarity: 'SR',
   listingPrice: 120,
   remainingQuantity: 2,
@@ -15,8 +16,8 @@ const listing: ListingSnapshot = {
 const expectedEvent = {
   id: 'listing-1',
   listingId: 'listing-1',
-  characterKey: '諸伏景光',
-  characterName: '諸伏景光',
+  cardType: 'character',
+  cardName: '諸伏景光',
   rarity: 'SR',
   cardId: 'P001',
   listingPrice: 120,
@@ -31,6 +32,31 @@ describe('toListingEvent', () => {
     expect(toListingEvent('listing-1', listing)).toStrictEqual(expectedEvent);
   });
 
+  it.each([
+    ['character', '江戶川柯南', '0001'],
+    ['partner', '江戶川柯南', 'P001'],
+    ['event', '追蹤開始', '1100'],
+    ['case', '洗牌情緣', '0019'],
+  ] as const)('creates a generic %s event', (cardType, cardName, cardId) => {
+    expect(toListingEvent('listing-1', {
+      cardType,
+      cardName,
+      cardId,
+      rarity: 'CP',
+      listingPrice: 500,
+      remainingQuantity: 2,
+      status: 'active',
+      createdAt: new Date('2026-08-27T00:00:00.000Z'),
+    }, { discordEnabled: false })).toMatchObject({
+      listingId: 'listing-1',
+      cardType,
+      cardName,
+      cardId,
+      rarity: 'CP',
+      discordStatus: 'disabled',
+    });
+  });
+
   it('creates a disabled Discord snapshot for email-only capture', () => {
     expect(toListingEvent('listing-1', listing, { discordEnabled: false })).toStrictEqual({
       ...expectedEvent,
@@ -38,14 +64,40 @@ describe('toListingEvent', () => {
     });
   });
 
-  it('rejects a listing without character metadata', () => {
-    expect(() => toListingEvent('listing-1', { ...listing, characterName: undefined }))
-      .toThrow('Listing event requires character metadata.');
+  it('rejects a listing without a card type', () => {
+    expect(() => toListingEvent('listing-1', { ...listing, cardType: undefined }))
+      .toThrow('cardType must be character, event, case, or partner.');
   });
 
-  it('rejects a listing without rarity metadata', () => {
-    expect(() => toListingEvent('listing-1', { ...listing, rarity: undefined }))
-      .toThrow('Listing event requires character metadata.');
+  it('rejects a listing with an unknown card type', () => {
+    expect(() => toListingEvent('listing-1', { ...listing, cardType: 'promo' }))
+      .toThrow('cardType must be character, event, case, or partner.');
+  });
+
+  it('rejects a listing without card metadata', () => {
+    expect(() => toListingEvent('listing-1', { ...listing, cardName: undefined }))
+      .toThrow(/cardName/);
+  });
+
+  it.each([
+    ['partner', '江戶川柯南', 'P001'],
+    ['event', '追蹤開始', '1100'],
+    ['case', '洗牌情緣', '0019'],
+  ] as const)('does not require character-specific metadata for %s Listings', (
+    cardType,
+    cardName,
+    cardId,
+  ) => {
+    expect(toListingEvent('listing-1', {
+      cardType,
+      cardName,
+      cardId,
+      rarity: 'CP',
+      listingPrice: 500,
+      remainingQuantity: 2,
+      status: 'active',
+      createdAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toMatchObject({ cardType, cardName, cardId });
   });
 
   it('rejects a listing that is not active', () => {
@@ -73,8 +125,8 @@ describe('toListingEvent', () => {
     ['non-object snapshot', null],
     ['non-string card ID', { ...listing, cardId: 1096 }],
     ['oversized card ID', { ...listing, cardId: 'C'.repeat(101) }],
-    ['non-string character name', { ...listing, characterName: 42 }],
-    ['oversized character name', { ...listing, characterName: '角'.repeat(101) }],
+    ['non-string card name', { ...listing, cardName: 42 }],
+    ['oversized card name', { ...listing, cardName: '角'.repeat(101) }],
     ['non-string rarity', { ...listing, rarity: false }],
     ['oversized rarity', { ...listing, rarity: 'R'.repeat(51) }],
     ['string price', { ...listing, listingPrice: '120' }],
@@ -97,31 +149,5 @@ describe('toListingEvent', () => {
   ])('rejects an %s before creating an event', (_label, listingId) => {
     expect(() => toListingEvent(listingId, listing))
       .toThrow(/Invalid Listing snapshot/);
-  });
-});
-
-describe('toCharacterListingEvent', () => {
-  it('returns null for an explicit non-character card before building an event', () => {
-    expect(toCharacterListingEvent('event-1', {
-      ...listing,
-      cardType: 'event',
-      cardName: '追跡開始',
-      characterName: undefined,
-    })).toBeNull();
-  });
-
-  it('uses legacy character metadata when card type is missing', () => {
-    expect(toCharacterListingEvent('legacy-1', listing)).toMatchObject({
-      characterName: '諸伏景光',
-      characterKey: '諸伏景光',
-    });
-  });
-
-  it('requires explicit character Listing metadata to match the card name', () => {
-    expect(() => toCharacterListingEvent('character-1', {
-      ...listing,
-      cardType: 'character',
-      cardName: '安室透',
-    })).toThrow('characterName must match cardName.');
   });
 });

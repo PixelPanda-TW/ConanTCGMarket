@@ -12,8 +12,9 @@ import {
 const now = new Date('2026-08-25T02:00:00.000Z');
 
 const listing: ListingSnapshot = {
+  cardType: 'character',
+  cardName: '諸伏景光',
   cardId: 'P001',
-  characterName: '諸伏景光',
   rarity: 'SR',
   listingPrice: 120,
   remainingQuantity: 2,
@@ -24,8 +25,8 @@ const listing: ListingSnapshot = {
 const event: ListingEvent = {
   id: 'listing-1',
   listingId: 'listing-1',
-  characterKey: '諸伏景光',
-  characterName: '諸伏景光',
+  cardType: 'character',
+  cardName: '諸伏景光',
   rarity: 'SR',
   cardId: 'P001',
   listingPrice: 120,
@@ -79,24 +80,33 @@ function createDependencies(overrides: Partial<ListingEventStore> = {}) {
 }
 
 describe('captureListingEvent', () => {
-  it('ignores an explicit non-character Listing without creating an event', async () => {
+  it.each([
+    ['character', '江戶川柯南', '0001'],
+    ['partner', '江戶川柯南', 'P001'],
+    ['event', '追蹤開始', '1100'],
+    ['case', '洗牌情緣', '0019'],
+  ] as const)('captures a valid %s Listing exactly once', async (cardType, cardName, cardId) => {
     const deps = createDependencies();
-    const eventListing = {
+    const cardListing = {
       ...listing,
-      cardType: 'event',
-      cardName: '追跡開始',
-      characterName: undefined,
+      cardType,
+      cardName,
+      cardId,
     };
 
     await expect(captureListingEvent({
-      params: { listingId: 'event-1' },
-      data: eventListing,
-    }, deps)).resolves.toEqual({
-      status: 'ignored',
-      reason: 'non-character-card',
-    });
+      params: { listingId: `${cardType}-1` },
+      data: cardListing,
+    }, deps)).resolves.toEqual({ status: 'captured' });
 
-    expect(deps.events.create).not.toHaveBeenCalled();
+    expect(deps.events.create).toHaveBeenCalledTimes(1);
+    expect(deps.events.create).toHaveBeenCalledWith(expect.objectContaining({
+      id: `${cardType}-1`,
+      listingId: `${cardType}-1`,
+      cardType,
+      cardName,
+      cardId,
+    }));
   });
 
   it('creates one durable pending event from duplicate Listing-created deliveries', async () => {
@@ -112,11 +122,25 @@ describe('captureListingEvent', () => {
       }),
     });
 
-    await captureListingEvent({ params: { listingId: 'listing-1' }, data: listing }, deps);
-    await captureListingEvent({ params: { listingId: 'listing-1' }, data: listing }, deps);
+    const eventListing = {
+      ...listing,
+      cardType: 'event' as const,
+      cardName: '追蹤開始',
+      cardId: '1100',
+    };
+
+    await captureListingEvent({ params: { listingId: 'event-listing' }, data: eventListing }, deps);
+    await captureListingEvent({ params: { listingId: 'event-listing' }, data: eventListing }, deps);
 
     expect(successfulCreates).toBe(1);
-    expect([...stored.values()]).toStrictEqual([eventDraft]);
+    const [createdEvent] = [...stored.values()];
+    expect(createdEvent).toMatchObject({
+      id: 'event-listing',
+      listingId: 'event-listing',
+      cardType: 'event',
+      cardName: '追蹤開始',
+      cardId: '1100',
+    });
   });
 
   it('captures an email-only event without a Discord pending state', async () => {

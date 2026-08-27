@@ -20,7 +20,7 @@ function buildMessage(event: ListingEvent): string {
 
   return [
     '🃏 柯南 TCG 新上架',
-    `角色：${event.characterName}`,
+    `卡名：${event.cardName}`,
     `稀有度：${event.rarity}`,
     `卡片 ID：${event.cardId}`,
     `價格：NT$ ${event.listingPrice}`,
