@@ -4,7 +4,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Profiler } from 'react';
+import { Profiler, startTransition, Suspense } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationSubscription } from '../../domain/models';
@@ -171,6 +171,23 @@ describe('CardNameSubscriptionControl', () => {
     expect(document.activeElement).toBe(subscribe);
   });
 
+  it('announces exact compound unsubscription and focuses management when a shorter name still covers it', async () => {
+    subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription([
+      '江戶川柯南',
+      '江戶川柯南＆灰原哀',
+    ]));
+    const user = userEvent.setup();
+    render(<CardNameSubscriptionControl cardName="江戶川柯南＆灰原哀" isKnownCardName />);
+
+    await user.click(await screen.findByRole('button', { name: '取消訂閱江戶川柯南＆灰原哀' }));
+
+    const success = await screen.findByText('已取消訂閱「江戶川柯南＆灰原哀」。');
+    expect(success.parentElement?.getAttribute('aria-live')).toBe('polite');
+    expect(screen.getByText('已由「江戶川柯南」訂閱涵蓋')).toBeTruthy();
+    const management = screen.getByRole('link', { name: '管理我的訂閱' });
+    expect(document.activeElement).toBe(management);
+  });
+
   it('shows coverage management instead of a misleading subscribe action', async () => {
     subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription(['江戶川柯南']));
     render(<CardNameSubscriptionControl cardName="江戶川柯南＆灰原哀" isKnownCardName />);
@@ -261,5 +278,45 @@ describe('CardNameSubscriptionControl', () => {
     expect((secondBuyerButton as HTMLButtonElement).disabled).toBe(false);
     await act(async () => finishSave?.());
     expect(screen.getByRole('button', { name: '訂閱江戶川柯南' })).toBeTruthy();
+  });
+
+  it('finishes the committed buyer save after a different auth render is interrupted', async () => {
+    let finishSave: (() => void) | undefined;
+    subscriptions.saveNotificationSubscription.mockReturnValue(new Promise<void>((resolve) => {
+      finishSave = resolve;
+    }));
+    let shouldSuspend = false;
+    const suspended = new Promise<void>(() => undefined);
+    function SuspendAfterControl() {
+      if (shouldSuspend) throw suspended;
+      return null;
+    }
+    const control = () => (
+      <Suspense fallback={<p>切換中</p>}>
+        <CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />
+        <SuspendAfterControl />
+      </Suspense>
+    );
+    const user = userEvent.setup();
+    const view = render(control());
+
+    await user.click(await screen.findByRole('button', { name: '訂閱江戶川柯南' }));
+    await user.click(screen.getByRole('checkbox', { name: '以 Google 登入信箱接收每日摘要' }));
+    await user.click(screen.getByRole('button', { name: '確認訂閱' }));
+    expect(screen.getByRole('button', { name: '儲存中' })).toBeTruthy();
+
+    authState.current.user = { uid: 'buyer-2', displayName: 'Second buyer', photoURL: null };
+    shouldSuspend = true;
+    await act(async () => {
+      startTransition(() => view.rerender(control()));
+    });
+    expect(screen.getByRole('button', { name: '儲存中' })).toBeTruthy();
+
+    authState.current.user = { uid: 'buyer-1', displayName: 'Buyer', photoURL: null };
+    shouldSuspend = false;
+    await act(async () => finishSave?.());
+
+    expect(await screen.findByRole('button', { name: '取消訂閱江戶川柯南' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '儲存中' })).toBeNull();
   });
 });
