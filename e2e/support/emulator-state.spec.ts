@@ -148,8 +148,48 @@ const safeEnvironment = {
   FIREBASE_STORAGE_EMULATOR_HOST: '[::1]:9199',
 };
 
+function withProcessEnvironment(
+  overrides: Record<string, string | undefined>,
+  run: () => void,
+): void {
+  const original = Object.fromEntries(
+    Object.keys(overrides).map((key) => [key, process.env[key]]),
+  );
+  try {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    run();
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 test('accepts only the demo project with loopback Emulator hosts', () => {
   expect(() => assertSafeEmulatorEnvironment(safeEnvironment)).not.toThrow();
+});
+
+test('rejects a conflicting Storage SDK Emulator override before client creation', () => {
+  withProcessEnvironment({
+    ...safeEnvironment,
+    STORAGE_EMULATOR_HOST: 'http://10.0.0.1:9199',
+  }, () => {
+    expect(() => assertSafeEmulatorEnvironment()).toThrow(/Unsafe STORAGE_EMULATOR_HOST/);
+  });
+});
+
+test('accepts a matching loopback Storage SDK Emulator override', () => {
+  withProcessEnvironment({
+    ...safeEnvironment,
+    FIREBASE_STORAGE_EMULATOR_HOST: '127.0.0.1:9199',
+    STORAGE_EMULATOR_HOST: 'http://127.0.0.1:9199',
+  }, () => {
+    expect(() => assertSafeEmulatorEnvironment()).not.toThrow();
+  });
 });
 
 for (const [name, environment] of [

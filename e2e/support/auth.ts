@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 import { assertSafeEmulatorEnvironment, E2E_PROJECT_ID } from './emulator-state';
 
@@ -32,10 +32,13 @@ async function lookupAuthEmulatorUid(email: string, required: boolean): Promise<
 export async function signInWithMockGoogle(
   page: Page,
   identity: MockGoogleIdentity,
+  trigger?: Locator,
 ): Promise<{ uid: string; email: string; displayName: string }> {
   const existingUid = await lookupAuthEmulatorUid(identity.email, false);
   const popupPromise = page.waitForEvent('popup');
-  await page.getByRole('button', { name: '使用 Google 登入' }).click();
+  const signInTrigger = trigger
+    ?? page.getByRole('button', { name: '使用 Google 登入' }).filter({ visible: true }).first();
+  await signInTrigger.click();
   const popup = await popupPromise;
   const closePromise = popup.waitForEvent('close');
 

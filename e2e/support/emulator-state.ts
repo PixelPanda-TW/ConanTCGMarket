@@ -50,6 +50,14 @@ export function assertSafeEmulatorEnvironment(
       throw new Error(`Unsafe ${key}.`);
     }
   }
+
+  const storageSdkHost = env.STORAGE_EMULATOR_HOST;
+  if (
+    storageSdkHost !== undefined
+    && storageSdkHost.replace(/^http:\/\//, '') !== env.FIREBASE_STORAGE_EMULATOR_HOST
+  ) {
+    throw new Error('Unsafe STORAGE_EMULATOR_HOST.');
+  }
 }
 
 function adminApp() {
