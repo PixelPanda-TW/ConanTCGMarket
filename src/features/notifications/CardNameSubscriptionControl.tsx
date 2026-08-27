@@ -3,19 +3,19 @@ import {
   getNotificationSubscription,
   saveNotificationSubscription,
 } from '../../data/firestore/repositories';
-import { toCharacterKey } from '../../domain/characterKey';
+import { findCoveringSubscription } from '../../domain/cardNameSubscription';
 import type { NotificationSubscription } from '../../domain/models';
 import { useAuth } from '../auth/AuthProvider';
 
-export interface CharacterSubscriptionControlProps {
-  characterName: string;
-  isKnownCharacter: boolean;
+export interface CardNameSubscriptionControlProps {
+  cardName: string;
+  isKnownCardName: boolean;
 }
 
-export function CharacterSubscriptionControl({
-  characterName,
-  isKnownCharacter,
-}: CharacterSubscriptionControlProps) {
+export function CardNameSubscriptionControl({
+  cardName,
+  isKnownCardName,
+}: CardNameSubscriptionControlProps) {
   const { isLoading: isAuthLoading, signIn, user } = useAuth();
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [loadedSubscriptionContext, setLoadedSubscriptionContext] = useState<string | null>(null);
@@ -26,16 +26,15 @@ export function CharacterSubscriptionControl({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showSignInGuidance, setShowSignInGuidance] = useState(false);
   const activeContextRef = useRef(0);
-  const characterKey = isKnownCharacter ? toCharacterKey(characterName) : '';
-  const subscriptionContext = isKnownCharacter && user
-    ? `${user.uid}\u0000${characterKey}`
+  const subscriptionContext = isKnownCardName && user
+    ? `${user.uid}\u0000${cardName}`
     : null;
   const isSubscriptionLoading = subscriptionContext !== null
     && loadedSubscriptionContext !== subscriptionContext;
 
   useEffect(() => {
-    activeContextRef.current += 1;
-    let isCurrent = true;
+    const requestContext = activeContextRef.current + 1;
+    activeContextRef.current = requestContext;
     setSubscription(null);
     setIsSaving(false);
     setIsConfirmingSubscription(false);
@@ -45,32 +44,33 @@ export function CharacterSubscriptionControl({
     setShowSignInGuidance(false);
     setLoadedSubscriptionContext(null);
 
-    if (!subscriptionContext || !user) {
-      return () => {
-        isCurrent = false;
-      };
-    }
+    if (!subscriptionContext || !user) return;
 
     void getNotificationSubscription(user.uid)
       .then((loadedSubscription) => {
-        if (isCurrent) setSubscription(loadedSubscription);
+        if (activeContextRef.current === requestContext) setSubscription(loadedSubscription);
       })
       .catch(() => {
-        if (isCurrent) setLoadError('無法讀取角色通知，請稍後再試。');
+        if (activeContextRef.current === requestContext) {
+          setLoadError('無法讀取卡名通知，請稍後再試。');
+        }
       })
       .finally(() => {
-        if (isCurrent) setLoadedSubscriptionContext(subscriptionContext);
+        if (activeContextRef.current === requestContext) {
+          setLoadedSubscriptionContext(subscriptionContext);
+        }
       });
 
     return () => {
-      isCurrent = false;
-      activeContextRef.current += 1;
+      if (activeContextRef.current === requestContext) activeContextRef.current += 1;
     };
   }, [subscriptionContext]);
 
-  if (!isKnownCharacter) return null;
+  if (!isKnownCardName) return null;
 
-  const isSubscribed = subscription?.characterKeys.includes(characterKey) ?? false;
+  const exactSubscription = subscription?.cardNames.includes(cardName) ?? false;
+  const coveringName = findCoveringSubscription(subscription?.cardNames ?? [], cardName);
+  const coveredByAnotherName = coveringName !== undefined && coveringName !== cardName;
 
   async function toggleSubscription() {
     if (!user) {
@@ -78,13 +78,13 @@ export function CharacterSubscriptionControl({
       return;
     }
 
-    if (!isSubscribed) {
+    if (!exactSubscription) {
       setIsConfirmingSubscription(true);
       return;
     }
 
     await persistSubscription(
-      (subscription?.characterKeys ?? []).filter((key) => key !== characterKey),
+      (subscription?.cardNames ?? []).filter((name) => name !== cardName),
       subscription?.emailDailyEnabled ?? false,
     );
   }
@@ -92,15 +92,15 @@ export function CharacterSubscriptionControl({
   async function confirmSubscription() {
     if (!user || !emailDeliverySelected) return;
 
-    await persistSubscription([...(subscription?.characterKeys ?? []), characterKey], true);
+    await persistSubscription([...(subscription?.cardNames ?? []), cardName], true);
   }
 
-  async function persistSubscription(characterKeys: string[], emailDailyEnabled: boolean) {
+  async function persistSubscription(cardNames: string[], emailDailyEnabled: boolean) {
     if (!user) return;
 
     const nextSubscription: NotificationSubscription = {
       uid: user.uid,
-      characterKeys,
+      cardNames,
       emailDailyEnabled,
       updatedAt: new Date(),
     };
@@ -116,7 +116,7 @@ export function CharacterSubscriptionControl({
       }
     } catch {
       if (activeContextRef.current === requestContext) {
-        setSaveError('無法更新角色通知，請稍後再試。');
+        setSaveError('無法更新卡名通知，請稍後再試。');
       }
     } finally {
       if (activeContextRef.current === requestContext) setIsSaving(false);
@@ -124,17 +124,30 @@ export function CharacterSubscriptionControl({
   }
 
   if (isAuthLoading || isSubscriptionLoading) {
-    return <p className="subscription-status" aria-live="polite">角色通知載入中</p>;
+    return <p className="subscription-status" aria-live="polite">卡名通知載入中</p>;
   }
 
   if (loadError) {
     return <p className="field-error subscription-status" role="alert">{loadError}</p>;
   }
 
+  if (coveredByAnotherName) {
+    return (
+      <div className="card-name-subscription-control">
+        <p className="subscription-coverage" aria-live="polite">
+          已由「{coveringName}」訂閱涵蓋
+        </p>
+        <a className="subscription-management-link" href="#/notifications">管理我的訂閱</a>
+      </div>
+    );
+  }
+
   return (
-    <div className="character-subscription-control">
+    <div className="card-name-subscription-control">
       <button type="button" onClick={toggleSubscription} disabled={isSaving}>
-        {isSubscribed ? `取消訂閱${characterName}` : `訂閱${characterName}`}
+        {isSaving && exactSubscription
+          ? '儲存中'
+          : exactSubscription ? `取消訂閱${cardName}` : `訂閱${cardName}`}
       </button>
       {isConfirmingSubscription && (
         <section className="subscription-confirmation" aria-labelledby="subscription-confirmation-heading">
@@ -155,7 +168,7 @@ export function CharacterSubscriptionControl({
               onClick={confirmSubscription}
               disabled={!emailDeliverySelected || isSaving}
             >
-              確認訂閱
+              {isSaving ? '儲存中' : '確認訂閱'}
             </button>
             <button
               className="button-secondary"
@@ -173,7 +186,7 @@ export function CharacterSubscriptionControl({
       )}
       {showSignInGuidance && (
         <div className="subscription-sign-in-guidance">
-          <p>登入後即可訂閱角色通知</p>
+          <p>登入後即可訂閱卡名通知</p>
           <button type="button" onClick={signIn}>使用 Google 登入</button>
         </div>
       )}

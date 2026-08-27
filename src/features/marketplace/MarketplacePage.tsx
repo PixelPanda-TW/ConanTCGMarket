@@ -5,12 +5,13 @@ import { PageShell } from '../../components/PageShell';
 import { WelcomeNoticeDialog } from '../../components/WelcomeNoticeDialog';
 import { developmentCards } from '../../data/cards/developmentCards';
 import { getPublicSellerProfile, listActiveListings, listCards } from '../../data/firestore/repositories';
+import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { hasKnownCardName } from '../../domain/cardMetadata';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { filterListings, validateCardIdQuery } from '../../listingFilters';
 import { cardTypeLabel } from '../../domain/cardType';
 import { AuthStatus } from '../auth/AuthStatus';
-import { CharacterSubscriptionControl } from '../notifications/CharacterSubscriptionControl';
+import { CardNameSubscriptionControl } from '../notifications/CardNameSubscriptionControl';
 import { resolveMarketplaceListingMetadata } from './marketplaceCatalog';
 
 interface MarketplaceListing extends Listing {
@@ -92,8 +93,13 @@ export function MarketplacePage({
     cardName: deferredHasExactKnownCardName ? deferredFilters.cardName : '',
   }), [deferredFilters, deferredHasExactKnownCardName, listings]);
   const cardIdError = validateCardIdQuery(filters.cardIdQuery);
-  const isKnownCharacter = filters.cardType === 'character'
-    && cards.some((card) => card.cardType === 'character' && card.cardName === filters.cardName);
+  const cardsOfSelectedType = filters.cardType
+    ? cards.filter((card) => card.cardType === filters.cardType)
+    : [];
+  const isKnownCardName = isKnownSubscriptionCardName(
+    cardsOfSelectedType,
+    filters.cardName ?? '',
+  );
 
   return (
     <PageShell width="marketplace">
@@ -134,12 +140,12 @@ export function MarketplacePage({
               error={cardIdError}
             />
           </div>
-          {isKnownCharacter && (
-            <section className="marketplace-subscription" aria-label="角色通知">
-              <p>想第一時間知道「{filters.cardName}」的新商品？</p>
-              <CharacterSubscriptionControl
-                characterName={filters.cardName ?? ''}
-                isKnownCharacter
+          {isKnownCardName && (
+            <section className="marketplace-subscription" aria-label="卡名通知">
+              <p>想知道包含「{filters.cardName}」的新商品？</p>
+              <CardNameSubscriptionControl
+                cardName={filters.cardName ?? ''}
+                isKnownCardName
               />
             </section>
           )}

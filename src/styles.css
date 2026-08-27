@@ -706,7 +706,10 @@ h1 {
   padding: 14px 16px;
 }
 .marketplace-subscription > p { margin: 0; font-weight: 700; }
-.marketplace-subscription .character-subscription-control { flex: 0 0 auto; }
+.marketplace-subscription .card-name-subscription-control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 
 .welcome-notice-backdrop {
   position: fixed;
@@ -1104,20 +1107,42 @@ textarea:focus-visible {
 }
 
 /* Buyer notification controls */
-.character-subscription-control,
+.card-name-subscription-control,
 .subscription-sign-in-guidance,
 .notification-settings-content {
   display: grid;
   gap: 12px;
 }
 
-.character-subscription-control {
+.card-name-subscription-control {
+  min-width: 0;
   justify-items: start;
 }
 
-.character-subscription-control button,
+.card-name-subscription-control button,
 .notification-settings-card button {
   min-height: 44px;
+}
+
+.card-name-subscription-control button,
+.subscription-management-link {
+  max-width: 100%;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+}
+
+.subscription-coverage {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.subscription-management-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border-radius: var(--radius);
+  font-weight: 700;
 }
 
 .subscription-status,
@@ -1242,6 +1267,13 @@ textarea:focus-visible {
 }
 
 @media (max-width: 640px) {
+  .marketplace-subscription,
+  .marketplace-subscription .card-name-subscription-control,
+  .card-name-subscription-control > button,
+  .subscription-management-link {
+    width: 100%;
+  }
+
   .notification-settings-card {
     padding: 16px;
   }

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { Card, Listing } from '../../domain/models';
 import { getListing, getPublicSellerProfile, listCards } from '../../data/firestore/repositories';
+import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
-import { CharacterSubscriptionControl } from '../notifications/CharacterSubscriptionControl';
+import { CardNameSubscriptionControl } from '../notifications/CardNameSubscriptionControl';
 import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
 
 export function ListingPage({ id }: { id: string }) {
@@ -15,14 +16,12 @@ export function ListingPage({ id }: { id: string }) {
     contactType: string;
     contactValue: string;
   } | null>();
-  const [isKnownCharacter, setIsKnownCharacter] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
     setListing(undefined);
     setCards(undefined);
     setSeller(undefined);
-    setIsKnownCharacter(false);
 
     void getListing(id)
       .then(async (value) => {
@@ -34,13 +33,7 @@ export function ListingPage({ id }: { id: string }) {
           getPublicSellerProfile(value.sellerId),
         ]);
         if (!isCurrent) return;
-        const metadata = resolveListingMetadata(value, cards);
         setCards(cards);
-        setIsKnownCharacter(Boolean(
-          metadata.cardType === 'character'
-          && metadata.resolution !== 'ambiguous'
-          && cards.some((item) => item.cardType === 'character' && item.cardName === metadata.cardName),
-        ));
         setSeller(profile);
       })
       .catch(() => {
@@ -63,6 +56,10 @@ export function ListingPage({ id }: { id: string }) {
     );
   }
   const metadata = resolveListingMetadata(listing, cards ?? []);
+  const hasResolvedCardName = metadata.resolution !== 'ambiguous'
+    && metadata.resolution !== 'missing';
+  const isKnownCardName = hasResolvedCardName
+    && isKnownSubscriptionCardName(cards ?? [], metadata.cardName);
   return (
     <PageShell width="listing" backToMarketplace>
       <article className="listing-page">
@@ -70,10 +67,10 @@ export function ListingPage({ id }: { id: string }) {
           <p className="eyebrow">商品詳情</p>
           <h1>商品詳情</h1>
           <ListingMetadata listing={listing} cards={cards} />
-          {metadata.cardType === 'character' && metadata.resolution !== 'ambiguous' && (
-            <CharacterSubscriptionControl
-              characterName={metadata.cardName}
-              isKnownCharacter={isKnownCharacter}
+          {hasResolvedCardName && (
+            <CardNameSubscriptionControl
+              cardName={metadata.cardName}
+              isKnownCardName={isKnownCardName}
             />
           )}
           <p>商品詳情與聯絡資訊</p>
