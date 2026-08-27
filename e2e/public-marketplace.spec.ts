@@ -2,7 +2,12 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 
 import { activeListing, sellerProfile, testCards } from './support/fixtures';
-import { seedListingImage, seedScenario } from './support/emulator-state';
+import {
+  readDocument,
+  seedListingImage,
+  seedScenario,
+  updateListingAvailability,
+} from './support/emulator-state';
 import { expect, test } from './support/test';
 
 const frontImage = fileURLToPath(new URL('./fixtures/card-front.png', import.meta.url));
@@ -89,10 +94,19 @@ test('never exposes sold-out Listings', async ({ page }) => {
         cardName: '諸伏景光',
         characterName: '諸伏景光',
         rarity: 'R',
-        remainingQuantity: 0,
-        status: 'sold_out',
       }),
     ],
+  });
+  await expect.poll(() => readDocument('listingEvents', 'e2e-listing-sold-out')).toMatchObject({
+    listingId: 'e2e-listing-sold-out',
+  });
+  await updateListingAvailability('e2e-listing-sold-out', {
+    remainingQuantity: 0,
+    status: 'sold_out',
+  });
+  await expect.poll(() => readDocument('listings', 'e2e-listing-sold-out')).toMatchObject({
+    remainingQuantity: 0,
+    status: 'sold_out',
   });
   await page.goto('./');
 

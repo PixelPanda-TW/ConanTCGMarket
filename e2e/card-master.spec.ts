@@ -57,6 +57,8 @@ test('renders the Card Master Firestore error state', async ({ page }) => {
 
   await page.goto('#/cards');
 
-  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText(
+    'Failed to get documents from server. (However, these documents may exist in the local cache. Run again without setting source to "server" to retrieve the cached documents.)',
+  );
   await expect(page.getByText('載入卡牌資料中')).toBeHidden();
 });

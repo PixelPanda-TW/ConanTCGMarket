@@ -203,6 +203,14 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
   await batch.commit();
 }
 
+export async function updateListingAvailability(
+  listingId: string,
+  values: Pick<Listing, 'remainingQuantity' | 'status'>,
+): Promise<void> {
+  assertSafeEmulatorEnvironment();
+  await adminFirestore().doc(`listings/${listingId}`).update(values);
+}
+
 export async function seedListingImage(path: string, fixturePath: string): Promise<string> {
   assertSafeEmulatorEnvironment();
   const bytes = await readFile(fixturePath);
