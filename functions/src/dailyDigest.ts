@@ -380,42 +380,6 @@ export async function runDailyDigest(
     };
     const claimsByUid = new Map<string, PageClaim>();
 
-    for (const subscription of subscriptions) {
-      const cardNames = readSubscriptionCardNames(subscription.cardNames);
-      if (subscription.emailDailyEnabled !== true
-        || !cardNames
-        || cardNames.length === 0) {
-        continue;
-      }
-
-      const recipient = await deps.recipients.getVerifiedEmail(subscription.uid);
-      if (!recipient) {
-        continue;
-      }
-
-      const claimId = deps.createClaimId();
-      const claim = await deps.deliveryState.claim(
-        subscription.uid,
-        claimId,
-        executionTime,
-        windowEnd,
-        runDate,
-      );
-      if (!claim) {
-        continue;
-      }
-
-      claimsByUid.set(subscription.uid, {
-        subscription,
-        cardNames,
-        recipient,
-        claimId,
-        claim,
-        eventsByListingId: new Map(),
-        state: 'reserved',
-      });
-    }
-
     const releaseReservedClaims = async () => {
       await Promise.allSettled(Array.from(claimsByUid.values(), (pageClaim) => (
         pageClaim.state === 'reserved'
@@ -423,6 +387,47 @@ export async function runDailyDigest(
           : Promise.resolve()
       )));
     };
+
+    try {
+      for (const subscription of subscriptions) {
+        const cardNames = readSubscriptionCardNames(subscription.cardNames);
+        if (subscription.emailDailyEnabled !== true
+          || !cardNames
+          || cardNames.length === 0) {
+          continue;
+        }
+
+        const recipient = await deps.recipients.getVerifiedEmail(subscription.uid);
+        if (!recipient) {
+          continue;
+        }
+
+        const claimId = deps.createClaimId();
+        const claim = await deps.deliveryState.claim(
+          subscription.uid,
+          claimId,
+          executionTime,
+          windowEnd,
+          runDate,
+        );
+        if (!claim) {
+          continue;
+        }
+
+        claimsByUid.set(subscription.uid, {
+          subscription,
+          cardNames,
+          recipient,
+          claimId,
+          claim,
+          eventsByListingId: new Map(),
+          state: 'reserved',
+        });
+      }
+    } catch (error) {
+      await releaseReservedClaims();
+      throw error;
+    }
 
     if (claimsByUid.size > 0) {
       let eventCursor = Math.min(...Array.from(

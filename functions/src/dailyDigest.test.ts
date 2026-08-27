@@ -331,6 +331,24 @@ describe('runDailyDigest', () => {
     expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
   });
 
+  it('releases an earlier reservation when a later recipient lookup fails', async () => {
+    deps = createDependencies([
+      subscription('buyer-1'),
+      subscription('buyer-2'),
+    ]);
+    vi.mocked(deps.recipients.getVerifiedEmail).mockImplementation(async (uid) => {
+      if (uid === 'buyer-2') throw new Error('recipient lookup unavailable');
+      return 'buyer-1@example.com';
+    });
+
+    await expect(runDailyDigest(now, deps)).rejects.toThrow('recipient lookup unavailable');
+
+    expect(deps.deliveryState.release).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.release).toHaveBeenCalledWith('buyer-1', 'claim-1');
+    expect(deps.events.findNewInSequenceRange).not.toHaveBeenCalled();
+    expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
+  });
+
   it('keeps the reservation when Gmail failure may be ambiguous', async () => {
     vi.mocked(deps.gmail.sendDigest).mockRejectedValue(new Error('mail unavailable'));
 
