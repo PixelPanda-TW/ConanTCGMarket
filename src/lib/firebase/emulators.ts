@@ -4,19 +4,19 @@ import { connectFunctionsEmulator, type Functions } from 'firebase/functions';
 import { connectStorageEmulator, type FirebaseStorage } from 'firebase/storage';
 
 export interface FirebaseEmulatorConfig {
-  host: '127.0.0.1' | 'localhost' | '::1';
+  host: '127.0.0.1' | 'localhost';
   authPort: number;
   firestorePort: number;
   storagePort: number;
   functionsPort: number;
 }
 
-const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+const loopbackHosts = new Set(['127.0.0.1', 'localhost']);
 
-function port(env: Record<string, string | boolean | undefined>, key: string): number {
+function port(env: Record<string, string | boolean | undefined>, key: string, expected: number): number {
   const value = Number(env[key]);
 
-  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+  if (!Number.isInteger(value) || value !== expected) {
     throw new Error(`Unsafe Firebase Emulator configuration: ${key}`);
   }
 
@@ -37,10 +37,10 @@ export function readFirebaseEmulatorEnv(
 
   return {
     host: host as FirebaseEmulatorConfig['host'],
-    authPort: port(env, 'VITE_FIREBASE_AUTH_EMULATOR_PORT'),
-    firestorePort: port(env, 'VITE_FIREBASE_FIRESTORE_EMULATOR_PORT'),
-    storagePort: port(env, 'VITE_FIREBASE_STORAGE_EMULATOR_PORT'),
-    functionsPort: port(env, 'VITE_FIREBASE_FUNCTIONS_EMULATOR_PORT'),
+    authPort: port(env, 'VITE_FIREBASE_AUTH_EMULATOR_PORT', 9099),
+    firestorePort: port(env, 'VITE_FIREBASE_FIRESTORE_EMULATOR_PORT', 8080),
+    storagePort: port(env, 'VITE_FIREBASE_STORAGE_EMULATOR_PORT', 9199),
+    functionsPort: port(env, 'VITE_FIREBASE_FUNCTIONS_EMULATOR_PORT', 5001),
   };
 }
 
