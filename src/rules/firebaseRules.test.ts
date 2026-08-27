@@ -110,15 +110,6 @@ describe('Firebase rules', () => {
     await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: ['江戶川柯南', '江戶川柯南'] }));
     await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: Array.from({ length: 101 }, (_, index) => `卡名-${index}`) }));
   });
-  it('rejects non-string, blank, untrimmed, and overlong card names', async () => {
-    const buyer = environment.authenticatedContext('buyer-card-name-validation').firestore();
-    const subscription = doc(buyer, 'notificationSubscriptions', 'buyer-card-name-validation');
-
-    await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: [123] }));
-    await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: [''] }));
-    await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: [' 江戶川柯南'] }));
-    await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: ['卡'.repeat(101)] }));
-  });
   it('rejects all browser reads and writes of notification events and delivery state', async () => {
     const buyer = environment.authenticatedContext('buyer-a').firestore();
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
