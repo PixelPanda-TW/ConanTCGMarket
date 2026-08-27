@@ -82,13 +82,20 @@ function createDependencies(
       }),
     },
     events: {
-      findNewInSequenceRange: vi.fn(async (afterSequence, throughSequence, limit) => events
-        .filter((event) => (
+      findNewInSequenceRange: vi.fn(async (afterSequence, throughSequence, limit) => {
+        const eventPage = events
+          .filter((event) => (
           event.capturedSequence > afterSequence
           && event.capturedSequence <= throughSequence
-        ))
-        .sort((left, right) => left.capturedSequence - right.capturedSequence)
-        .slice(0, limit)),
+          ))
+          .sort((left, right) => left.capturedSequence - right.capturedSequence)
+          .slice(0, limit);
+        return {
+          events: eventPage,
+          nextAfterSequence: eventPage.at(-1)?.capturedSequence ?? afterSequence,
+          hasMore: eventPage.length === limit,
+        };
+      }),
     },
     deliveryState: {
       claim: vi.fn(async (uid, claimId, reservedAt, windowEnd, runDate) => {
@@ -269,6 +276,26 @@ describe('runDailyDigest', () => {
     expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
+  it('keeps width, Unicode composition, and whitespace-different names distinct end to end', async () => {
+    const exactName = 'ＣＯＮＡＮ  café';
+    deps = createDependencies(
+      [subscription('buyer-1', [exactName])],
+      [
+        listingEvent('listing-width', 'CONAN  café', undefined, undefined, 1),
+        listingEvent('listing-unicode', 'ＣＯＮＡＮ  cafe\u0301', undefined, undefined, 2),
+        listingEvent('listing-whitespace', 'ＣＯＮＡＮ café', undefined, undefined, 3),
+        listingEvent('listing-exact', exactName, undefined, undefined, 4),
+      ],
+    );
+
+    await runDailyDigest(now, deps);
+
+    expect(vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0].groups).toEqual([{
+      cardName: exactName,
+      listings: [expect.objectContaining({ listingId: 'listing-exact' })],
+    }]);
+  });
+
   it('deduplicates one Listing matched by overlapping subscribed names', async () => {
     deps = createDependencies(
       [subscription('buyer-1', ['柯南', '江戶川柯南'])],
@@ -313,6 +340,39 @@ describe('runDailyDigest', () => {
       .groups.flatMap((group) => group.listings) ?? [];
     expect(listings).toHaveLength(251);
     expect(new Set(listings.map((event) => event.listingId)).size).toBe(251);
+  });
+
+  it('advances across a full raw invalid page before delivering the next generic event once', async () => {
+    const validEvent = listingEvent(
+      'listing-after-invalid-history',
+      '江戶川柯南',
+      undefined,
+      undefined,
+      251,
+    );
+    deps = createDependencies([subscription('buyer-1')], [validEvent]);
+    deps.nextWatermark.mockResolvedValue(251);
+    vi.mocked(deps.events.findNewInSequenceRange)
+      .mockResolvedValueOnce({
+        events: [],
+        nextAfterSequence: 250,
+        hasMore: true,
+      } as never)
+      .mockResolvedValueOnce({
+        events: [validEvent],
+        nextAfterSequence: 251,
+        hasMore: false,
+      } as never);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.events.findNewInSequenceRange).toHaveBeenNthCalledWith(1, 0, 251, 250);
+    expect(deps.events.findNewInSequenceRange).toHaveBeenNthCalledWith(2, 250, 251, 250);
+    const delivered = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0]
+      .groups.flatMap((group) => group.listings);
+    expect(delivered).toEqual([
+      expect.objectContaining({ listingId: 'listing-after-invalid-history' }),
+    ]);
   });
 
   it('releases every reserved claim when a shared event-page read fails', async () => {
@@ -443,6 +503,53 @@ describe('runDailyDigest', () => {
       expect.any(Number),
       '2026-08-26',
     );
+  });
+
+  it('counts an acquired no-match claim toward the cap while skipped and non-acquired recipients do not', async () => {
+    deps = createDependencies([
+      subscription('01-empty', []),
+      subscription('02-missing'),
+      subscription('03-not-acquired'),
+      subscription('04-capped-no-match'),
+      subscription('05-next-run'),
+    ], []);
+    deps.recipientCap = 1;
+    vi.mocked(deps.recipients.getVerifiedEmail).mockImplementation(async (uid) => (
+      uid === '02-missing' ? null : `${uid}@example.com`
+    ));
+    vi.mocked(deps.deliveryState.claim).mockResolvedValueOnce(null);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledWith(
+      '04-capped-no-match',
+      'claim-2',
+    );
+    expect(deps.recipients.getVerifiedEmail).not.toHaveBeenCalledWith('05-next-run');
+
+    await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
+
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('05-next-run');
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('finishes the rest of an acquired cap page after one Gmail send becomes ambiguous', async () => {
+    deps = createDependencies([
+      subscription('buyer-1'),
+      subscription('buyer-2'),
+    ]);
+    deps.recipientCap = 2;
+    vi.mocked(deps.gmail.sendDigest)
+      .mockRejectedValueOnce(new Error('ambiguous Gmail failure'))
+      .mockResolvedValueOnce(undefined);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
+    expect(deps.deliveryState.complete).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.complete).toHaveBeenCalledWith('buyer-2', 'claim-2');
+    expect(deps.deliveryState.release).not.toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
   it('does not send or advance when no new listing event exists', async () => {

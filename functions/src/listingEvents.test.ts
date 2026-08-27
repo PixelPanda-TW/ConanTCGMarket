@@ -161,6 +161,24 @@ describe('captureListingEvent', () => {
     expect(created[0]).not.toHaveProperty('nextAttemptAt');
   });
 
+  it('captures the Listing card name without normalization or whitespace rewriting', async () => {
+    const rawCardName = ' ＣＯＮＡＮ  cafe\u0301 ';
+    const deps = createDependencies();
+
+    await captureListingEvent(
+      {
+        params: { listingId: 'listing-raw-name' },
+        data: { ...listing, cardName: rawCardName },
+      },
+      deps,
+      { discordEnabled: false },
+    );
+
+    expect(deps.events.create).toHaveBeenCalledWith(expect.objectContaining({
+      cardName: rawCardName,
+    }));
+  });
+
   it('does not swallow non-duplicate persistence failures', async () => {
     const deps = createDependencies({
       create: vi.fn().mockRejectedValue(new Error('Firestore unavailable')),

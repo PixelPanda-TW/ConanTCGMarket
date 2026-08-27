@@ -31,7 +31,7 @@ import {
   handleDailyDigestOperatorRequest,
   type DailyDigestOperatorDependencies,
 } from './dailyDigestOperator.js';
-import type { ListingEvent } from './domain.js';
+import { readListingEventPage } from './domain.js';
 import {
   createGmailClient,
   createRecipientDirectory,
@@ -169,7 +169,11 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         .limit(limit)
         .get();
 
-      return snapshot.docs.map((document) => document.data() as ListingEvent);
+      return readListingEventPage(
+        snapshot.docs.map((document) => document.data()),
+        afterSequence,
+        limit,
+      );
     },
   },
   deliveryState: {

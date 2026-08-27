@@ -1,6 +1,11 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
-import { toListingEvent, type ListingSnapshot } from './domain.js';
+import {
+  readListingEvent,
+  readListingEventPage,
+  toListingEvent,
+  type ListingSnapshot,
+} from './domain.js';
 
 const listing: ListingSnapshot = {
   cardType: 'character',
@@ -17,7 +22,7 @@ const expectedEvent = {
   id: 'listing-1',
   listingId: 'listing-1',
   cardType: 'character',
-  cardName: '諸伏景光',
+  cardName: ' 諸伏景光 ',
   rarity: 'SR',
   cardId: 'P001',
   listingPrice: 120,
@@ -62,6 +67,18 @@ describe('toListingEvent', () => {
       ...expectedEvent,
       discordStatus: 'disabled',
     });
+  });
+
+  it.each([
+    ['width', 'ＣＯＮＡＮ'],
+    ['Unicode composition', 'cafe\u0301'],
+    ['internal whitespace', '江戶川  柯南'],
+    ['outer whitespace', ' 江戶川柯南 '],
+  ])('preserves a raw %s-different Listing card name', (_label, cardName) => {
+    expect(toListingEvent('listing-raw', {
+      ...listing,
+      cardName,
+    }).cardName).toBe(cardName);
   });
 
   it('rejects a listing without a card type', () => {
@@ -126,6 +143,7 @@ describe('toListingEvent', () => {
     ['non-string card ID', { ...listing, cardId: 1096 }],
     ['oversized card ID', { ...listing, cardId: 'C'.repeat(101) }],
     ['non-string card name', { ...listing, cardName: 42 }],
+    ['blank card name', { ...listing, cardName: ' \t\n ' }],
     ['oversized card name', { ...listing, cardName: '角'.repeat(101) }],
     ['non-string rarity', { ...listing, rarity: false }],
     ['oversized rarity', { ...listing, rarity: 'R'.repeat(51) }],
@@ -149,5 +167,51 @@ describe('toListingEvent', () => {
   ])('rejects an %s before creating an event', (_label, listingId) => {
     expect(() => toListingEvent(listingId, listing))
       .toThrow(/Invalid Listing snapshot/);
+  });
+});
+
+describe('stored Listing event decoding', () => {
+  const storedEvent = {
+    ...expectedEvent,
+    cardName: ' ＣＯＮＡＮ  cafe\u0301 ',
+    capturedAt: Timestamp.fromDate(new Date('2026-08-25T01:01:00.000Z')),
+    capturedSequence: 3,
+  };
+
+  it('runtime-decodes a complete generic event without rewriting its raw card name', () => {
+    expect(readListingEvent(storedEvent)).toStrictEqual(storedEvent);
+  });
+
+  it.each([
+    ['legacy character event', {
+      ...storedEvent,
+      cardName: undefined,
+      characterKey: 'conan',
+      characterName: '江戶川柯南',
+    }],
+    ['malformed generic event', { ...storedEvent, remainingQuantity: '2' }],
+  ])('skips a %s', (_label, value) => {
+    expect(readListingEvent(value)).toBeNull();
+  });
+
+  it('keeps a raw pagination cursor when a full event page contains only invalid history', () => {
+    const invalidPage = readListingEventPage([
+      { capturedSequence: 1, characterName: '舊角色一' },
+      { capturedSequence: 2, characterName: '舊角色二' },
+    ], 0, 2);
+    const validPage = readListingEventPage([
+      storedEvent,
+    ], invalidPage.nextAfterSequence, 2);
+
+    expect(invalidPage).toStrictEqual({
+      events: [],
+      nextAfterSequence: 2,
+      hasMore: true,
+    });
+    expect(validPage).toStrictEqual({
+      events: [storedEvent],
+      nextAfterSequence: 3,
+      hasMore: false,
+    });
   });
 });

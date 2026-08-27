@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import type {
   GmailClient,
   ListingEvent,
+  ListingEventPage,
   RecipientDirectory,
 } from './domain.js';
 import {
@@ -40,7 +41,7 @@ export interface DailyDigestEventStore {
     afterSequence: number,
     throughSequence: number,
     limit: number,
-  ): Promise<ListingEvent[]>;
+  ): Promise<ListingEventPage>;
 }
 
 export interface DailyDigestDeliveryState {
@@ -359,10 +360,10 @@ export async function runDailyDigest(
   const run = await deps.runs.getOrCreate(runDate);
   const windowEnd = run.windowEndSequence;
   let scanCursor = await deps.batchState.getCursor();
-  let attemptedRecipients = 0;
+  let claimedRecipients = 0;
 
-  while (attemptedRecipients < recipientCap) {
-    const pageSize = recipientCap - attemptedRecipients;
+  while (claimedRecipients < recipientCap) {
+    const pageSize = recipientCap - claimedRecipients;
     const subscriptions = await deps.subscriptions.listEmailDailyEnabled(scanCursor, pageSize);
     if (subscriptions.length === 0) {
       await deps.batchState.advance(null);
@@ -413,6 +414,7 @@ export async function runDailyDigest(
         if (!claim) {
           continue;
         }
+        claimedRecipients += 1;
 
         claimsByUid.set(subscription.uid, {
           subscription,
@@ -442,7 +444,7 @@ export async function runDailyDigest(
             windowEnd,
             DAILY_EVENT_PAGE_SIZE,
           );
-          for (const event of eventPage) {
+          for (const event of eventPage.events) {
             for (const pageClaim of claimsByUid.values()) {
               if (event.capturedSequence > pageClaim.claim.afterSequence
                 && event.capturedSequence <= pageClaim.claim.throughSequence
@@ -452,12 +454,11 @@ export async function runDailyDigest(
             }
           }
 
-          if (eventPage.length < DAILY_EVENT_PAGE_SIZE) break;
-          const nextEventCursor = eventPage[eventPage.length - 1]?.capturedSequence;
-          if (nextEventCursor === undefined || nextEventCursor <= eventCursor) {
+          if (!eventPage.hasMore) break;
+          if (eventPage.nextAfterSequence <= eventCursor) {
             throw new Error('Daily digest event pagination did not advance.');
           }
-          eventCursor = nextEventCursor;
+          eventCursor = eventPage.nextAfterSequence;
         }
       } catch (error) {
         await releaseReservedClaims();
@@ -492,13 +493,11 @@ export async function runDailyDigest(
             );
             if (maySend) {
               pageClaim.state = 'sending';
-              attemptedRecipients += 1;
               try {
                 await deps.gmail.sendDigest(message);
               } catch {
                 scanCursor = subscription.uid;
                 await deps.batchState.advance(scanCursor);
-                if (attemptedRecipients >= recipientCap) return;
                 continue;
               }
 
@@ -509,12 +508,13 @@ export async function runDailyDigest(
         }
         scanCursor = subscription.uid;
         await deps.batchState.advance(scanCursor);
-        if (attemptedRecipients >= recipientCap) return;
       }
     } catch (error) {
       await releaseReservedClaims();
       throw error;
     }
+
+    if (claimedRecipients >= recipientCap) return;
 
     if (subscriptions.length < pageSize) {
       await deps.batchState.advance(null);

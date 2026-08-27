@@ -38,6 +38,12 @@ export interface ListingEvent {
   nextAttemptAt?: Timestamp;
 }
 
+export interface ListingEventPage {
+  events: ListingEvent[];
+  nextAfterSequence: number;
+  hasMore: boolean;
+}
+
 export type ListingEventDraft = Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>;
 
 export interface DigestGroup {
@@ -101,6 +107,18 @@ function readMetadata(
   return normalized;
 }
 
+function readRawCardName(value: unknown): string {
+  if (typeof value !== 'string') {
+    return invalidSnapshot('cardName must be a string.');
+  }
+  if (value.trim().length === 0 || value.length > MAX_CARD_NAME_LENGTH) {
+    return invalidSnapshot(
+      `cardName must contain 1 to ${MAX_CARD_NAME_LENGTH} characters.`,
+    );
+  }
+  return value;
+}
+
 function readCreatedAt(value: unknown): Timestamp {
   if (value instanceof Timestamp) {
     return value;
@@ -109,6 +127,139 @@ function readCreatedAt(value: unknown): Timestamp {
     return invalidSnapshot('createdAt must be a valid Firestore Timestamp or Date.');
   }
   return Timestamp.fromDate(value);
+}
+
+const LISTING_EVENT_FIELDS = new Set([
+  'id',
+  'listingId',
+  'cardType',
+  'cardName',
+  'cardId',
+  'rarity',
+  'listingPrice',
+  'remainingQuantity',
+  'createdAt',
+  'capturedAt',
+  'capturedSequence',
+  'discordStatus',
+  'discordSentAt',
+  'discordClaimId',
+  'discordLeaseUntil',
+  'attempts',
+  'nextAttemptAt',
+]);
+
+function isStoredString(value: unknown, maximumLength: number): value is string {
+  return typeof value === 'string'
+    && value.trim().length > 0
+    && value.length <= maximumLength;
+}
+
+export function readListingEvent(value: unknown): ListingEvent | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const data = value as Record<string, unknown>;
+  if (Object.keys(data).some((field) => !LISTING_EVENT_FIELDS.has(field))
+    || !isStoredString(data.id, MAX_LISTING_ID_LENGTH)
+    || !isStoredString(data.listingId, MAX_LISTING_ID_LENGTH)
+    || data.id !== data.listingId
+    || (data.cardType !== 'character'
+      && data.cardType !== 'event'
+      && data.cardType !== 'case'
+      && data.cardType !== 'partner')
+    || !isStoredString(data.cardName, MAX_CARD_NAME_LENGTH)
+    || !isStoredString(data.cardId, MAX_CARD_ID_LENGTH)
+    || !isStoredString(data.rarity, MAX_RARITY_LENGTH)
+    || typeof data.listingPrice !== 'number'
+    || !Number.isFinite(data.listingPrice)
+    || data.listingPrice <= 0
+    || data.listingPrice > MAX_LISTING_PRICE
+    || typeof data.remainingQuantity !== 'number'
+    || !Number.isInteger(data.remainingQuantity)
+    || data.remainingQuantity <= 0
+    || data.remainingQuantity > MAX_REMAINING_QUANTITY
+    || !(data.createdAt instanceof Timestamp)
+    || !(data.capturedAt instanceof Timestamp)
+    || typeof data.capturedSequence !== 'number'
+    || !Number.isSafeInteger(data.capturedSequence)
+    || data.capturedSequence <= 0
+    || (data.discordStatus !== 'disabled'
+      && data.discordStatus !== 'pending'
+      && data.discordStatus !== 'sent'
+      && data.discordStatus !== 'failed')
+    || typeof data.attempts !== 'number'
+    || !Number.isSafeInteger(data.attempts)
+    || data.attempts < 0
+    || (data.discordSentAt !== undefined && !(data.discordSentAt instanceof Timestamp))
+    || (data.discordClaimId !== undefined
+      && !isStoredString(data.discordClaimId, MAX_LISTING_ID_LENGTH))
+    || (data.discordLeaseUntil !== undefined
+      && !(data.discordLeaseUntil instanceof Timestamp))
+    || (data.nextAttemptAt !== undefined && !(data.nextAttemptAt instanceof Timestamp))) {
+    return null;
+  }
+
+  return {
+    id: data.id,
+    listingId: data.listingId,
+    cardType: data.cardType,
+    cardName: data.cardName,
+    cardId: data.cardId,
+    rarity: data.rarity,
+    listingPrice: data.listingPrice,
+    remainingQuantity: data.remainingQuantity,
+    createdAt: data.createdAt,
+    capturedAt: data.capturedAt,
+    capturedSequence: data.capturedSequence,
+    discordStatus: data.discordStatus,
+    ...(data.discordSentAt === undefined ? {} : { discordSentAt: data.discordSentAt }),
+    ...(data.discordClaimId === undefined ? {} : { discordClaimId: data.discordClaimId }),
+    ...(data.discordLeaseUntil === undefined
+      ? {}
+      : { discordLeaseUntil: data.discordLeaseUntil }),
+    attempts: data.attempts,
+    ...(data.nextAttemptAt === undefined ? {} : { nextAttemptAt: data.nextAttemptAt }),
+  };
+}
+
+export function readListingEventPage(
+  values: readonly unknown[],
+  afterSequence: number,
+  limit: number,
+): ListingEventPage {
+  if (!Number.isSafeInteger(afterSequence) || afterSequence < 0
+    || !Number.isSafeInteger(limit) || limit <= 0
+    || values.length > limit) {
+    throw new Error('Daily digest event page arguments are invalid.');
+  }
+
+  if (values.length === 0) {
+    return { events: [], nextAfterSequence: afterSequence, hasMore: false };
+  }
+
+  const lastValue = values[values.length - 1];
+  const nextAfterSequence = typeof lastValue === 'object'
+    && lastValue !== null
+    && !Array.isArray(lastValue)
+    ? (lastValue as Record<string, unknown>).capturedSequence
+    : undefined;
+  if (typeof nextAfterSequence !== 'number'
+    || !Number.isSafeInteger(nextAfterSequence)
+    || nextAfterSequence <= afterSequence) {
+    throw new Error('Daily digest raw event pagination did not advance.');
+  }
+
+  const events = values.flatMap((item) => {
+    const event = readListingEvent(item);
+    return event && event.capturedSequence > afterSequence ? [event] : [];
+  });
+  return {
+    events,
+    nextAfterSequence,
+    hasMore: values.length === limit,
+  };
 }
 
 export function toListingEvent(
@@ -137,7 +288,7 @@ export function toListingEvent(
     return invalidSnapshot('cardType must be character, event, case, or partner.');
   }
 
-  const cardName = readMetadata(data.cardName, 'cardName', MAX_CARD_NAME_LENGTH);
+  const cardName = readRawCardName(data.cardName);
   const rarity = readMetadata(data.rarity, 'rarity', MAX_RARITY_LENGTH);
   const cardId = readMetadata(data.cardId, 'cardId', MAX_CARD_ID_LENGTH);
 
