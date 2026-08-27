@@ -16,8 +16,8 @@ vi.mock('./AuthProvider', () => ({
 
 afterEach(cleanup);
 
-it('links authenticated buyers to notification settings', () => {
+it('links authenticated buyers to their subscriptions', () => {
   render(<AuthStatus />);
 
-  expect(screen.getByRole('link', { name: '通知設定' }).getAttribute('href')).toBe('#/notifications');
+  expect(screen.getByRole('link', { name: '我的訂閱' }).getAttribute('href')).toBe('#/notifications');
 });
