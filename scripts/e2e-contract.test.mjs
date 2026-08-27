@@ -30,6 +30,20 @@ function evaluateConfig(path, environment = {}) {
   return JSON.parse(result.stdout);
 }
 
+function listProject(project) {
+  const result = spawnSync(process.execPath, [
+    './node_modules/@playwright/test/cli.js', 'test', '--config', 'playwright.config.ts', '--project', project, '--list',
+  ], {
+    cwd: new URL('.', rootUrl),
+    encoding: 'utf8',
+    env: process.env,
+  });
+  const output = `${result.stdout}${result.stderr}`;
+
+  assert.ok(result.status === 0 || /No tests found/.test(output), output);
+  return output;
+}
+
 test('keeps the approved reliability and browser matrix', () => {
   const config = evaluateConfig('playwright.config.ts');
 
@@ -53,7 +67,7 @@ test('keeps the approved reliability and browser matrix', () => {
       video: 'retain-on-failure',
     },
     projects: [
-      { name: 'chromium', testIgnore: ['**/mobile-forms.spec.ts'], testMatch: null, browserName: 'chromium', isMobile: false },
+      { name: 'chromium', testIgnore: ['**/smoke.spec.ts', '**/support/**/*.spec.ts', '**/mobile-forms.spec.ts'], testMatch: null, browserName: 'chromium', isMobile: false },
       { name: 'webkit-iphone', testIgnore: null, testMatch: ['**/mobile-forms.spec.ts'], browserName: 'webkit', isMobile: true },
     ],
     webServer: {
@@ -92,6 +106,14 @@ test('keeps the production smoke suite isolated and read-only', () => {
   });
 });
 
+test('Playwright discovery excludes support and smoke specs from browser projects', () => {
+  for (const project of ['chromium', 'webkit-iphone']) {
+    const output = listProject(project);
+    assert.doesNotMatch(output, /support\/.*\.spec\.ts/);
+    assert.doesNotMatch(output, /smoke\.spec\.ts/);
+  }
+});
+
 test('uses one retry and preserves failure artifacts in CI', () => {
   const fullConfig = evaluateConfig('playwright.config.ts', { CI: '1' });
   const smokeConfig = evaluateConfig('playwright.smoke.config.ts', {
@@ -100,6 +122,7 @@ test('uses one retry and preserves failure artifacts in CI', () => {
   });
 
   for (const config of [fullConfig, smokeConfig]) {
+    assert.equal(config.forbidOnly, true);
     assert.equal(config.retries, 1);
     assert.equal(config.failOnFlakyTests, true);
     assert.equal(config.workers, 1);

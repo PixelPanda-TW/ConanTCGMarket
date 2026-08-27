@@ -22,7 +22,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: ['**/mobile-forms.spec.ts'],
+      testIgnore: ['**/smoke.spec.ts', '**/support/**/*.spec.ts', '**/mobile-forms.spec.ts'],
     },
     {
       name: 'webkit-iphone',
