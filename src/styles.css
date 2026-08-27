@@ -1130,6 +1130,13 @@ textarea:focus-visible {
   transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
 }
 
+.card-name-subscription-control button:focus-visible,
+.subscription-management-link:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
 .subscription-coverage {
   margin: 0;
   color: hsl(var(--foreground));
@@ -1197,10 +1204,6 @@ textarea:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-}
-
-.subscription-feedback:empty {
-  display: none;
 }
 
 .notification-settings-page {

@@ -24,13 +24,26 @@ export function CardNameSubscriptionControl({
   const [emailDeliverySelected, setEmailDeliverySelected] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [showSignInGuidance, setShowSignInGuidance] = useState(false);
   const activeContextRef = useRef(0);
+  const actionButtonRef = useRef<HTMLButtonElement>(null);
   const subscriptionContext = isKnownCardName && user
     ? `${user.uid}\u0000${cardName}`
     : null;
+  const renderedSubscriptionContextRef = useRef(subscriptionContext);
+  renderedSubscriptionContextRef.current = subscriptionContext;
   const isSubscriptionLoading = subscriptionContext !== null
     && loadedSubscriptionContext !== subscriptionContext;
+  const hasLoadedSubscriptionContext = loadedSubscriptionContext === subscriptionContext;
+  const contextualSubscription = hasLoadedSubscriptionContext ? subscription : null;
+  const contextualLoadError = hasLoadedSubscriptionContext ? loadError : null;
+  const contextualSaveError = subscriptionContext && hasLoadedSubscriptionContext ? saveError : null;
+  const contextualSaveSuccess = subscriptionContext && hasLoadedSubscriptionContext ? saveSuccess : null;
+
+  useEffect(() => {
+    if (contextualSaveSuccess) actionButtonRef.current?.focus();
+  }, [contextualSaveSuccess]);
 
   useEffect(() => {
     const requestContext = activeContextRef.current + 1;
@@ -41,6 +54,7 @@ export function CardNameSubscriptionControl({
     setEmailDeliverySelected(false);
     setLoadError(null);
     setSaveError(null);
+    setSaveSuccess(null);
     setShowSignInGuidance(false);
     setLoadedSubscriptionContext(null);
 
@@ -48,15 +62,26 @@ export function CardNameSubscriptionControl({
 
     void getNotificationSubscription(user.uid)
       .then((loadedSubscription) => {
-        if (activeContextRef.current === requestContext) setSubscription(loadedSubscription);
+        if (
+          activeContextRef.current === requestContext
+          && renderedSubscriptionContextRef.current === subscriptionContext
+        ) {
+          setSubscription(loadedSubscription);
+        }
       })
       .catch(() => {
-        if (activeContextRef.current === requestContext) {
+        if (
+          activeContextRef.current === requestContext
+          && renderedSubscriptionContextRef.current === subscriptionContext
+        ) {
           setLoadError('無法讀取卡名通知，請稍後再試。');
         }
       })
       .finally(() => {
-        if (activeContextRef.current === requestContext) {
+        if (
+          activeContextRef.current === requestContext
+          && renderedSubscriptionContextRef.current === subscriptionContext
+        ) {
           setLoadedSubscriptionContext(subscriptionContext);
         }
       });
@@ -68,8 +93,8 @@ export function CardNameSubscriptionControl({
 
   if (!isKnownCardName) return null;
 
-  const exactSubscription = subscription?.cardNames.includes(cardName) ?? false;
-  const coveringName = findCoveringSubscription(subscription?.cardNames ?? [], cardName);
+  const exactSubscription = contextualSubscription?.cardNames.includes(cardName) ?? false;
+  const coveringName = findCoveringSubscription(contextualSubscription?.cardNames ?? [], cardName);
   const coveredByAnotherName = coveringName !== undefined && coveringName !== cardName;
 
   async function toggleSubscription() {
@@ -84,18 +109,27 @@ export function CardNameSubscriptionControl({
     }
 
     await persistSubscription(
-      (subscription?.cardNames ?? []).filter((name) => name !== cardName),
-      subscription?.emailDailyEnabled ?? false,
+      (contextualSubscription?.cardNames ?? []).filter((name) => name !== cardName),
+      contextualSubscription?.emailDailyEnabled ?? false,
+      `已取消訂閱「${cardName}」。`,
     );
   }
 
   async function confirmSubscription() {
     if (!user || !emailDeliverySelected) return;
 
-    await persistSubscription([...(subscription?.cardNames ?? []), cardName], true);
+    await persistSubscription(
+      [...(contextualSubscription?.cardNames ?? []), cardName],
+      true,
+      `已訂閱「${cardName}」的每日摘要通知。`,
+    );
   }
 
-  async function persistSubscription(cardNames: string[], emailDailyEnabled: boolean) {
+  async function persistSubscription(
+    cardNames: string[],
+    emailDailyEnabled: boolean,
+    successMessage: string,
+  ) {
     if (!user) return;
 
     const nextSubscription: NotificationSubscription = {
@@ -108,18 +142,31 @@ export function CardNameSubscriptionControl({
 
     setIsSaving(true);
     setSaveError(null);
+    setSaveSuccess(null);
     try {
       await saveNotificationSubscription(nextSubscription);
-      if (activeContextRef.current === requestContext) {
+      if (
+        activeContextRef.current === requestContext
+        && renderedSubscriptionContextRef.current === subscriptionContext
+      ) {
         setSubscription(nextSubscription);
         setIsConfirmingSubscription(false);
+        setSaveSuccess(successMessage);
       }
     } catch {
-      if (activeContextRef.current === requestContext) {
+      if (
+        activeContextRef.current === requestContext
+        && renderedSubscriptionContextRef.current === subscriptionContext
+      ) {
         setSaveError('無法更新卡名通知，請稍後再試。');
       }
     } finally {
-      if (activeContextRef.current === requestContext) setIsSaving(false);
+      if (
+        activeContextRef.current === requestContext
+        && renderedSubscriptionContextRef.current === subscriptionContext
+      ) {
+        setIsSaving(false);
+      }
     }
   }
 
@@ -127,8 +174,8 @@ export function CardNameSubscriptionControl({
     return <p className="subscription-status" aria-live="polite">卡名通知載入中</p>;
   }
 
-  if (loadError) {
-    return <p className="field-error subscription-status" role="alert">{loadError}</p>;
+  if (contextualLoadError) {
+    return <p className="field-error subscription-status" role="alert">{contextualLoadError}</p>;
   }
 
   if (coveredByAnotherName) {
@@ -144,7 +191,7 @@ export function CardNameSubscriptionControl({
 
   return (
     <div className="card-name-subscription-control">
-      <button type="button" onClick={toggleSubscription} disabled={isSaving}>
+      <button ref={actionButtonRef} type="button" onClick={toggleSubscription} disabled={isSaving}>
         {isSaving && exactSubscription
           ? '儲存中'
           : exactSubscription ? `取消訂閱${cardName}` : `訂閱${cardName}`}
@@ -190,8 +237,9 @@ export function CardNameSubscriptionControl({
           <button type="button" onClick={signIn}>使用 Google 登入</button>
         </div>
       )}
-      <div className="subscription-feedback" aria-live="polite">
-        {saveError && <p className="field-error" role="alert">{saveError}</p>}
+      <div className="subscription-feedback" aria-live="polite" aria-atomic="true">
+        {contextualSaveSuccess && <p className="save-success">{contextualSaveSuccess}</p>}
+        {contextualSaveError && <p className="field-error" role="alert">{contextualSaveError}</p>}
       </div>
     </div>
   );

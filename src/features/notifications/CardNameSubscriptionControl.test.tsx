@@ -2,6 +2,9 @@
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { Profiler } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationSubscription } from '../../domain/models';
@@ -46,6 +49,14 @@ describe('CardNameSubscriptionControl', () => {
     authState.current.isLoading = false;
     subscriptions.getNotificationSubscription.mockResolvedValue(null);
     subscriptions.saveNotificationSubscription.mockResolvedValue(undefined);
+  });
+
+  it('uses the theme ring and background separation for subscription focus indicators', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+
+    expect(styles).toMatch(/\.card-name-subscription-control button:focus-visible,\s*\.subscription-management-link:focus-visible\s*\{[^}]*outline: 3px solid hsl\(var\(--ring\)\);/s);
+    expect(styles).toMatch(/\.card-name-subscription-control button:focus-visible,\s*\.subscription-management-link:focus-visible\s*\{[^}]*box-shadow: 0 0 0 2px hsl\(var\(--background\)\);/s);
+    expect(styles).not.toMatch(/\.subscription-feedback:empty\s*\{[^}]*display:\s*none;/s);
   });
 
   it('offers subscription for a complete known Card Master name', async () => {
@@ -133,6 +144,33 @@ describe('CardNameSubscriptionControl', () => {
     expect(await screen.findByRole('button', { name: '訂閱江戶川柯南' })).toBeTruthy();
   });
 
+  it('announces successful subscription and returns focus to the stable unsubscribe action', async () => {
+    const user = userEvent.setup();
+    render(<CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />);
+
+    await user.click(await screen.findByRole('button', { name: '訂閱江戶川柯南' }));
+    await user.click(screen.getByRole('checkbox', { name: '以 Google 登入信箱接收每日摘要' }));
+    await user.click(screen.getByRole('button', { name: '確認訂閱' }));
+
+    const success = await screen.findByText('已訂閱「江戶川柯南」的每日摘要通知。');
+    expect(success.parentElement?.getAttribute('aria-live')).toBe('polite');
+    const unsubscribe = screen.getByRole('button', { name: '取消訂閱江戶川柯南' });
+    expect(document.activeElement).toBe(unsubscribe);
+  });
+
+  it('announces successful unsubscription and keeps focus on the stable subscribe action', async () => {
+    subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription(['江戶川柯南']));
+    const user = userEvent.setup();
+    render(<CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />);
+
+    await user.click(await screen.findByRole('button', { name: '取消訂閱江戶川柯南' }));
+
+    const success = await screen.findByText('已取消訂閱「江戶川柯南」。');
+    expect(success.parentElement?.getAttribute('aria-live')).toBe('polite');
+    const subscribe = screen.getByRole('button', { name: '訂閱江戶川柯南' });
+    expect(document.activeElement).toBe(subscribe);
+  });
+
   it('shows coverage management instead of a misleading subscribe action', async () => {
     subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription(['江戶川柯南']));
     render(<CardNameSubscriptionControl cardName="江戶川柯南＆灰原哀" isKnownCardName />);
@@ -140,6 +178,36 @@ describe('CardNameSubscriptionControl', () => {
     expect(await screen.findByText('已由「江戶川柯南」訂閱涵蓋')).toBeTruthy();
     expect(screen.getByRole('link', { name: '管理我的訂閱' }).getAttribute('href')).toBe('#/notifications');
     expect(screen.queryByRole('button', { name: /訂閱江戶川柯南＆灰原哀/ })).toBeNull();
+  });
+
+  it.each([
+    {
+      cardName: '江戶川柯南',
+      cardNames: ['江戶川柯南'],
+      staleText: '取消訂閱江戶川柯南',
+    },
+    {
+      cardName: '江戶川柯南＆灰原哀',
+      cardNames: ['江戶川柯南'],
+      staleText: '已由「江戶川柯南」訂閱涵蓋',
+    },
+  ])('never commits previous buyer subscription UI after sign-out: $staleText', async ({ cardName, cardNames, staleText }) => {
+    subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription(cardNames));
+    const committedText: string[] = [];
+    const control = () => (
+      <Profiler id="subscription-control" onRender={() => committedText.push(document.body.textContent ?? '')}>
+        <CardNameSubscriptionControl cardName={cardName} isKnownCardName />
+      </Profiler>
+    );
+    const view = render(control());
+    expect(await screen.findByText(staleText)).toBeTruthy();
+    committedText.length = 0;
+
+    authState.current.user = null;
+    view.rerender(control());
+
+    expect(committedText.length).toBeGreaterThan(0);
+    expect(committedText.every((text) => !text.includes(staleText))).toBe(true);
   });
 
   it('announces a failed save while retaining the prior unsubscribed state', async () => {
