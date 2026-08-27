@@ -24,6 +24,11 @@ const partnerCardMaster = {
   cardName: '江戶川柯南',
   rarities: ['P'],
 };
+const subscriptionData = {
+  cardNames: ['江戶川柯南', '洗牌情緣'],
+  emailDailyEnabled: true,
+  updatedAt: new Date(),
+};
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-conan-tcg', firestore: { rules: await readFile('firestore.rules', 'utf8') }, storage: { rules: await readFile('storage.rules', 'utf8') } });
@@ -75,34 +80,47 @@ describe('Firebase rules', () => {
     await assertSucceeds(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'A', contactType: 'line', contactValue: 'a' }));
     await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), { displayName: 'B', contactType: 'line', contactValue: 'b' }));
   });
-  it('rejects another buyer reading or writing a subscription', async () => {
+  it('allows an owner to create, read, update, and delete a card name subscription', async () => {
     const buyerA = environment.authenticatedContext('buyer-a').firestore();
-    const buyerB = environment.authenticatedContext('buyer-b').firestore();
-    const subscriptionData = { characterKeys: ['suzuki-sonoko'], emailDailyEnabled: true, updatedAt: new Date() };
-    await assertSucceeds(setDoc(doc(buyerA, 'notificationSubscriptions', 'buyer-a'), subscriptionData));
-    await assertFails(getDoc(doc(buyerB, 'notificationSubscriptions', 'buyer-a')));
-    await assertFails(setDoc(doc(buyerB, 'notificationSubscriptions', 'buyer-a'), subscriptionData));
+    const subscription = doc(buyerA, 'notificationSubscriptions', 'buyer-a');
+
+    await assertSucceeds(setDoc(subscription, subscriptionData));
+    await assertSucceeds(getDoc(subscription));
+    await assertSucceeds(updateDoc(subscription, { cardNames: [] }));
+    await assertSucceeds(deleteDoc(subscription));
   });
-  it('rejects an owner subscription write with an email field', async () => {
-    const buyer = environment.authenticatedContext('buyer-a').firestore();
-    await assertFails(setDoc(doc(buyer, 'notificationSubscriptions', 'buyer-a'), {
-      characterKeys: ['suzuki-sonoko'],
-      emailDailyEnabled: true,
-      updatedAt: new Date(),
-      email: 'buyer@example.com',
-    }));
+  it('rejects another buyer and unauthenticated users reading or writing a subscription', async () => {
+    const owner = environment.authenticatedContext('subscription-owner').firestore();
+    const otherBuyer = environment.authenticatedContext('other-buyer').firestore();
+    const unauthenticated = environment.unauthenticatedContext().firestore();
+    const ownerSubscription = doc(owner, 'notificationSubscriptions', 'subscription-owner');
+
+    await assertSucceeds(setDoc(ownerSubscription, subscriptionData));
+    await assertFails(getDoc(doc(otherBuyer, 'notificationSubscriptions', 'subscription-owner')));
+    await assertFails(setDoc(doc(otherBuyer, 'notificationSubscriptions', 'subscription-owner'), subscriptionData));
+    await assertFails(getDoc(doc(unauthenticated, 'notificationSubscriptions', 'subscription-owner')));
+    await assertFails(setDoc(doc(unauthenticated, 'notificationSubscriptions', 'subscription-owner'), subscriptionData));
   });
-  it('rejects duplicate or excessively large subscription key lists', async () => {
+  it('rejects legacy, extra-field, duplicate, and oversized subscription writes', async () => {
     const buyer = environment.authenticatedContext('buyer-limits').firestore();
-    await assertFails(setDoc(doc(buyer, 'notificationSubscriptions', 'buyer-limits'), {
-      characterKeys: ['suzuki-sonoko', 'suzuki-sonoko'],
-      emailDailyEnabled: true,
-      updatedAt: new Date(),
-    }));
-    await assertFails(setDoc(doc(buyer, 'notificationSubscriptions', 'buyer-limits'), {
-      characterKeys: Array.from({ length: 101 }, (_, index) => `character-${index}`),
-      emailDailyEnabled: true,
-      updatedAt: new Date(),
+    const subscription = doc(buyer, 'notificationSubscriptions', 'buyer-limits');
+
+    await assertFails(setDoc(subscription, { characterKeys: ['江戶川柯南'], emailDailyEnabled: true, updatedAt: new Date() }));
+    await assertFails(setDoc(subscription, { ...subscriptionData, email: 'buyer@example.com' }));
+    await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: ['江戶川柯南', '江戶川柯南'] }));
+    await assertFails(setDoc(subscription, { ...subscriptionData, cardNames: Array.from({ length: 101 }, (_, index) => `卡名-${index}`) }));
+  });
+  it('rejects a non-boolean daily email preference', async () => {
+    const buyer = environment.authenticatedContext('buyer-preference-type').firestore();
+    const subscription = doc(
+      buyer,
+      'notificationSubscriptions',
+      'buyer-preference-type',
+    );
+
+    await assertFails(setDoc(subscription, {
+      ...subscriptionData,
+      emailDailyEnabled: 'true',
     }));
   });
   it('rejects all browser reads and writes of notification events and delivery state', async () => {

@@ -1,11 +1,9 @@
-import { toCharacterKey } from '../characterKey';
-
-const MAX_NOTIFICATION_CHARACTER_KEYS = 100;
-const MAX_NOTIFICATION_CHARACTER_KEY_LENGTH = 100;
+const MAX_NOTIFICATION_CARD_NAMES = 100;
+const MAX_NOTIFICATION_CARD_NAME_LENGTH = 100;
 
 export interface NotificationSubscription {
   uid: string;
-  characterKeys: string[];
+  cardNames: string[];
   emailDailyEnabled: boolean;
   updatedAt: Date;
 }
@@ -21,27 +19,30 @@ export function validateNotificationSubscription(value: unknown) {
     throw new Error('Notification subscription requires uid.');
   }
 
-  if (!Array.isArray(subscription.characterKeys)) {
-    throw new Error('Notification subscription requires characterKeys.');
+  if (!Array.isArray(subscription.cardNames)) {
+    throw new Error('Notification subscription requires cardNames.');
   }
-  if (subscription.characterKeys.length > MAX_NOTIFICATION_CHARACTER_KEYS) {
-    throw new Error('Notification subscription allows at most 100 character keys.');
+  if (subscription.cardNames.length > MAX_NOTIFICATION_CARD_NAMES) {
+    throw new Error('Notification subscription allows at most 100 card names.');
   }
 
-  const keys = new Set<string>();
-  for (const key of subscription.characterKeys) {
-    if (typeof key !== 'string' || key !== toCharacterKey(key)) {
-      throw new Error('Notification subscription requires normalized character keys.');
+  const cardNames = new Set<string>();
+  for (const cardName of subscription.cardNames) {
+    if (typeof cardName !== 'string' || cardName.length === 0) {
+      throw new Error('Notification subscription requires non-empty card names.');
     }
-    if (key.length > MAX_NOTIFICATION_CHARACTER_KEY_LENGTH) {
-      throw new Error('Notification character keys must contain at most 100 characters.');
+    if (cardName !== cardName.trim()) {
+      throw new Error('Notification subscription requires trimmed card names.');
+    }
+    if (cardName.length > MAX_NOTIFICATION_CARD_NAME_LENGTH) {
+      throw new Error('Notification card names must contain at most 100 characters.');
     }
 
-    if (keys.has(key)) {
-      throw new Error('Notification subscription requires unique character keys.');
+    if (cardNames.has(cardName)) {
+      throw new Error('Notification subscription requires unique card names.');
     }
 
-    keys.add(key);
+    cardNames.add(cardName);
   }
 
   if (typeof subscription.emailDailyEnabled !== 'boolean') {

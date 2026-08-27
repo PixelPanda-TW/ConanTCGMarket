@@ -27,12 +27,12 @@ describe('Firestore deployment configuration', () => {
     });
   });
 
-  it('deploys the composite index required by daily character event queries', async () => {
+  it('does not deploy the obsolete character-key sequence index', async () => {
     const indexes = await readJson('../../firestore.indexes.json') as {
       indexes?: unknown[];
     };
 
-    expect(indexes.indexes).toContainEqual({
+    expect(indexes.indexes).not.toContainEqual({
       collectionGroup: 'listingEvents',
       queryScope: 'COLLECTION',
       fields: [

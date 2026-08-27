@@ -17,6 +17,7 @@ import {
   type SellerProfile,
 } from '../../domain/models';
 import { normalizeCardId } from '../../domain/cardId';
+import { toCharacterKey } from '../../domain/characterKey';
 
 type FirestoreData = Record<string, unknown>;
 
@@ -194,21 +195,86 @@ export const notificationSubscriptionConverter: FirestoreDataConverter<Notificat
     validateNotificationSubscription(subscriptionData);
 
     return {
-      characterKeys: subscriptionData.characterKeys,
+      cardNames: subscriptionData.cardNames,
       emailDailyEnabled: subscriptionData.emailDailyEnabled,
       updatedAt: dateToTimestamp(subscriptionData.updatedAt),
     };
   },
   fromFirestore(snapshot, options) {
-    const data = readData(snapshot, options);
-    const subscription: NotificationSubscription = {
-      uid: snapshot.id,
-      characterKeys: data.characterKeys as string[],
-      emailDailyEnabled: data.emailDailyEnabled as boolean,
-      updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
-    };
-
-    validateNotificationSubscription(subscription);
+    const subscription = readNotificationSubscriptionDocument(
+      snapshot.id,
+      readData(snapshot, options),
+    );
+    if (!subscription) {
+      throw new Error('Legacy notification subscription has no current cardNames value.');
+    }
     return subscription;
   },
 };
+
+const CURRENT_NOTIFICATION_SUBSCRIPTION_FIELDS = [
+  'cardNames',
+  'emailDailyEnabled',
+  'updatedAt',
+] as const;
+const LEGACY_NOTIFICATION_SUBSCRIPTION_FIELDS = [
+  'characterKeys',
+  'emailDailyEnabled',
+  'updatedAt',
+] as const;
+
+function hasExactFields(data: FirestoreData, fields: readonly string[]): boolean {
+  const keys = Object.keys(data);
+  return keys.length === fields.length && fields.every((field) => keys.includes(field));
+}
+
+function isRecognizedLegacyNotificationSubscription(data: FirestoreData): boolean {
+  if (!hasExactFields(data, LEGACY_NOTIFICATION_SUBSCRIPTION_FIELDS)
+    || !Array.isArray(data.characterKeys)
+    || data.characterKeys.length > 100
+    || typeof data.emailDailyEnabled !== 'boolean'
+    || !(data.updatedAt instanceof Timestamp)) {
+    return false;
+  }
+
+  const keys = new Set<string>();
+  for (const value of data.characterKeys) {
+    if (typeof value !== 'string'
+      || value !== toCharacterKey(value)
+      || value.length > 100
+      || keys.has(value)) {
+      return false;
+    }
+    keys.add(value);
+  }
+  return true;
+}
+
+export function readNotificationSubscriptionDocument(
+  uid: string,
+  value: unknown,
+): NotificationSubscription | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Notification subscription document must be an object.');
+  }
+
+  const data = value as FirestoreData;
+  if (hasExactFields(data, LEGACY_NOTIFICATION_SUBSCRIPTION_FIELDS)) {
+    if (!isRecognizedLegacyNotificationSubscription(data)) {
+      throw new Error('Legacy notification subscription document is malformed.');
+    }
+    return null;
+  }
+  if (!hasExactFields(data, CURRENT_NOTIFICATION_SUBSCRIPTION_FIELDS)) {
+    throw new Error('Notification subscription document has invalid fields.');
+  }
+
+  const subscription: NotificationSubscription = {
+    uid,
+    cardNames: data.cardNames as string[],
+    emailDailyEnabled: data.emailDailyEnabled as boolean,
+    updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
+  };
+  validateNotificationSubscription(subscription);
+  return subscription;
+}

@@ -10,11 +10,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     function isValidNotificationSubscription() {
-      return request.resource.data.keys().hasOnly(['characterKeys', 'emailDailyEnabled', 'updatedAt'])
-        && request.resource.data.keys().hasAll(['characterKeys', 'emailDailyEnabled', 'updatedAt'])
-        && request.resource.data.characterKeys is list
-        && request.resource.data.characterKeys.size() <= 100
-        && request.resource.data.characterKeys.toSet().size() == request.resource.data.characterKeys.size()
+      return request.resource.data.keys().hasOnly(['cardNames', 'emailDailyEnabled', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['cardNames', 'emailDailyEnabled', 'updatedAt'])
+        && request.resource.data.cardNames is list
+        && request.resource.data.cardNames.size() <= 100
+        && request.resource.data.cardNames.toSet().size() == request.resource.data.cardNames.size()
         && request.resource.data.emailDailyEnabled is bool
         && request.resource.data.updatedAt is timestamp;
     }

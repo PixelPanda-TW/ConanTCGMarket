@@ -19,16 +19,17 @@ const now = new Date('2026-08-26T01:00:00.000Z');
 
 function listingEvent(
   id: string,
-  characterName: string,
+  cardName: string,
   createdAt = '2026-08-25T02:00:00.000Z',
   capturedAt = createdAt,
   capturedSequence = 1,
+  cardType: ListingEvent['cardType'] = 'character',
 ): ListingEvent {
   return {
     id,
     listingId: id,
-    characterKey: characterName,
-    characterName,
+    cardType,
+    cardName,
     rarity: 'SR',
     cardId: 'P001',
     listingPrice: 120,
@@ -41,10 +42,10 @@ function listingEvent(
   };
 }
 
-function subscription(uid: string, characterKeys = ['諸伏景光']): NotificationSubscription {
+function subscription(uid: string, cardNames = ['江戶川柯南']): NotificationSubscription {
   return {
     uid,
-    characterKeys,
+    cardNames,
     emailDailyEnabled: true,
     updatedAt: new Date('2026-08-25T00:00:00.000Z'),
   };
@@ -52,7 +53,7 @@ function subscription(uid: string, characterKeys = ['諸伏景光']): Notificati
 
 function createDependencies(
   subscriptions: NotificationSubscription[] = [subscription('buyer-1')],
-  events: ListingEvent[] = [listingEvent('listing-1', '諸伏景光')],
+  events: ListingEvent[] = [listingEvent('listing-1', '江戶川柯南')],
 ): DailyDigestDependencies & {
   runs: {
     getOrCreate(runDate: string): Promise<{ runDate: string; windowEndSequence: number }>;
@@ -81,11 +82,20 @@ function createDependencies(
       }),
     },
     events: {
-      findNewByCharacterKeys: vi.fn(async (characterKeys, afterSequence, throughSequence) => events.filter((event) => (
-        characterKeys.includes(event.characterKey)
-          && event.capturedSequence > afterSequence
+      findNewInSequenceRange: vi.fn(async (afterSequence, throughSequence, limit) => {
+        const eventPage = events
+          .filter((event) => (
+          event.capturedSequence > afterSequence
           && event.capturedSequence <= throughSequence
-      ))),
+          ))
+          .sort((left, right) => left.capturedSequence - right.capturedSequence)
+          .slice(0, limit);
+        return {
+          events: eventPage,
+          nextAfterSequence: eventPage.at(-1)?.capturedSequence ?? afterSequence,
+          hasMore: eventPage.length === limit,
+        };
+      }),
     },
     deliveryState: {
       claim: vi.fn(async (uid, claimId, reservedAt, windowEnd, runDate) => {
@@ -171,12 +181,12 @@ describe('runDailyDigest', () => {
     deps = createDependencies(
       [subscription('buyer-1')],
       [
-        listingEvent('listing-late', '諸伏景光', '2026-08-25T03:00:00.000Z'),
-        listingEvent('listing-1', '諸伏景光', '2026-08-25T02:00:00.000Z'),
+        listingEvent('listing-late', '江戶川柯南', '2026-08-25T03:00:00.000Z'),
+        listingEvent('listing-1', '江戶川柯南', '2026-08-25T02:00:00.000Z'),
         listingEvent('listing-other', '安室透', '2026-08-25T02:30:00.000Z'),
         listingEvent(
           'listing-old',
-          '諸伏景光',
+          '江戶川柯南',
           '2026-08-25T00:30:00.000Z',
           '2026-08-25T00:30:00.000Z',
           0,
@@ -185,7 +195,7 @@ describe('runDailyDigest', () => {
     );
   });
 
-  it('groups only new events for subscribed characters into one email', async () => {
+  it('groups only new events with subscribed card names into one email', async () => {
     await runDailyDigest(now, deps);
 
     expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(1);
@@ -193,7 +203,7 @@ describe('runDailyDigest', () => {
       to: 'buyer@example.com',
       subject: '柯南 TCG 新上架摘要',
       groups: [{
-        characterName: '諸伏景光',
+        cardName: '江戶川柯南',
         listings: [
           expect.objectContaining({ id: 'listing-1' }),
           expect.objectContaining({ id: 'listing-late' }),
@@ -204,17 +214,199 @@ describe('runDailyDigest', () => {
     expect(deps.deliveryState.beginSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
   });
 
-  it('deduplicates Listing IDs returned by overlapping query chunks', async () => {
-    const duplicate = listingEvent('listing-1', '諸伏景光');
-    deps = createDependencies(
-      [subscription('buyer-1', Array.from({ length: 31 }, (_, index) => `角色-${index}`))],
+  it('matches Character and Partner events by the same raw card-name substring', async () => {
+    const character = listingEvent(
+      'listing-character',
+      '江戶川柯南',
+      undefined,
+      undefined,
+      1,
+      'character',
     );
-    vi.mocked(deps.events.findNewByCharacterKeys).mockResolvedValue([duplicate]);
+    const partner = listingEvent(
+      'listing-partner',
+      '江戶川柯南＆灰原哀',
+      undefined,
+      undefined,
+      2,
+      'partner',
+    );
+    character.rarity = 'SR';
+    partner.rarity = 'PR';
+    deps = createDependencies([subscription('buyer-1')], [character, partner]);
+
+    await runDailyDigest(now, deps);
+
+    const listings = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0]
+      .groups.flatMap((group) => group.listings);
+    expect(listings).toEqual([
+      expect.objectContaining({ listingId: 'listing-character', cardType: 'character', rarity: 'SR' }),
+      expect.objectContaining({ listingId: 'listing-partner', cardType: 'partner', rarity: 'PR' }),
+    ]);
+  });
+
+  it('matches a subscribed name inside a longer raw listing name', async () => {
+    deps = createDependencies(
+      [subscription('buyer-1', ['江戶川柯南'])],
+      [listingEvent('listing-combined', '江戶川柯南＆灰原哀')],
+    );
+
+    await runDailyDigest(now, deps);
+
+    expect(vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0].groups).toEqual([{
+      cardName: '江戶川柯南＆灰原哀',
+      listings: [expect.objectContaining({ listingId: 'listing-combined' })],
+    }]);
+  });
+
+  it('does not normalize Unicode, case, punctuation, or width while matching', async () => {
+    deps = createDependencies(
+      [subscription('buyer-1', ['CONAN', '江戶川柯南'])],
+      [
+        listingEvent('listing-case', 'Conan', undefined, undefined, 1),
+        listingEvent('listing-width', 'ＣＯＮＡＮ', undefined, undefined, 2),
+        listingEvent('listing-punctuation', '江戶川・柯南', undefined, undefined, 3),
+        listingEvent('listing-unicode', '江戶川コナン', undefined, undefined, 4),
+      ],
+    );
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
+  });
+
+  it('keeps width, Unicode composition, and whitespace-different names distinct end to end', async () => {
+    const exactName = 'ＣＯＮＡＮ  café';
+    deps = createDependencies(
+      [subscription('buyer-1', [exactName])],
+      [
+        listingEvent('listing-width', 'CONAN  café', undefined, undefined, 1),
+        listingEvent('listing-unicode', 'ＣＯＮＡＮ  cafe\u0301', undefined, undefined, 2),
+        listingEvent('listing-whitespace', 'ＣＯＮＡＮ café', undefined, undefined, 3),
+        listingEvent('listing-exact', exactName, undefined, undefined, 4),
+      ],
+    );
+
+    await runDailyDigest(now, deps);
+
+    expect(vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0].groups).toEqual([{
+      cardName: exactName,
+      listings: [expect.objectContaining({ listingId: 'listing-exact' })],
+    }]);
+  });
+
+  it('deduplicates one Listing matched by overlapping subscribed names', async () => {
+    deps = createDependencies(
+      [subscription('buyer-1', ['柯南', '江戶川柯南'])],
+      [listingEvent('listing-1', '江戶川柯南')],
+    );
 
     await runDailyDigest(now, deps);
 
     const message = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0];
     expect(message?.groups[0]?.listings).toHaveLength(1);
+  });
+
+  it('reads one shared sequence window for two subscribers in one page', async () => {
+    deps = createDependencies([
+      subscription('buyer-1'),
+      subscription('buyer-2'),
+    ]);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.events.findNewInSequenceRange).toHaveBeenCalledTimes(1);
+    expect(deps.events.findNewInSequenceRange).toHaveBeenCalledWith(0, 100, 250);
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
+  });
+
+  it('pages more than 250 events deterministically without duplicates', async () => {
+    const events = Array.from({ length: 251 }, (_, index) => listingEvent(
+      `listing-${index + 1}`,
+      '江戶川柯南',
+      undefined,
+      undefined,
+      index + 1,
+    ));
+    deps = createDependencies([subscription('buyer-1')], events);
+    deps.nextWatermark.mockResolvedValue(300);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.events.findNewInSequenceRange).toHaveBeenNthCalledWith(1, 0, 300, 250);
+    expect(deps.events.findNewInSequenceRange).toHaveBeenNthCalledWith(2, 250, 300, 250);
+    const listings = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0]
+      .groups.flatMap((group) => group.listings) ?? [];
+    expect(listings).toHaveLength(251);
+    expect(new Set(listings.map((event) => event.listingId)).size).toBe(251);
+  });
+
+  it('advances across a full raw invalid page before delivering the next generic event once', async () => {
+    const validEvent = listingEvent(
+      'listing-after-invalid-history',
+      '江戶川柯南',
+      undefined,
+      undefined,
+      251,
+    );
+    deps = createDependencies([subscription('buyer-1')], [validEvent]);
+    deps.nextWatermark.mockResolvedValue(251);
+    vi.mocked(deps.events.findNewInSequenceRange)
+      .mockResolvedValueOnce({
+        events: [],
+        nextAfterSequence: 250,
+        hasMore: true,
+      } as never)
+      .mockResolvedValueOnce({
+        events: [validEvent],
+        nextAfterSequence: 251,
+        hasMore: false,
+      } as never);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.events.findNewInSequenceRange).toHaveBeenNthCalledWith(1, 0, 251, 250);
+    expect(deps.events.findNewInSequenceRange).toHaveBeenNthCalledWith(2, 250, 251, 250);
+    const delivered = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0]
+      .groups.flatMap((group) => group.listings);
+    expect(delivered).toEqual([
+      expect.objectContaining({ listingId: 'listing-after-invalid-history' }),
+    ]);
+  });
+
+  it('releases every reserved claim when a shared event-page read fails', async () => {
+    deps = createDependencies([
+      subscription('buyer-1'),
+      subscription('buyer-2'),
+    ]);
+    vi.mocked(deps.events.findNewInSequenceRange)
+      .mockRejectedValue(new Error('event read unavailable'));
+
+    await expect(runDailyDigest(now, deps)).rejects.toThrow('event read unavailable');
+
+    expect(deps.deliveryState.release).toHaveBeenCalledTimes(2);
+    expect(deps.deliveryState.release).toHaveBeenNthCalledWith(1, 'buyer-1', 'claim-1');
+    expect(deps.deliveryState.release).toHaveBeenNthCalledWith(2, 'buyer-2', 'claim-2');
+    expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
+  });
+
+  it('releases an earlier reservation when a later recipient lookup fails', async () => {
+    deps = createDependencies([
+      subscription('buyer-1'),
+      subscription('buyer-2'),
+    ]);
+    vi.mocked(deps.recipients.getVerifiedEmail).mockImplementation(async (uid) => {
+      if (uid === 'buyer-2') throw new Error('recipient lookup unavailable');
+      return 'buyer-1@example.com';
+    });
+
+    await expect(runDailyDigest(now, deps)).rejects.toThrow('recipient lookup unavailable');
+
+    expect(deps.deliveryState.release).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.release).toHaveBeenCalledWith('buyer-1', 'claim-1');
+    expect(deps.events.findNewInSequenceRange).not.toHaveBeenCalled();
+    expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
   });
 
   it('keeps the reservation when Gmail failure may be ambiguous', async () => {
@@ -236,35 +428,23 @@ describe('runDailyDigest', () => {
     expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
     expect(deps.deliveryState.complete).not.toHaveBeenCalled();
     expect(deps.deliveryState.claim).not.toHaveBeenCalled();
-    expect(deps.events.findNewByCharacterKeys).not.toHaveBeenCalled();
+    expect(deps.events.findNewInSequenceRange).not.toHaveBeenCalled();
   });
 
-  it('queries subscribed character keys in chunks no larger than 30', async () => {
-    const characterKeys = Array.from({ length: 61 }, (_, index) => `角色-${index}`);
-    deps = createDependencies([subscription('buyer-1', characterKeys)], []);
-
-    await runDailyDigest(now, deps);
-
-    const chunks = vi.mocked(deps.events.findNewByCharacterKeys).mock.calls
-      .map(([keys]) => keys);
-    expect(chunks.map((keys) => keys.length)).toEqual([30, 30, 1]);
-    expect(chunks.flat()).toEqual(characterKeys);
-  });
-
-  it('skips malformed, duplicate, oversized, and overlong subscription key lists', async () => {
+  it('skips malformed, duplicate, oversized, and overlong subscription card-name lists', async () => {
     const invalidSubscriptions = [
-      { ...subscription('buyer-non-list'), characterKeys: '諸伏景光' as never },
+      { ...subscription('buyer-non-list'), cardNames: '江戶川柯南' as never },
       subscription('buyer-non-string', [42 as never]),
-      subscription('buyer-not-normalized', [' 諸伏景光']),
-      subscription('buyer-duplicate', ['諸伏景光', '諸伏景光']),
+      subscription('buyer-not-trimmed', [' 江戶川柯南']),
+      subscription('buyer-duplicate', ['江戶川柯南', '江戶川柯南']),
       subscription(
         'buyer-too-many',
-        Array.from({ length: 101 }, (_, index) => `角色-${index}`),
+        Array.from({ length: 101 }, (_, index) => `卡名-${index}`),
       ),
-      subscription('buyer-overlong', ['角'.repeat(101)]),
+      subscription('buyer-overlong', ['卡'.repeat(101)]),
       subscription('buyer-valid'),
     ];
-    deps = createDependencies(invalidSubscriptions, [listingEvent('listing-1', '諸伏景光')]);
+    deps = createDependencies(invalidSubscriptions, [listingEvent('listing-1', '江戶川柯南')]);
 
     await runDailyDigest(now, deps);
 
@@ -325,6 +505,53 @@ describe('runDailyDigest', () => {
     );
   });
 
+  it('counts an acquired no-match claim toward the cap while skipped and non-acquired recipients do not', async () => {
+    deps = createDependencies([
+      subscription('01-empty', []),
+      subscription('02-missing'),
+      subscription('03-not-acquired'),
+      subscription('04-capped-no-match'),
+      subscription('05-next-run'),
+    ], []);
+    deps.recipientCap = 1;
+    vi.mocked(deps.recipients.getVerifiedEmail).mockImplementation(async (uid) => (
+      uid === '02-missing' ? null : `${uid}@example.com`
+    ));
+    vi.mocked(deps.deliveryState.claim).mockResolvedValueOnce(null);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledWith(
+      '04-capped-no-match',
+      'claim-2',
+    );
+    expect(deps.recipients.getVerifiedEmail).not.toHaveBeenCalledWith('05-next-run');
+
+    await runDailyDigest(new Date('2026-08-27T01:00:00.000Z'), deps);
+
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('05-next-run');
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledTimes(2);
+  });
+
+  it('finishes the rest of an acquired cap page after one Gmail send becomes ambiguous', async () => {
+    deps = createDependencies([
+      subscription('buyer-1'),
+      subscription('buyer-2'),
+    ]);
+    deps.recipientCap = 2;
+    vi.mocked(deps.gmail.sendDigest)
+      .mockRejectedValueOnce(new Error('ambiguous Gmail failure'))
+      .mockResolvedValueOnce(undefined);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
+    expect(deps.deliveryState.complete).toHaveBeenCalledTimes(1);
+    expect(deps.deliveryState.complete).toHaveBeenCalledWith('buyer-2', 'claim-2');
+    expect(deps.deliveryState.release).not.toHaveBeenCalledWith('buyer-1', 'claim-1');
+  });
+
   it('does not send or advance when no new listing event exists', async () => {
     deps = createDependencies([subscription('buyer-1')], []);
 
@@ -346,7 +573,7 @@ describe('runDailyDigest', () => {
   });
 
   it('uses one fixed watermark for duplicate invocations on the same Asia/Taipei date', async () => {
-    const events = [listingEvent('listing-first', '諸伏景光', undefined, undefined, 1)];
+    const events = [listingEvent('listing-first', '江戶川柯南', undefined, undefined, 1)];
     deps = createDependencies([subscription('buyer-1')], events);
     deps.nextWatermark
       .mockResolvedValueOnce(1)
@@ -355,7 +582,7 @@ describe('runDailyDigest', () => {
     await runDailyDigest(new Date('2026-08-25T16:30:00.000Z'), deps);
     events.push(listingEvent(
       'listing-same-date-late',
-      '諸伏景光',
+      '江戶川柯南',
       '2026-08-25T16:45:00.000Z',
       '2026-08-25T16:45:00.000Z',
       2,
@@ -374,7 +601,7 @@ describe('runDailyDigest', () => {
   it('delivers an event captured after a run even when its Listing creation time is older', async () => {
     const events = [listingEvent(
       'listing-first',
-      '諸伏景光',
+      '江戶川柯南',
       '2026-08-25T02:00:00.000Z',
       '2026-08-25T02:01:00.000Z',
     )];
@@ -386,7 +613,7 @@ describe('runDailyDigest', () => {
     await runDailyDigest(now, deps);
     events.push(listingEvent(
       'listing-captured-late',
-      '諸伏景光',
+      '江戶川柯南',
       '2026-08-25T03:00:00.000Z',
       '2026-08-26T01:06:00.000Z',
       11,
@@ -395,7 +622,7 @@ describe('runDailyDigest', () => {
 
     expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
     expect(vi.mocked(deps.gmail.sendDigest).mock.calls[1]?.[0].groups).toEqual([{
-      characterName: '諸伏景光',
+      cardName: '江戶川柯南',
       listings: [expect.objectContaining({ id: 'listing-captured-late' })],
     }]);
   });
@@ -406,18 +633,14 @@ describe('runDailyDigest', () => {
 
     await runDailyDigest(now, deps);
 
-    expect(deps.events.findNewByCharacterKeys).toHaveBeenCalledWith(
-      ['諸伏景光'],
-      0,
-      watermark,
-    );
+    expect(deps.events.findNewInSequenceRange).toHaveBeenCalledWith(0, watermark, 250);
   });
 
   it('delivers a late-visible event sharing the prior watermark timestamp', async () => {
     const sharedCapturedAt = '2026-08-26T00:50:00.000Z';
     const events = [listingEvent(
       'listing-visible-first',
-      '諸伏景光',
+      '江戶川柯南',
       '2026-08-25T02:00:00.000Z',
       sharedCapturedAt,
       10,
@@ -430,7 +653,7 @@ describe('runDailyDigest', () => {
     await runDailyDigest(now, deps);
     events.push(listingEvent(
       'listing-visible-late',
-      '諸伏景光',
+      '江戶川柯南',
       '2026-08-25T03:00:00.000Z',
       sharedCapturedAt,
       11,
@@ -439,7 +662,7 @@ describe('runDailyDigest', () => {
 
     expect(deps.gmail.sendDigest).toHaveBeenCalledTimes(2);
     expect(vi.mocked(deps.gmail.sendDigest).mock.calls[1]?.[0].groups).toEqual([{
-      characterName: '諸伏景光',
+      cardName: '江戶川柯南',
       listings: [expect.objectContaining({ id: 'listing-visible-late' })],
     }]);
   });
@@ -510,7 +733,8 @@ describe('runDailyDigest', () => {
     await runDailyDigest(now, deps);
 
     const message = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0];
-    expect(message?.text).toContain('角色：諸伏景光');
+    expect(message?.text).toContain('卡名：江戶川柯南');
+    expect(message?.text).toContain('類型：character');
     expect(message?.text).toContain('價格：NT$ 120');
     expect(message?.text).toContain('稀有度：SR');
     expect(message?.text).toContain('卡片 ID：P001');
@@ -528,12 +752,11 @@ describe('runDailyDigest', () => {
       'listing\"><img src=x onerror=alert(2)>',
       '<img src=x onerror=alert(1)>',
     );
-    adversarial.characterKey = '諸伏景光';
     adversarial.rarity = '"><svg onload=alert(1)>';
     adversarial.cardId = '<script>alert(1)</script>';
     adversarial.listingPrice = '<b>120</b>' as never;
     adversarial.remainingQuantity = '<i>2</i>' as never;
-    deps = createDependencies([subscription('buyer-1')], [adversarial]);
+    deps = createDependencies([subscription('buyer-1', [adversarial.cardName])], [adversarial]);
 
     await runDailyDigest(now, deps);
 

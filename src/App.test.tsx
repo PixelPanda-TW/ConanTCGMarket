@@ -19,7 +19,7 @@ vi.mock('./features/listings/ListingPage', () => ({
   ListingPage: ({ id }: { id: string }) => <div>listing page {id}</div>,
 }));
 vi.mock('./features/notifications/NotificationSettingsPage', () => ({
-  NotificationSettingsPage: () => <h1>通知設定</h1>,
+  NotificationSettingsPage: () => <h1>我的訂閱</h1>,
 }));
 
 afterEach(() => {
@@ -83,12 +83,12 @@ describe('App routes', () => {
     expect(screen.getByText('listing page listing-1')).toBeTruthy();
   });
 
-  it('renders notification settings for #/notifications', () => {
+  it('renders the subscription management page for #/notifications', () => {
     window.location.hash = '#/notifications';
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: '通知設定' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '我的訂閱' })).toBeTruthy();
   });
 
 });

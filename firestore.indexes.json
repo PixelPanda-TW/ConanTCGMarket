@@ -8,14 +8,6 @@
         { "fieldPath": "attempts", "order": "ASCENDING" },
         { "fieldPath": "nextAttemptAt", "order": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "listingEvents",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "characterKey", "order": "ASCENDING" },
-        { "fieldPath": "capturedSequence", "order": "ASCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []

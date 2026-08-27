@@ -14,60 +14,78 @@ import {
 import { CARD_TYPES, cardTypeLabel, isCardType } from '../cardType';
 
 describe('domain model validation', () => {
-  it('accepts a notification subscription for complete normalized character keys', () => {
+  it('accepts notification subscriptions for complete raw Card Master names', () => {
     const subscription: NotificationSubscription = {
       uid: 'buyer-1',
-      characterKeys: ['諸伏 景光'],
+      cardNames: ['江戶川柯南', '洗牌情緣'],
       emailDailyEnabled: true,
-      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     };
 
     expect(() => validateNotificationSubscription(subscription)).not.toThrow();
+    expect(() => validateNotificationSubscription({
+      ...subscription,
+      cardNames: [],
+    })).not.toThrow();
   });
 
-  it('rejects notification subscriptions with an empty character key', () => {
+  it('rejects notification subscriptions with malformed card names', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
-      characterKeys: [''],
+      cardNames: [''],
       emailDailyEnabled: true,
-      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow();
-  });
-
-  it('rejects notification subscriptions with duplicate character keys', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
-      characterKeys: ['諸伏 景光', '諸伏 景光'],
+      cardNames: ['江戶川柯南', '江戶川柯南'],
       emailDailyEnabled: true,
-      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toThrow('unique card names');
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      cardNames: [' 江戶川柯南'],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toThrow('trimmed card names');
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      cardNames: [123],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow();
-  });
-
-  it('rejects notification subscriptions with more than 100 character keys', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
-      characterKeys: Array.from({ length: 101 }, (_, index) => `角色-${index}`),
+      cardNames: ['角'.repeat(101)],
       emailDailyEnabled: true,
-      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
-    })).toThrow(/at most 100/);
-  });
-
-  it('rejects notification subscriptions with an overlong character key', () => {
-    expect(() => validateNotificationSubscription({
-      uid: 'buyer-1',
-      characterKeys: ['角'.repeat(101)],
-      emailDailyEnabled: true,
-      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow(/at most 100 characters/);
-  });
-
-  it('rejects notification subscriptions with a non-boolean email preference', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
-      characterKeys: ['諸伏 景光'],
-      emailDailyEnabled: 'true',
-      updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+      cardNames: Array.from({ length: 101 }, (_, index) => `角色-${index}`),
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toThrow(/at most 100/);
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toThrow('cardNames');
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      characterKeys: ['江戶川柯南'],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow();
+  });
+
+  it('rejects a non-boolean daily email preference', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      cardNames: ['江戶川柯南'],
+      emailDailyEnabled: 'true',
+      updatedAt: new Date('2026-08-27T00:00:00.000Z'),
+    })).toThrow('boolean emailDailyEnabled');
   });
 
   it('accepts normalized promotional Card Master metadata with a stable key', () => {

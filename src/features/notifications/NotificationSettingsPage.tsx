@@ -1,11 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageShell } from '../../components/PageShell';
 import {
   getNotificationSubscription,
-  saveNotificationSubscription,
+  removeNotificationCardName,
+  setNotificationEmailDailyEnabled,
 } from '../../data/firestore/repositories';
 import type { NotificationSubscription } from '../../domain/models';
 import { useAuth } from '../auth/AuthProvider';
+
+interface CommittedAuthContext {
+  uid: string | null;
+  generation: number;
+}
 
 export function NotificationSettingsPage() {
   const { isLoading: isAuthLoading, signIn, user } = useAuth();
@@ -14,105 +20,134 @@ export function NotificationSettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState(false);
-  const activeContextRef = useRef(0);
   const currentUid = user?.uid ?? null;
+  const committedContextRef = useRef<CommittedAuthContext>({ uid: currentUid, generation: 0 });
+  const saveOperationContextRef = useRef<CommittedAuthContext | null>(null);
+  const hasLoadedCurrentUid = currentUid !== null && loadedUid === currentUid;
+  const contextualSubscription = hasLoadedCurrentUid ? subscription : null;
+  const contextualIsSaving = hasLoadedCurrentUid ? isSaving : false;
+  const contextualLoadError = hasLoadedCurrentUid ? loadError : false;
+  const contextualSaveError = hasLoadedCurrentUid ? saveError : false;
   const isLoading = currentUid !== null && loadedUid !== currentUid;
 
+  useLayoutEffect(() => {
+    const committedContext: CommittedAuthContext = {
+      uid: currentUid,
+      generation: committedContextRef.current.generation + 1,
+    };
+    committedContextRef.current = committedContext;
+    saveOperationContextRef.current = null;
+
+    return () => {
+      if (committedContextRef.current === committedContext) {
+        committedContextRef.current = {
+          uid: null,
+          generation: committedContext.generation + 1,
+        };
+      }
+    };
+  }, [currentUid]);
+
   useEffect(() => {
-    activeContextRef.current += 1;
-    let isCurrent = true;
+    const requestContext = committedContextRef.current;
     setSubscription(null);
     setIsSaving(false);
     setLoadError(false);
     setSaveError(false);
     setLoadedUid(null);
 
-    if (!user) {
-      return () => {
-        isCurrent = false;
-      };
-    }
+    if (isAuthLoading || !user) return;
 
     void getNotificationSubscription(user.uid)
       .then((loadedSubscription) => {
-        if (isCurrent) setSubscription(loadedSubscription);
+        if (committedContextRef.current === requestContext) {
+          setSubscription(loadedSubscription);
+        }
       })
       .catch(() => {
-        if (isCurrent) setLoadError(true);
+        if (committedContextRef.current === requestContext) {
+          setLoadError(true);
+        }
       })
       .finally(() => {
-        if (isCurrent) setLoadedUid(user.uid);
+        if (committedContextRef.current === requestContext) {
+          setLoadedUid(user.uid);
+        }
       });
+  }, [currentUid, isAuthLoading]);
 
-    return () => {
-      isCurrent = false;
-      activeContextRef.current += 1;
-    };
-  }, [currentUid]);
-
-  async function persistSettings(characterKeys: string[], emailDailyEnabled: boolean) {
+  async function persistSettings(
+    mutation: () => Promise<NotificationSubscription | null>,
+  ) {
     if (!user) return;
 
-    const nextSubscription: NotificationSubscription = {
-      uid: user.uid,
-      characterKeys,
-      emailDailyEnabled,
-      updatedAt: new Date(),
-    };
-    const requestContext = activeContextRef.current;
+    const requestContext = committedContextRef.current;
+    if (saveOperationContextRef.current === requestContext) return;
+    saveOperationContextRef.current = requestContext;
 
     setIsSaving(true);
     setSaveError(false);
     try {
-      await saveNotificationSubscription(nextSubscription);
-      if (activeContextRef.current === requestContext) setSubscription(nextSubscription);
+      const nextSubscription = await mutation();
+      if (committedContextRef.current === requestContext) {
+        setSubscription(nextSubscription);
+      }
     } catch {
-      if (activeContextRef.current === requestContext) setSaveError(true);
+      if (committedContextRef.current === requestContext) {
+        setSaveError(true);
+      }
     } finally {
-      if (activeContextRef.current === requestContext) setIsSaving(false);
+      if (committedContextRef.current === requestContext) {
+        setIsSaving(false);
+      }
+      if (saveOperationContextRef.current === requestContext) {
+        saveOperationContextRef.current = null;
+      }
     }
   }
 
-  const characterKeys = subscription?.characterKeys ?? [];
-  const emailDailyEnabled = subscription?.emailDailyEnabled ?? false;
+  const cardNames = contextualSubscription?.cardNames ?? [];
+  const sortedCardNames = [...cardNames]
+    .sort((left, right) => left.localeCompare(right, 'zh-Hant'));
+  const emailDailyEnabled = contextualSubscription?.emailDailyEnabled ?? false;
 
   return (
     <PageShell backToMarketplace>
       <section className="notification-settings-page">
-        <p className="eyebrow">Buyer notifications</p>
-        <h1>通知設定</h1>
+        <p className="eyebrow">Buyer subscriptions</p>
+        <h1>我的訂閱</h1>
 
         {isAuthLoading ? (
-          <p className="profile-state" aria-live="polite">登入狀態確認中</p>
+          <p className="profile-state" role="status" aria-live="polite">登入狀態確認中</p>
         ) : !user ? (
           <div className="profile-state notification-sign-in-guidance">
-            <p>請先使用 Google 登入，才能管理角色通知。</p>
+            <p>請先使用 Google 登入，才能管理卡名訂閱。</p>
             <button type="button" onClick={signIn}>使用 Google 登入</button>
           </div>
         ) : isLoading ? (
-          <p className="profile-state" aria-live="polite">通知設定載入中</p>
-        ) : loadError ? (
-          <p className="profile-state field-error" role="alert">無法載入通知設定，請稍後再試。</p>
+          <p className="profile-state" role="status" aria-live="polite">我的訂閱載入中</p>
+        ) : contextualLoadError ? (
+          <p className="profile-state field-error" role="alert">無法載入訂閱，請稍後再試。</p>
         ) : (
           <div className="notification-settings-content">
-            <section className="notification-settings-card" aria-labelledby="subscribed-characters-heading">
-              <h2 id="subscribed-characters-heading">已訂閱角色</h2>
-              {characterKeys.length === 0 ? (
-                <p>尚未訂閱任何角色。</p>
+            <section className="notification-settings-card" aria-labelledby="subscribed-card-names-heading">
+              <h2 id="subscribed-card-names-heading">已訂閱卡名</h2>
+              {cardNames.length === 0 ? (
+                <p>尚未訂閱任何卡名。</p>
               ) : (
-                <ul className="subscribed-character-list">
-                  {characterKeys.map((characterKey) => (
-                    <li key={characterKey}>
-                      <span>{characterKey}</span>
+                <ul className="subscribed-card-name-list">
+                  {sortedCardNames.map((cardName) => (
+                    <li key={cardName}>
+                      <span>{cardName}</span>
                       <button
                         type="button"
-                        disabled={isSaving}
-                        onClick={() => persistSettings(
-                          characterKeys.filter((key) => key !== characterKey),
-                          emailDailyEnabled,
-                        )}
+                        aria-label={`移除${cardName}訂閱`}
+                        disabled={contextualIsSaving}
+                        onClick={() => persistSettings(() => (
+                          removeNotificationCardName(user.uid, cardName)
+                        ))}
                       >
-                        移除{characterKey}通知
+                        移除
                       </button>
                     </li>
                   ))}
@@ -126,16 +161,19 @@ export function NotificationSettingsPage() {
                 <input
                   type="checkbox"
                   checked={emailDailyEnabled}
-                  disabled={isSaving}
-                  onChange={(event) => persistSettings(characterKeys, event.target.checked)}
+                  disabled={contextualIsSaving}
+                  onChange={(event) => persistSettings(() => (
+                    setNotificationEmailDailyEnabled(user.uid, event.target.checked)
+                  ))}
                 />
                 每日彙整 Email 通知
               </label>
-              <p>每日彙整你所訂閱角色的新上架商品。</p>
+              <p>每日彙整你所訂閱卡名的新上架商品。</p>
             </section>
 
-            <div className="subscription-feedback" aria-live="polite">
-              {saveError && <p className="field-error" role="alert">無法儲存通知設定，請稍後再試。</p>}
+            <div className="subscription-feedback" aria-live="polite" aria-atomic="true">
+              {contextualIsSaving && <p role="status">訂閱儲存中</p>}
+              {contextualSaveError && <p className="field-error" role="alert">無法儲存訂閱，請稍後再試。</p>}
             </div>
           </div>
         )}

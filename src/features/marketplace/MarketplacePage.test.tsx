@@ -26,6 +26,8 @@ const cards: Card[] = [
   { key: 'character_0590', cardId: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
   { key: 'character_0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
   { key: 'event_1100', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarities: ['C'] },
+  { key: 'case_1200', cardId: '1200', cardType: 'case', cardName: '緋色の真相', rarities: ['C'] },
+  { key: 'partner_P001', cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
 ];
 
 const activeListing: Listing = {
@@ -117,7 +119,7 @@ describe('MarketplacePage', () => {
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
   });
 
-  it('shows subscription only for an exact known character, not invalid free text', async () => {
+  it('shows the generic control for an exact Event name without requiring rarity or ID', async () => {
     render(
       <MarketplacePage
         loadListings={async () => [activeListing]}
@@ -127,12 +129,47 @@ describe('MarketplacePage', () => {
     );
 
     await screen.findByRole('heading', { name: '諸伏景光' });
-    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
-    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏景光' } });
-    expect(screen.getByRole('button', { name: '訂閱諸伏景光' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'event' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '追跡開始' } });
 
-    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏' } });
-    expect(screen.queryByRole('button', { name: /訂閱諸伏/ })).toBeNull();
+    const panel = screen.getByRole('region', { name: '卡名通知' });
+    expect(within(panel).getByText('想知道包含「追跡開始」的新商品？')).toBeTruthy();
+    expect(within(panel).getByRole('button', { name: '訂閱追跡開始' })).toBeTruthy();
+    expect((screen.getByLabelText('稀有度') as HTMLSelectElement).value).toBe('');
+    expect((screen.getByLabelText('搜尋卡片 ID') as HTMLInputElement).value).toBe('');
+  });
+
+  it('never exposes a subscription action for an incomplete typed Case name', async () => {
+    render(
+      <MarketplacePage
+        loadListings={async () => [activeListing]}
+        loadCards={async () => cards}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    await screen.findByRole('heading', { name: '諸伏景光' });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'case' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '緋色' } });
+
+    expect(screen.queryByRole('region', { name: '卡名通知' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /訂閱緋色/ })).toBeNull();
+  });
+
+  it('uses the same generic control for a complete Partner name', async () => {
+    render(
+      <MarketplacePage
+        loadListings={async () => [activeListing]}
+        loadCards={async () => cards}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    await screen.findByRole('heading', { name: '諸伏景光' });
+    fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'partner' } });
+    fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '江戶川柯南' } });
+
+    expect(screen.getByRole('button', { name: '訂閱江戶川柯南' })).toBeTruthy();
   });
 
   it('filters all cards of a type by rarity when the card name is incomplete or unrecognized', async () => {
@@ -213,7 +250,7 @@ describe('MarketplacePage', () => {
     expect(screen.queryByRole('heading', { name: '另一張事件卡' })).toBeNull();
   });
 
-  it('shows a dedicated character notification panel after selecting 諸伏高明／D／0501', async () => {
+  it('shows a card-name notification panel after selecting a complete Character name', async () => {
     render(
       <MarketplacePage
         loadListings={async () => [activeListing]}
@@ -225,9 +262,8 @@ describe('MarketplacePage', () => {
     await screen.findByRole('heading', { name: '諸伏景光' });
     fireEvent.change(screen.getByLabelText('卡片類型'), { target: { value: 'character' } });
     fireEvent.change(screen.getByLabelText('卡片名稱'), { target: { value: '諸伏高明' } });
-    fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'D' } });
 
-    const panel = screen.getByRole('region', { name: '角色通知' });
+    const panel = screen.getByRole('region', { name: '卡名通知' });
     expect(panel).toBeTruthy();
     expect(screen.getByRole('button', { name: '訂閱諸伏高明' })).toBeTruthy();
   });

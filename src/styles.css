@@ -706,7 +706,10 @@ h1 {
   padding: 14px 16px;
 }
 .marketplace-subscription > p { margin: 0; font-weight: 700; }
-.marketplace-subscription .character-subscription-control { flex: 0 0 auto; }
+.marketplace-subscription .card-name-subscription-control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 
 .welcome-notice-backdrop {
   position: fixed;
@@ -1104,20 +1107,72 @@ textarea:focus-visible {
 }
 
 /* Buyer notification controls */
-.character-subscription-control,
+.card-name-subscription-control,
 .subscription-sign-in-guidance,
 .notification-settings-content {
   display: grid;
   gap: 12px;
 }
 
-.character-subscription-control {
+.card-name-subscription-control {
+  min-width: 0;
   justify-items: start;
 }
 
-.character-subscription-control button,
+.card-name-subscription-control button,
 .notification-settings-card button {
   min-height: 44px;
+}
+
+.card-name-subscription-control button,
+.subscription-management-link,
+.notification-settings-card button {
+  max-width: 100%;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+}
+
+.card-name-subscription-control button:focus-visible,
+.subscription-management-link:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+.notification-settings-card button:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+.notification-sign-in-guidance button {
+  min-height: 44px;
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+}
+
+.notification-sign-in-guidance button:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+.notification-settings-card button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.subscription-coverage {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.subscription-management-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border-radius: var(--radius);
+  font-weight: 700;
 }
 
 .subscription-status,
@@ -1125,6 +1180,10 @@ textarea:focus-visible {
 .subscription-feedback,
 .notification-settings-card p {
   margin: 0;
+}
+
+.notification-settings-content > .subscription-feedback {
+  min-block-size: 44px;
 }
 
 .subscription-sign-in-guidance {
@@ -1174,10 +1233,6 @@ textarea:focus-visible {
   gap: 10px;
 }
 
-.subscription-feedback:empty {
-  display: none;
-}
-
 .notification-settings-page {
   width: min(720px, 100%);
   margin: 0 auto;
@@ -1215,7 +1270,7 @@ textarea:focus-visible {
   line-height: 1.5;
 }
 
-.subscribed-character-list {
+.subscribed-card-name-list {
   display: grid;
   gap: 10px;
   margin: 0;
@@ -1223,7 +1278,7 @@ textarea:focus-visible {
   list-style: none;
 }
 
-.subscribed-character-list li {
+.subscribed-card-name-list li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1234,20 +1289,41 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
-.subscribed-character-list button {
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--secondary));
-  color: hsl(var(--secondary-foreground));
+.subscribed-card-name-list span {
+  min-width: 0;
+  flex: 1 1 16rem;
+  overflow-wrap: anywhere;
+}
+
+.subscribed-card-name-list button {
+  flex: 0 0 auto;
+  border: 1px solid hsl(var(--destructive));
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
   box-shadow: none;
 }
 
+.subscribed-card-name-list button:hover:not(:disabled) {
+  border-color: hsl(var(--destructive));
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  box-shadow: 0 8px 18px hsl(var(--destructive) / .24);
+}
+
 @media (max-width: 640px) {
+  .marketplace-subscription,
+  .marketplace-subscription .card-name-subscription-control,
+  .card-name-subscription-control > button,
+  .subscription-management-link {
+    width: 100%;
+  }
+
   .notification-settings-card {
     padding: 16px;
   }
 
-  .subscribed-character-list li,
-  .subscribed-character-list button {
+  .subscribed-card-name-list li,
+  .subscribed-card-name-list button {
     width: 100%;
   }
 }
