@@ -67,7 +67,12 @@ describe('notification Function deployment contract', () => {
     expect(setupGuide).toContain('Asia/Taipei');
     expect(setupGuide).toMatch(/budget alert/i);
     expect(setupGuide).toMatch(/Cloud Run Functions spend cap/i);
-    expect(setupGuideLines).toContain('firebase deploy --only functions,firestore');
+    expect(setupGuideLines).toContain(
+      'firebase deploy --only firestore --project conantcgmarket',
+    );
+    expect(setupGuideLines).toContain(
+      'firebase deploy --only functions --project conantcgmarket',
+    );
     expect(setupGuide).toContain('GitHub Pages deployment is web-only');
 
     for (const command of [
@@ -81,14 +86,32 @@ describe('notification Function deployment contract', () => {
     }
   });
 
-  it('documents a non-production Listing check with one test subscriber', async () => {
+  it('documents the complete card-name matching and no-match delivery contract', async () => {
     const setupGuide = await readFile(
       new URL('../../docs/firebase-setup.md', import.meta.url),
       'utf8',
     );
 
-    expect(setupGuide).toContain('non-production Listing');
-    expect(setupGuide).toContain('one test subscriber');
+    expect(setupGuide).toContain('Node.js 22');
+    expect(setupGuide).toContain('cardNames');
+    expect(setupGuide).toContain('raw substring');
+    expect(setupGuide).toContain('case-sensitive');
+    expect(setupGuide).toContain('all card types, IDs, and rarities');
+    expect(setupGuide).toContain('no matching new Listings');
+  });
+
+  it('documents the fixed release order and non-invasive deployment verification', async () => {
+    const setupGuide = await readFile(
+      new URL('../../docs/firebase-setup.md', import.meta.url),
+      'utf8',
+    );
+
+    expect(setupGuide).toContain(
+      'Rules first, Functions second, and frontend third',
+    );
+    expect(setupGuide).toContain('explicit operator approval');
+    expect(setupGuide).toContain('no production Listing');
+    expect(setupGuide).toContain('no live email');
   });
 
   it('documents the private operator monitoring and explicit recovery workflow', async () => {
