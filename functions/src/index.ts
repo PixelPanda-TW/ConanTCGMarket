@@ -31,7 +31,6 @@ import {
   handleDailyDigestOperatorRequest,
   type DailyDigestOperatorDependencies,
 } from './dailyDigestOperator.js';
-import { createDiscordClient, discordListingsWebhookUrl } from './discordClient.js';
 import type { ListingEvent } from './domain.js';
 import {
   createGmailClient,
@@ -43,10 +42,6 @@ import {
 } from './gmailClient.js';
 import {
   captureListingEvent as captureListingEventData,
-  deliverDiscordEvent as deliverDiscordEventData,
-  reserveDiscordDeliveryAttempt,
-  retryFailedDiscordEvents as retryFailedDiscordEventsData,
-  type ListingEventDependencies,
   type ListingEventStore,
 } from './listingEvents.js';
 
@@ -111,7 +106,7 @@ function writeDailyDeliveryRecord(record: DailyDigestDeliveryRecord): DocumentDa
   };
 }
 
-const eventStore: ListingEventStore = {
+const eventStore: Pick<ListingEventStore, 'create'> = {
   async create(event) {
     const eventReference = firestore.collection('listingEvents').doc(event.id);
     const sequenceReference = firestore
@@ -133,7 +128,6 @@ const eventStore: ListingEventStore = {
         ...event,
         capturedAt: FieldValue.serverTimestamp(),
         capturedSequence,
-        nextAttemptAt: FieldValue.serverTimestamp(),
       });
       transaction.set(sequenceReference, {
         lastSequence: capturedSequence,
@@ -141,104 +135,6 @@ const eventStore: ListingEventStore = {
       });
     });
   },
-  async claim(listingId, claimId, claimedAt, leaseUntil, maxAttempts) {
-    const eventReference = firestore.collection('listingEvents').doc(listingId);
-
-    return firestore.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(eventReference);
-      if (!snapshot.exists) {
-        return null;
-      }
-
-      const claimed = reserveDiscordDeliveryAttempt(
-        snapshot.data() as ListingEvent,
-        claimId,
-        claimedAt,
-        leaseUntil,
-        maxAttempts,
-      );
-      if (!claimed) {
-        return null;
-      }
-
-      transaction.set(eventReference, claimed);
-      return claimed;
-    });
-  },
-  async markSent(listingId, claimId, sentAt) {
-    const eventReference = firestore.collection('listingEvents').doc(listingId);
-
-    await firestore.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(eventReference);
-      if (!snapshot.exists) {
-        return;
-      }
-
-      const current = snapshot.data() as ListingEvent;
-      if (current.discordStatus === 'sent' || current.discordClaimId !== claimId) {
-        return;
-      }
-
-      transaction.update(eventReference, {
-        discordStatus: 'sent',
-        discordSentAt: Timestamp.fromDate(sentAt),
-        discordClaimId: FieldValue.delete(),
-        discordLeaseUntil: FieldValue.delete(),
-        nextAttemptAt: FieldValue.delete(),
-      });
-    });
-  },
-  async markFailed(listingId, claimId, attempts, nextAttemptAt) {
-    const eventReference = firestore.collection('listingEvents').doc(listingId);
-
-    await firestore.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(eventReference);
-      if (!snapshot.exists) {
-        return;
-      }
-
-      const current = snapshot.data() as ListingEvent;
-      if (current.discordStatus === 'sent' || current.discordClaimId !== claimId) {
-        return;
-      }
-
-      transaction.update(eventReference, {
-        discordStatus: 'failed',
-        attempts,
-        discordClaimId: FieldValue.delete(),
-        discordLeaseUntil: FieldValue.delete(),
-        nextAttemptAt: nextAttemptAt
-          ? Timestamp.fromDate(nextAttemptAt)
-          : FieldValue.delete(),
-      });
-    });
-  },
-  async findDueFailed(now, maxAttempts, limit) {
-    const snapshot = await firestore.collection('listingEvents')
-      .where('discordStatus', '==', 'failed')
-      .where('attempts', '<', maxAttempts)
-      .where('nextAttemptAt', '<=', Timestamp.fromDate(now))
-      .limit(limit)
-      .get();
-
-    return snapshot.docs.map((document) => document.data() as ListingEvent);
-  },
-  async findPending(limit) {
-    const snapshot = await firestore.collection('listingEvents')
-      .where('discordStatus', '==', 'pending')
-      .orderBy(FieldPath.documentId())
-      .limit(limit)
-      .get();
-
-    return snapshot.docs.map((document) => document.data() as ListingEvent);
-  },
-};
-
-const dependencies: ListingEventDependencies = {
-  events: eventStore,
-  discord: createDiscordClient(),
-  now: () => new Date(),
-  createClaimId: randomUUID,
 };
 
 const dailyDigestDependencies: DailyDigestDependencies = {
@@ -509,7 +405,7 @@ export const captureListingEvent = onDocumentCreated(
     const result = await captureListingEventData({
       params: { listingId: source.params.listingId },
       data: source.data.data(),
-    }, dependencies);
+    }, { events: eventStore }, { discordEnabled: false });
     if (result.status === 'invalid') {
       logError('Listing event capture skipped a permanently invalid snapshot.', {
         listingId: source.params.listingId,
@@ -517,39 +413,6 @@ export const captureListingEvent = onDocumentCreated(
       });
     }
   },
-);
-
-export const deliverDiscordEvent = onDocumentCreated(
-  {
-    document: 'listingEvents/{listingId}',
-    retry: true,
-    timeoutSeconds: 60,
-    secrets: [discordListingsWebhookUrl],
-  },
-  async (source) => {
-    if (!source.data) {
-      return;
-    }
-
-    const current = await source.data.ref.get();
-    if (!current.exists) {
-      return;
-    }
-
-    await deliverDiscordEventData(current.data() as ListingEvent, dependencies);
-  },
-);
-
-export const retryFailedDiscordEvents = onSchedule(
-  {
-    schedule: 'every 15 minutes',
-    retryCount: 3,
-    minBackoffSeconds: 60,
-    maxBackoffSeconds: 300,
-    timeoutSeconds: 540,
-    secrets: [discordListingsWebhookUrl],
-  },
-  async () => retryFailedDiscordEventsData(new Date(), dependencies),
 );
 
 export const sendDailyDigest = onSchedule(

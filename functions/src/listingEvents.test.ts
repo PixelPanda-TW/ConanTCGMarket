@@ -119,6 +119,24 @@ describe('captureListingEvent', () => {
     expect([...stored.values()]).toStrictEqual([eventDraft]);
   });
 
+  it('captures an email-only event without a Discord pending state', async () => {
+    const created: Array<Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>> = [];
+    const deps = createDependencies({
+      create: vi.fn(async (createdEvent) => {
+        created.push(createdEvent);
+      }),
+    });
+
+    await captureListingEvent(
+      { params: { listingId: 'listing-1' }, data: listing },
+      deps,
+      { discordEnabled: false },
+    );
+
+    expect(created).toStrictEqual([{ ...eventDraft, discordStatus: 'disabled' }]);
+    expect(created[0]).not.toHaveProperty('nextAttemptAt');
+  });
+
   it('does not swallow non-duplicate persistence failures', async () => {
     const deps = createDependencies({
       create: vi.fn().mockRejectedValue(new Error('Firestore unavailable')),
@@ -146,6 +164,16 @@ describe('captureListingEvent', () => {
 });
 
 describe('reserveDiscordDeliveryAttempt', () => {
+  it('never reserves an email-only event with Discord disabled', () => {
+    expect(reserveDiscordDeliveryAttempt(
+      { ...event, discordStatus: 'disabled' },
+      'claim-1',
+      now,
+      new Date('2026-08-25T02:05:00.000Z'),
+      3,
+    )).toBeNull();
+  });
+
   it('does not reserve a fourth POST after three claimed attempts crash and expire', () => {
     const firstLease = new Date('2026-08-25T02:05:00.000Z');
     const first = reserveDiscordDeliveryAttempt(
@@ -204,6 +232,15 @@ describe('reserveDiscordDeliveryAttempt', () => {
 });
 
 describe('deliverDiscordEvent', () => {
+  it('never publishes an email-only event with Discord disabled', async () => {
+    const deps = createDependencies();
+
+    await deliverDiscordEvent({ ...event, discordStatus: 'disabled' }, deps);
+
+    expect(deps.events.claim).not.toHaveBeenCalled();
+    expect(deps.discord.publishNewListing).not.toHaveBeenCalled();
+  });
+
   it('posts the approved public Discord event and marks it sent', async () => {
     const deps = createDependencies();
 

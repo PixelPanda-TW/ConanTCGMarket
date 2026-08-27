@@ -5,6 +5,7 @@ import {
   type DiscordClient,
   type ListingEvent,
   type ListingEventDraft,
+  type ListingEventOptions,
 } from './domain.js';
 
 const MAX_DISCORD_ATTEMPTS = 3;
@@ -39,6 +40,10 @@ export interface ListingEventDependencies {
   createClaimId(): string;
 }
 
+export interface ListingEventCaptureDependencies {
+  events: Pick<ListingEventStore, 'create'>;
+}
+
 export interface ListingCreatedEvent {
   params: { listingId: string };
   data: unknown;
@@ -60,11 +65,12 @@ function isAlreadyExists(error: unknown): boolean {
 
 export async function captureListingEvent(
   source: ListingCreatedEvent,
-  deps: Pick<ListingEventDependencies, 'events'>,
+  deps: ListingEventCaptureDependencies,
+  options: ListingEventOptions = {},
 ): Promise<ListingEventCaptureResult> {
   let event: ListingEventDraft | null;
   try {
-    event = toCharacterListingEvent(source.params.listingId, source.data);
+    event = toCharacterListingEvent(source.params.listingId, source.data, options);
   } catch (error) {
     if (error instanceof InvalidListingSnapshotError) {
       return { status: 'invalid', reason: error.message };
@@ -104,7 +110,9 @@ export function reserveDiscordDeliveryAttempt(
   leaseUntil: Date,
   maxAttempts: number,
 ): ListingEvent | null {
-  if (current.discordStatus === 'sent' || current.attempts >= maxAttempts) {
+  if (current.discordStatus === 'disabled'
+    || current.discordStatus === 'sent'
+    || current.attempts >= maxAttempts) {
     return null;
   }
 
@@ -142,7 +150,9 @@ export async function deliverDiscordEvent(
   event: ListingEvent,
   deps: ListingEventDependencies,
 ): Promise<void> {
-  if (event.discordStatus === 'sent' || event.attempts >= MAX_DISCORD_ATTEMPTS) {
+  if (event.discordStatus === 'disabled'
+    || event.discordStatus === 'sent'
+    || event.attempts >= MAX_DISCORD_ATTEMPTS) {
     return;
   }
 

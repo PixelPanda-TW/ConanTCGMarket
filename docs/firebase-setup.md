@@ -54,6 +54,12 @@ not a hard spending limit.
 
 The daily digest schedule runs at 09:00 `Asia/Taipei`.
 
+Discord delivery is currently disabled. New Listing events are stored with
+`discordStatus: disabled`, no Discord retry timestamp is created, and the
+Discord delivery and retry Functions are not exported for deployment. If
+Discord is enabled in a future release, only Listings created after that
+release should be announced; do not replay disabled historical events.
+
 The Functions package intentionally remains on Node.js 20 because this feature's
 accepted implementation plan fixes Node 20 as a global constraint. Upgrading the
 runtime belongs in a separate change with its own dependency and deployment
@@ -72,7 +78,6 @@ Set each secret interactively in the Firebase CLI. Do not place any secret in
 `.env`, repository variables, source code, issues, or logs.
 
 ```sh
-firebase functions:secrets:set DISCORD_LISTINGS_WEBHOOK_URL
 firebase functions:secrets:set GMAIL_OAUTH_CLIENT_ID
 firebase functions:secrets:set GMAIL_OAUTH_CLIENT_SECRET
 firebase functions:secrets:set GMAIL_OAUTH_REFRESH_TOKEN
@@ -81,7 +86,6 @@ firebase functions:secrets:set GMAIL_SENDER_ADDRESS
 
 The required names are:
 
-- `DISCORD_LISTINGS_WEBHOOK_URL`
 - `GMAIL_OAUTH_CLIENT_ID`
 - `GMAIL_OAUTH_CLIENT_SECRET`
 - `GMAIL_OAUTH_REFRESH_TOKEN`
@@ -164,11 +168,12 @@ and result in the operator incident record.
 Before using notification delivery in production:
 
 - Use a non-production Listing with a known character and confirm exactly one
-  Listing event is captured and delivered to the test Discord webhook.
+  Listing event is captured with `discordStatus: disabled` and without a
+  Discord retry timestamp.
 - Create one test subscriber for that character, enable the email digest, and
   use only that subscriber's verified test Gmail address.
 - Trigger or wait for the 09:00 `Asia/Taipei` digest, confirm the single test
   subscriber receives the expected Listing, then confirm the delivery cursor
   advances only after the successful send and the date-keyed run is complete.
-- Delete the test Listing and test subscriber, and confirm no production
-  webhook, sender account, or subscriber data was used during the check.
+- Delete the test Listing and test subscriber, and confirm no production sender
+  account or subscriber data was used during the check.

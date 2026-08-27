@@ -1,7 +1,11 @@
 import { Timestamp } from 'firebase-admin/firestore';
 
 export type ListingStatus = 'active' | 'sold_out';
-export type DiscordStatus = 'pending' | 'sent' | 'failed';
+export type DiscordStatus = 'disabled' | 'pending' | 'sent' | 'failed';
+
+export interface ListingEventOptions {
+  discordEnabled?: boolean;
+}
 
 export interface ListingSnapshot {
   cardId: string;
@@ -114,6 +118,7 @@ function readCreatedAt(value: unknown): Timestamp {
 export function toListingEvent(
   listingId: string,
   listing: unknown,
+  options: ListingEventOptions = {},
 ): ListingEventDraft {
   if (typeof listingId !== 'string'
     || listingId.length === 0
@@ -162,7 +167,7 @@ export function toListingEvent(
     listingPrice: data.listingPrice,
     remainingQuantity: data.remainingQuantity,
     createdAt: readCreatedAt(data.createdAt),
-    discordStatus: 'pending',
+    discordStatus: options.discordEnabled === false ? 'disabled' : 'pending',
     attempts: 0,
   };
 }
@@ -170,9 +175,10 @@ export function toListingEvent(
 export function toCharacterListingEvent(
   listingId: string,
   listing: unknown,
+  options: ListingEventOptions = {},
 ): ListingEventDraft | null {
   if (typeof listing !== 'object' || listing === null || Array.isArray(listing)) {
-    return toListingEvent(listingId, listing);
+    return toListingEvent(listingId, listing, options);
   }
 
   const data = listing as Record<string, unknown>;
@@ -194,5 +200,5 @@ export function toCharacterListingEvent(
     return invalidSnapshot('cardType must be character, event, case, or partner.');
   }
 
-  return toListingEvent(listingId, listing);
+  return toListingEvent(listingId, listing, options);
 }

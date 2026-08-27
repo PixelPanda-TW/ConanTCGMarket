@@ -31,6 +31,13 @@ describe('toListingEvent', () => {
     expect(toListingEvent('listing-1', listing)).toStrictEqual(expectedEvent);
   });
 
+  it('creates a disabled Discord snapshot for email-only capture', () => {
+    expect(toListingEvent('listing-1', listing, { discordEnabled: false })).toStrictEqual({
+      ...expectedEvent,
+      discordStatus: 'disabled',
+    });
+  });
+
   it('rejects a listing without character metadata', () => {
     expect(() => toListingEvent('listing-1', { ...listing, characterName: undefined }))
       .toThrow('Listing event requires character metadata.');

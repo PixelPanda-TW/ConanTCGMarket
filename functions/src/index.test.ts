@@ -1,21 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import {
-  captureListingEvent,
-  dailyDigestOperator,
-  deliverDiscordEvent,
-  retryFailedDiscordEvents,
-  sendDailyDigest,
-} from './index.js';
+import * as deployedFunctions from './index.js';
 import { DEFAULT_DAILY_RECIPIENT_CAP } from './dailyDigest.js';
 
+const { captureListingEvent, dailyDigestOperator, sendDailyDigest } = deployedFunctions;
+
 describe('notification Function deployment contract', () => {
-  it('exports every notification handler for Firebase deployment', () => {
-    expect(captureListingEvent).toBeDefined();
-    expect(dailyDigestOperator).toBeDefined();
-    expect(deliverDiscordEvent).toBeDefined();
-    expect(retryFailedDiscordEvents).toBeDefined();
-    expect(sendDailyDigest).toBeDefined();
+  it('deploys only email notification handlers while Discord is disabled', () => {
+    expect(Object.keys(deployedFunctions).sort()).toStrictEqual([
+      'captureListingEvent',
+      'dailyDigestOperator',
+      'sendDailyDigest',
+    ]);
   });
 
   it('keeps the operator workflow behind Cloud IAM', () => {
@@ -24,18 +20,15 @@ describe('notification Function deployment contract', () => {
 
   it('enables platform retries for transient Firestore event failures', () => {
     expect(captureListingEvent.__endpoint.eventTrigger?.retry).toBe(true);
-    expect(deliverDiscordEvent.__endpoint.eventTrigger?.retry).toBe(true);
   });
 
   it('allocates nine minutes and scheduler retries to the sequential 100-recipient batch', () => {
     expect(DEFAULT_DAILY_RECIPIENT_CAP).toBe(100);
-    expect(retryFailedDiscordEvents.__endpoint.timeoutSeconds).toBe(540);
-    expect(retryFailedDiscordEvents.__endpoint.scheduleTrigger?.retryConfig?.retryCount).toBe(3);
     expect(sendDailyDigest.__endpoint.timeoutSeconds).toBe(540);
     expect(sendDailyDigest.__endpoint.scheduleTrigger?.retryConfig?.retryCount).toBe(3);
   });
 
-  it('documents an exact Firebase CLI command for every required secret', async () => {
+  it('documents an exact Firebase CLI command for every required email secret', async () => {
     const setupGuide = await readFile(
       new URL('../../docs/firebase-setup.md', import.meta.url),
       'utf8',
@@ -43,7 +36,6 @@ describe('notification Function deployment contract', () => {
     const setupGuideLines = setupGuide.split(/\r?\n/);
 
     const secretCommands = [
-      'firebase functions:secrets:set DISCORD_LISTINGS_WEBHOOK_URL',
       'firebase functions:secrets:set GMAIL_OAUTH_CLIENT_ID',
       'firebase functions:secrets:set GMAIL_OAUTH_CLIENT_SECRET',
       'firebase functions:secrets:set GMAIL_OAUTH_REFRESH_TOKEN',
