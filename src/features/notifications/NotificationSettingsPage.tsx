@@ -21,6 +21,7 @@ export function NotificationSettingsPage() {
   const [saveError, setSaveError] = useState(false);
   const currentUid = user?.uid ?? null;
   const committedContextRef = useRef<CommittedAuthContext>({ uid: currentUid, generation: 0 });
+  const saveOperationContextRef = useRef<CommittedAuthContext | null>(null);
   const hasLoadedCurrentUid = currentUid !== null && loadedUid === currentUid;
   const contextualSubscription = hasLoadedCurrentUid ? subscription : null;
   const contextualIsSaving = hasLoadedCurrentUid ? isSaving : false;
@@ -34,6 +35,7 @@ export function NotificationSettingsPage() {
       generation: committedContextRef.current.generation + 1,
     };
     committedContextRef.current = committedContext;
+    saveOperationContextRef.current = null;
 
     return () => {
       if (committedContextRef.current === committedContext) {
@@ -76,13 +78,16 @@ export function NotificationSettingsPage() {
   async function persistSettings(cardNames: string[], emailDailyEnabled: boolean) {
     if (!user) return;
 
+    const requestContext = committedContextRef.current;
+    if (saveOperationContextRef.current === requestContext) return;
+    saveOperationContextRef.current = requestContext;
+
     const nextSubscription: NotificationSubscription = {
       uid: user.uid,
       cardNames,
       emailDailyEnabled,
       updatedAt: new Date(),
     };
-    const requestContext = committedContextRef.current;
 
     setIsSaving(true);
     setSaveError(false);
@@ -98,6 +103,9 @@ export function NotificationSettingsPage() {
     } finally {
       if (committedContextRef.current === requestContext) {
         setIsSaving(false);
+      }
+      if (saveOperationContextRef.current === requestContext) {
+        saveOperationContextRef.current = null;
       }
     }
   }

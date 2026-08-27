@@ -164,6 +164,35 @@ describe('NotificationSettingsPage', () => {
     expect((screen.getByRole('checkbox', { name: '每日彙整 Email 通知' }) as HTMLInputElement).disabled).toBe(true);
   });
 
+  it('rejects a second same-render removal before deferred saves can complete in reverse', async () => {
+    const finishSaves: Array<() => void> = [];
+    subscriptions.saveNotificationSubscription.mockImplementation(() => new Promise<void>((resolve) => {
+      finishSaves.push(resolve);
+    }));
+    render(<NotificationSettingsPage />);
+
+    const removeConan = await screen.findByRole('button', { name: '移除江戶川柯南訂閱' });
+    const removeShuffle = screen.getByRole('button', { name: '移除洗牌情緣訂閱' });
+    act(() => {
+      removeConan.click();
+      removeShuffle.click();
+    });
+    expect(screen.getByRole('status').textContent).toBe('訂閱儲存中');
+
+    await act(async () => {
+      finishSaves[1]?.();
+      await Promise.resolve();
+      finishSaves[0]?.();
+    });
+
+    expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledTimes(1);
+    expect(subscriptions.saveNotificationSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      cardNames: ['洗牌情緣'],
+    }));
+    expect(screen.queryByText('江戶川柯南')).toBeNull();
+    expect(screen.getByText('洗牌情緣')).toBeTruthy();
+  });
+
   it('announces a failed save, retains the prior names, and re-enables controls', async () => {
     subscriptions.saveNotificationSubscription.mockRejectedValue(new Error('write failed'));
     const user = userEvent.setup();
@@ -242,7 +271,19 @@ describe('NotificationSettingsPage', () => {
     expect(styles).toMatch(/\.notification-settings-card button:focus-visible\s*\{[^}]*outline: 3px solid hsl\(var\(--ring\)\);/s);
     expect(styles).toMatch(/\.notification-sign-in-guidance button\s*\{[^}]*min-height: 44px;/s);
     expect(styles).toMatch(/\.notification-sign-in-guidance button:focus-visible\s*\{[^}]*outline: 3px solid hsl\(var\(--ring\)\);/s);
-    expect(styles).toMatch(/\.subscribed-card-name-list button\s*\{[^}]*color: hsl\(var\(--destructive\)\);/s);
     expect(styles).toMatch(/@media \(max-width: 640px\)\s*\{[\s\S]*\.subscribed-card-name-list li,[\s\S]*\.subscribed-card-name-list button\s*\{[^}]*width: 100%;/s);
+  });
+
+  it('pairs contrast-safe destructive tokens in normal and hover removal states', () => {
+    const styles = readFileSync('src/styles.css', 'utf8');
+
+    expect(styles).toMatch(/\.subscribed-card-name-list button\s*\{[^}]*background: hsl\(var\(--destructive\)\);[^}]*color: hsl\(var\(--destructive-foreground\)\);/s);
+    expect(styles).toMatch(/\.subscribed-card-name-list button:hover:not\(:disabled\)\s*\{[^}]*background: hsl\(var\(--destructive\)\);[^}]*color: hsl\(var\(--destructive-foreground\)\);/s);
+  });
+
+  it('reserves stable space for conditional saving feedback', () => {
+    const styles = readFileSync('src/styles.css', 'utf8');
+
+    expect(styles).toMatch(/\.notification-settings-content > \.subscription-feedback\s*\{[^}]*min-block-size: 44px;/s);
   });
 });

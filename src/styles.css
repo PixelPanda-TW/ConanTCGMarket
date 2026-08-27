@@ -1182,6 +1182,10 @@ textarea:focus-visible {
   margin: 0;
 }
 
+.notification-settings-content > .subscription-feedback {
+  min-block-size: 44px;
+}
+
 .subscription-sign-in-guidance {
   justify-items: start;
   border-left: 4px solid hsl(var(--info));
@@ -1293,15 +1297,17 @@ textarea:focus-visible {
 
 .subscribed-card-name-list button {
   flex: 0 0 auto;
-  border: 1px solid hsl(var(--destructive) / .42);
-  background: hsl(var(--card));
-  color: hsl(var(--destructive));
+  border: 1px solid hsl(var(--destructive));
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
   box-shadow: none;
 }
 
 .subscribed-card-name-list button:hover:not(:disabled) {
   border-color: hsl(var(--destructive));
-  background: hsl(var(--destructive) / .1);
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  box-shadow: 0 8px 18px hsl(var(--destructive) / .24);
 }
 
 @media (max-width: 640px) {
