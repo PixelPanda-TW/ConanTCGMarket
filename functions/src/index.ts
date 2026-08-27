@@ -153,7 +153,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         const data = document.data();
         return {
           uid: document.id,
-          characterKeys: data.characterKeys as string[],
+          cardNames: data.cardNames as string[],
           emailDailyEnabled: data.emailDailyEnabled as boolean,
           updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(0),
         };
@@ -161,16 +161,12 @@ const dailyDigestDependencies: DailyDigestDependencies = {
     },
   },
   events: {
-    async findNewByCharacterKeys(characterKeys, afterSequence, throughSequence) {
-      if (characterKeys.length === 0 || characterKeys.length > 30) {
-        throw new Error('Daily digest character query requires between 1 and 30 keys.');
-      }
-
+    async findNewInSequenceRange(afterSequence, throughSequence, limit) {
       const snapshot = await firestore.collection('listingEvents')
-        .where('characterKey', 'in', characterKeys)
         .where('capturedSequence', '>', afterSequence)
         .where('capturedSequence', '<=', throughSequence)
         .orderBy('capturedSequence', 'asc')
+        .limit(limit)
         .get();
 
       return snapshot.docs.map((document) => document.data() as ListingEvent);

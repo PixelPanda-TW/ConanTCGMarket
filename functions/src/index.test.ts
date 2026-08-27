@@ -5,6 +5,11 @@ import { DEFAULT_DAILY_RECIPIENT_CAP } from './dailyDigest.js';
 
 const { captureListingEvent, dailyDigestOperator, sendDailyDigest } = deployedFunctions;
 
+const functionsPackage = JSON.parse(await readFile(
+  new URL('../package.json', import.meta.url),
+  'utf8',
+)) as { engines?: { node?: string } };
+
 describe('notification Function deployment contract', () => {
   it('deploys only email notification handlers while Discord is disabled', () => {
     expect(Object.keys(deployedFunctions).sort()).toStrictEqual([
@@ -12,6 +17,10 @@ describe('notification Function deployment contract', () => {
       'dailyDigestOperator',
       'sendDailyDigest',
     ]);
+  });
+
+  it('targets the supported Node.js 22 Functions runtime', () => {
+    expect(functionsPackage.engines?.node).toBe('22');
   });
 
   it('keeps the operator workflow behind Cloud IAM', () => {
