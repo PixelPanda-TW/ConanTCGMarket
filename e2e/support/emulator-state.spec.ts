@@ -173,6 +173,55 @@ test('accepts only the demo project with loopback Emulator hosts', () => {
   expect(() => assertSafeEmulatorEnvironment(safeEnvironment)).not.toThrow();
 });
 
+for (const [name, hostname] of [
+  ['IPv4 loopback', '127.0.0.1'],
+  ['localhost', 'localhost'],
+  ['bracketed IPv6 loopback', '[::1]'],
+] as const) {
+  test(`accepts canonical ${name} Emulator endpoints`, () => {
+    expect(() => assertSafeEmulatorEnvironment({
+      GCLOUD_PROJECT: 'demo-conan-tcg-e2e',
+      FIREBASE_AUTH_EMULATOR_HOST: `${hostname}:9099`,
+      FIRESTORE_EMULATOR_HOST: `${hostname}:8080`,
+      FIREBASE_STORAGE_EMULATOR_HOST: `${hostname}:9199`,
+      STORAGE_EMULATOR_HOST: `http://${hostname}:9199`,
+    })).not.toThrow();
+  });
+}
+
+for (const [key, value] of [
+  ['FIREBASE_AUTH_EMULATOR_HOST', '[::1]@evil.com:9199'],
+  ['FIRESTORE_EMULATOR_HOST', '[::1]@evil.com:8080'],
+  ['FIREBASE_AUTH_EMULATOR_HOST', 'user@127.0.0.1:9099'],
+  ['FIREBASE_AUTH_EMULATOR_HOST', '127.0.0.1:9099/path'],
+  ['FIREBASE_AUTH_EMULATOR_HOST', 'localhost:9099?query=1'],
+  ['FIREBASE_AUTH_EMULATOR_HOST', '[::1]:9099#fragment'],
+  ['FIREBASE_AUTH_EMULATOR_HOST', '127.0.0.1:not-a-port'],
+] as const) {
+  test(`rejects malformed ${key} endpoint ${value}`, () => {
+    expect(() => assertSafeEmulatorEnvironment({
+      ...safeEnvironment,
+      [key]: value,
+    })).toThrow(new RegExp(`Unsafe ${key}`));
+  });
+}
+
+test('rejects matching Storage overrides that resolve through credentials to a remote host', () => {
+  expect(() => assertSafeEmulatorEnvironment({
+    ...safeEnvironment,
+    FIREBASE_STORAGE_EMULATOR_HOST: '[::1]@evil.com:9199',
+    STORAGE_EMULATOR_HOST: 'http://[::1]@evil.com:9199',
+  })).toThrow(/Unsafe FIREBASE_STORAGE_EMULATOR_HOST/);
+});
+
+test('compares Storage overrides by canonical host and port', () => {
+  expect(() => assertSafeEmulatorEnvironment({
+    ...safeEnvironment,
+    FIREBASE_STORAGE_EMULATOR_HOST: 'localhost:09199',
+    STORAGE_EMULATOR_HOST: 'http://LOCALHOST:9199/',
+  })).not.toThrow();
+});
+
 test('rejects a conflicting Storage SDK Emulator override before client creation', () => {
   withProcessEnvironment({
     ...safeEnvironment,

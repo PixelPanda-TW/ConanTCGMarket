@@ -25,13 +25,47 @@ export interface ScenarioSeed {
 
 const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1']);
 
-function emulatorHost(value: string | undefined): string | null {
+interface EmulatorEndpoint {
+  hostname: string;
+  port: string;
+}
+
+function parseEmulatorEndpoint(
+  value: string | undefined,
+  allowHttpProtocol = false,
+): EmulatorEndpoint | null {
   if (!value) return null;
-  if (value.startsWith('[')) {
-    const closingBracket = value.indexOf(']');
-    return closingBracket === -1 ? null : value.slice(1, closingBracket);
+
+  const hasProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(value);
+  if (hasProtocol && (!allowHttpProtocol || !value.startsWith('http://'))) {
+    return null;
   }
-  return value.split(':')[0] || null;
+
+  let endpoint: URL;
+  try {
+    endpoint = new URL(hasProtocol ? value : `http://${value}`);
+  } catch {
+    return null;
+  }
+
+  const hostname = endpoint.hostname.startsWith('[') && endpoint.hostname.endsWith(']')
+    ? endpoint.hostname.slice(1, -1)
+    : endpoint.hostname;
+  if (
+    endpoint.protocol !== 'http:'
+    || endpoint.username !== ''
+    || endpoint.password !== ''
+    || (endpoint.pathname !== '' && endpoint.pathname !== '/')
+    || endpoint.search !== ''
+    || endpoint.hash !== ''
+    || !allowedHosts.has(hostname)
+    || !/^\d+$/.test(endpoint.port)
+    || Number(endpoint.port) < 1
+  ) {
+    return null;
+  }
+
+  return { hostname, port: endpoint.port };
 }
 
 export function assertSafeEmulatorEnvironment(
@@ -41,22 +75,31 @@ export function assertSafeEmulatorEnvironment(
     throw new Error('Unsafe E2E project.');
   }
 
+  const firebaseEndpoints = new Map<string, EmulatorEndpoint>();
   for (const key of [
     'FIREBASE_AUTH_EMULATOR_HOST',
     'FIRESTORE_EMULATOR_HOST',
     'FIREBASE_STORAGE_EMULATOR_HOST',
   ]) {
-    if (!allowedHosts.has(emulatorHost(env[key]) ?? '')) {
+    const endpoint = parseEmulatorEndpoint(env[key]);
+    if (!endpoint) {
       throw new Error(`Unsafe ${key}.`);
     }
+    firebaseEndpoints.set(key, endpoint);
   }
 
   const storageSdkHost = env.STORAGE_EMULATOR_HOST;
-  if (
-    storageSdkHost !== undefined
-    && storageSdkHost.replace(/^http:\/\//, '') !== env.FIREBASE_STORAGE_EMULATOR_HOST
-  ) {
-    throw new Error('Unsafe STORAGE_EMULATOR_HOST.');
+  if (storageSdkHost !== undefined) {
+    const storageSdkEndpoint = parseEmulatorEndpoint(storageSdkHost, true);
+    const firebaseStorageEndpoint = firebaseEndpoints.get('FIREBASE_STORAGE_EMULATOR_HOST');
+    if (
+      !storageSdkEndpoint
+      || !firebaseStorageEndpoint
+      || storageSdkEndpoint.hostname !== firebaseStorageEndpoint.hostname
+      || storageSdkEndpoint.port !== firebaseStorageEndpoint.port
+    ) {
+      throw new Error('Unsafe STORAGE_EMULATOR_HOST.');
+    }
   }
 }
 
