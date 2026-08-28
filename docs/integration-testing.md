@@ -87,6 +87,21 @@ For a local read-only smoke test against a deployed site or a loopback server:
 npm run test:smoke -- --base-url <read-only-url>
 ```
 
+When the URL is a local loopback server, build and serve the E2E artifact—not a
+production `dist/` artifact—while the expected loopback Firebase services are
+available. The production artifact deliberately uses production configuration;
+against a local Emulator environment it can remain in a loading state. In one
+terminal, run:
+
+```bash
+npm run build:e2e
+npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+```
+
+Then, in another terminal, run the smoke command with
+`http://127.0.0.1:4173/ConanTCGMarket/`. The smoke suite remains
+network-guarded and read-only in either case.
+
 Never point a mutating test command at a production Firebase project. The smoke
 command is the only deployment-URL command and it is read-only.
 
