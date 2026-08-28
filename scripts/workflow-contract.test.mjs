@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { parse } from 'yaml';
@@ -14,6 +15,17 @@ const safeFirebaseEnvironment = {
   VITE_FIREBASE_MESSAGING_SENDER_ID: '000000000000',
   VITE_FIREBASE_APP_ID: '1:000000000000:web:e2e000000000000000000',
 };
+const firebaseVariableNames = [
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID',
+];
+const productionFirebaseEnvironment = Object.fromEntries(firebaseVariableNames.map((name) => (
+  [name, `\${{ vars.${name} }}`]
+)));
 
 function jobNamed(name) {
   const job = jobs[name];
@@ -48,6 +60,102 @@ function assertArtifact(job, { name, condition, paths }) {
   );
 }
 
+function visitValues(value, path, visitor) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => visitValues(item, `${path}[${index}]`, visitor));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    visitor(key, child, `${path}.${key}`);
+    visitValues(child, `${path}.${key}`, visitor);
+  }
+}
+
+function assertNoFailureTolerance(candidate) {
+  visitValues(candidate, 'workflow', (key, value, path) => {
+    assert.notEqual(
+      key === 'continue-on-error' && value === true,
+      true,
+      `${path} must not tolerate failures`,
+    );
+  });
+}
+
+function assertCredentialIsolation(candidate) {
+  assert.equal(candidate.env, undefined, 'workflow-level credential environment is forbidden');
+  for (const jobName of ['quality', 'rules', 'e2e', 'smoke']) {
+    const job = candidate.jobs[jobName];
+    visitValues(job, `workflow.jobs.${jobName}`, (key, value) => {
+      assert.doesNotMatch(key, /GMAIL/i, `${jobName} must not receive Gmail credentials`);
+      if (typeof value !== 'string') return;
+      assert.doesNotMatch(
+        value,
+        /\$\{\{\s*(?:vars|secrets)\./,
+        `${jobName} must not reference repository variables or secrets`,
+      );
+      assert.doesNotMatch(value, /GMAIL/i, `${jobName} must not receive Gmail credentials`);
+    });
+  }
+  assert.deepEqual(stepNamed(candidate.jobs.quality, 'Run quality gates').env, safeFirebaseEnvironment);
+  assert.equal(candidate.jobs.rules.env, undefined);
+  assert.equal(candidate.jobs.e2e.env, undefined);
+  assert.equal(candidate.jobs.smoke.env, undefined);
+}
+
+function assertDeployWiring(candidate) {
+  const deploy = candidate.jobs.deploy;
+  assert.deepEqual(deploy.outputs, {
+    page_url: '${{ steps.deployment.outputs.page_url }}',
+  });
+  assert.deepEqual(deploy.environment, {
+    name: 'github-pages',
+    url: '${{ steps.deployment.outputs.page_url }}',
+  });
+  const validationStep = stepNamed(deploy, 'Validate Firebase configuration');
+  assert.deepEqual({
+    name: validationStep.name,
+    shell: validationStep.shell,
+    env: validationStep.env,
+  }, {
+    name: 'Validate Firebase configuration',
+    shell: 'bash',
+    env: productionFirebaseEnvironment,
+  });
+  assert.equal(typeof validationStep.run, 'string');
+  const configuredEnvironment = Object.fromEntries(firebaseVariableNames.map((name) => [name, 'configured']));
+  const configured = spawnSync('/bin/bash', ['-c', validationStep.run], {
+    encoding: 'utf8',
+    env: configuredEnvironment,
+  });
+  assert.equal(configured.status, 0, configured.stderr);
+  for (const missingName of firebaseVariableNames) {
+    const missingEnvironment = { ...configuredEnvironment };
+    delete missingEnvironment[missingName];
+    const missing = spawnSync('/bin/bash', ['-c', validationStep.run], {
+      encoding: 'utf8',
+      env: missingEnvironment,
+    });
+    assert.notEqual(missing.status, 0, `${missingName} must be required`);
+    assert.match(missing.stderr, new RegExp(`Missing required repository variable: ${missingName}`));
+  }
+  assert.deepEqual(stepNamed(deploy, 'Build production Pages artifact'), {
+    name: 'Build production Pages artifact',
+    run: 'npm run build',
+    env: productionFirebaseEnvironment,
+  });
+  assert.deepEqual(stepNamed(deploy, 'Upload Pages artifact'), {
+    name: 'Upload Pages artifact',
+    uses: 'actions/upload-pages-artifact@v3',
+    with: { path: 'dist' },
+  });
+  assert.deepEqual(stepNamed(deploy, 'Deploy Pages'), {
+    name: 'Deploy Pages',
+    id: 'deployment',
+    uses: 'actions/deploy-pages@v4',
+  });
+}
+
 test('runs the exact quality, Rules, and E2E gates for pull requests and main pushes', () => {
   assert.deepEqual(workflow.on, {
     pull_request: { branches: ['main'] },
@@ -77,6 +185,7 @@ test('runs the exact quality, Rules, and E2E gates for pull requests and main pu
   assert.equal(stepNamed(jobs.e2e, 'Install Functions dependencies').run, 'npm --prefix functions ci');
   assert.equal(stepNamed(jobs.e2e, 'Install Playwright browsers').run, 'npx playwright install --with-deps chromium webkit');
   assert.equal(stepNamed(jobs.e2e, 'Run Emulator E2E').run, 'npm run test:e2e');
+  assertNoFailureTolerance(workflow);
 });
 
 test('deploys only a gated main push with the minimum Pages permissions', () => {
@@ -88,35 +197,16 @@ test('deploys only a gated main push with the minimum Pages permissions', () => 
     pages: 'write',
     'id-token': 'write',
   });
-  assert.deepEqual(deploy.outputs, {
-    page_url: '${{ steps.deployment.outputs.page_url }}',
-  });
-  assert.deepEqual(deploy.environment, {
-    name: 'github-pages',
-    url: '${{ steps.deployment.outputs.page_url }}',
-  });
   assert.equal(stepNamed(deploy, 'Install dependencies').run, 'npm ci');
-  assert.equal(stepNamed(deploy, 'Build production Pages artifact').run, 'npm run build');
-  assert.deepEqual(stepNamed(deploy, 'Upload Pages artifact').with, { path: 'dist' });
-  assert.deepEqual(stepNamed(deploy, 'Deploy Pages'), {
-    name: 'Deploy Pages',
-    id: 'deployment',
-    uses: 'actions/deploy-pages@v4',
-  });
+  assertDeployWiring(workflow);
 });
 
-test('uses only fail-closed demo configuration in test jobs', () => {
+test('keeps workflow and test-job credentials isolated from production', () => {
   for (const jobName of ['quality', 'rules', 'e2e', 'smoke']) {
     const job = jobNamed(jobName);
-    const serializedJob = JSON.stringify(job);
-    assert.doesNotMatch(serializedJob, /\$\{\{\s*(?:vars|secrets)\./);
-    assert.doesNotMatch(serializedJob, /GMAIL/);
     if (jobName !== 'smoke') assert.deepEqual(job.permissions, undefined);
   }
-  assert.deepEqual(stepNamed(jobs.quality, 'Run quality gates').env, safeFirebaseEnvironment);
-  assert.equal(jobs.rules.env, undefined);
-  assert.equal(jobs.e2e.env, undefined);
-  assert.equal(jobs.smoke.env, undefined);
+  assertCredentialIsolation(workflow);
 });
 
 test('retains browser and Emulator failure evidence for fourteen days', () => {
@@ -148,4 +238,34 @@ test('runs a read-only smoke only after deployment using its exact Pages URL', (
     stepNamed(smoke, 'Run read-only deployment smoke').run,
     'npm run test:smoke -- --base-url "${{ needs.deploy.outputs.page_url }}"',
   );
+  assert.equal(
+    stepNamed(smoke, 'Upload smoke evidence').uses,
+    'actions/upload-artifact@v4',
+  );
+});
+
+test('rejects failure-tolerance, credential, and Pages-action mutations', async (t) => {
+  await t.test('continue-on-error cannot make a gate advisory', () => {
+    const mutated = structuredClone(workflow);
+    stepNamed(mutated.jobs.e2e, 'Run Emulator E2E')['continue-on-error'] = true;
+    assert.throws(() => assertNoFailureTolerance(mutated), /continue-on-error.*must not tolerate failures/);
+  });
+
+  await t.test('workflow and E2E environments cannot gain repository credentials', () => {
+    const workflowEnvMutation = structuredClone(workflow);
+    workflowEnvMutation.env = { GMAIL_CLIENT_SECRET: '${{ secrets.GMAIL_CLIENT_SECRET }}' };
+    assert.throws(() => assertCredentialIsolation(workflowEnvMutation), /workflow-level credential environment/);
+
+    const e2eEnvMutation = structuredClone(workflow);
+    stepNamed(e2eEnvMutation.jobs.e2e, 'Run Emulator E2E').env = {
+      VITE_FIREBASE_PROJECT_ID: '${{ vars.VITE_FIREBASE_PROJECT_ID }}',
+    };
+    assert.throws(() => assertCredentialIsolation(e2eEnvMutation), /must not reference repository variables or secrets/);
+  });
+
+  await t.test('generic artifacts cannot replace the Pages artifact', () => {
+    const mutated = structuredClone(workflow);
+    stepNamed(mutated.jobs.deploy, 'Upload Pages artifact').uses = 'actions/upload-artifact@v4';
+    assert.throws(() => assertDeployWiring(mutated));
+  });
 });
