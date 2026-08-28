@@ -23,7 +23,7 @@ function evaluateConfig(path, environment = {}) {
   const result = spawnSync(process.execPath, ['--experimental-transform-types', '--input-type=module', '--eval', script], {
     cwd: new URL('.', rootUrl),
     encoding: 'utf8',
-    env: { ...process.env, ...environment },
+    env: { ...process.env, CI: undefined, ...environment },
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -44,13 +44,28 @@ function listProject(project) {
   return output;
 }
 
+test('local config evaluation clears an inherited CI environment', () => {
+  const originalCi = process.env.CI;
+  process.env.CI = 'true';
+  try {
+    const config = evaluateConfig('playwright.config.ts');
+
+    assert.equal(config.forbidOnly, false);
+    assert.equal(config.retries, 0);
+    assert.equal(config.failOnFlakyTests, false);
+  } finally {
+    if (originalCi === undefined) delete process.env.CI;
+    else process.env.CI = originalCi;
+  }
+});
+
 test('keeps the approved reliability and browser matrix', () => {
   const config = evaluateConfig('playwright.config.ts');
 
   assert.deepEqual(config, {
     testDir: './e2e',
     testMatch: null,
-    testIgnore: ['**/smoke.spec.ts', '**/support/**/*.spec.ts'],
+    testIgnore: ['**/smoke.spec.ts'],
     timeout: 30_000,
     expectTimeout: 10_000,
     fullyParallel: false,
@@ -67,13 +82,13 @@ test('keeps the approved reliability and browser matrix', () => {
       video: 'retain-on-failure',
     },
     projects: [
-      { name: 'chromium', testIgnore: ['**/smoke.spec.ts', '**/support/**/*.spec.ts', '**/mobile-forms.spec.ts'], testMatch: null, browserName: 'chromium', isMobile: false },
+      { name: 'chromium', testIgnore: ['**/smoke.spec.ts', '**/mobile-forms.spec.ts'], testMatch: null, browserName: 'chromium', isMobile: false },
       { name: 'webkit-iphone', testIgnore: null, testMatch: ['**/mobile-forms.spec.ts'], browserName: 'webkit', isMobile: true },
     ],
     webServer: {
       command: 'npm run dev -- --mode e2e --host 127.0.0.1 --port 4173 --strictPort',
       url: 'http://127.0.0.1:4173/ConanTCGMarket/',
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       timeout: 60_000,
     },
   });
@@ -106,12 +121,15 @@ test('keeps the production smoke suite isolated and read-only', () => {
   });
 });
 
-test('Playwright discovery excludes support and smoke specs from browser projects', () => {
-  for (const project of ['chromium', 'webkit-iphone']) {
-    const output = listProject(project);
-    assert.doesNotMatch(output, /support\/.*\.spec\.ts/);
-    assert.doesNotMatch(output, /smoke\.spec\.ts/);
-  }
+test('Playwright discovery gates support specs once in Chromium and excludes smoke', () => {
+  const chromium = listProject('chromium');
+  const webkit = listProject('webkit-iphone');
+
+  assert.match(chromium, /support\/emulator-state\.spec\.ts/);
+  assert.match(chromium, /support\/auth\.spec\.ts/);
+  assert.doesNotMatch(webkit, /support\/.*\.spec\.ts/);
+  assert.doesNotMatch(chromium, /smoke\.spec\.ts/);
+  assert.doesNotMatch(webkit, /smoke\.spec\.ts/);
 });
 
 test('uses one retry and preserves failure artifacts in CI', () => {

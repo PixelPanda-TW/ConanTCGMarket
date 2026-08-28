@@ -82,7 +82,28 @@ test('mobile welcome, filters, result navigation, Card Master, and footer remain
   await seedScenario({
     cards: testCards,
     sellerProfiles: [sellerProfile('mobile-seller', 'Mobile Seller')],
-    listings: [activeListing('mobile-seller', image)],
+    listings: [
+      activeListing('mobile-seller', image),
+      activeListing('mobile-seller', image, {
+        id: 'mobile-listing-no-sleeve',
+        cardId: '1096',
+        cardName: '諸伏景光',
+        characterName: '諸伏景光',
+        rarity: 'R',
+        hasSleeve: false,
+        sleeveFee: undefined,
+      }),
+      activeListing('mobile-seller', image, {
+        id: 'mobile-listing-no-myship',
+        cardId: '1100',
+        cardType: 'event',
+        cardName: '追跡開始',
+        characterName: undefined,
+        rarity: 'C',
+        supportsMyShip: false,
+        myShipFee: undefined,
+      }),
+    ],
   });
   await page.goto('./');
   await expectMobileTouch(page);
@@ -95,6 +116,17 @@ test('mobile welcome, filters, result navigation, Card Master, and footer remain
 
   const footerLink = page.locator('footer').getByRole('link', { name: 'rugiacreation.com' });
   await expect(footerLink).toHaveAttribute('href', 'https://rugiacreation.com/conan/search');
+
+  const sleeveFilter = page.getByLabel('包手');
+  const myShipFilter = page.getByLabel('賣貨便');
+  await sleeveFilter.check();
+  await expect(page.getByRole('link', { name: /諸伏高明/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /追跡開始/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /諸伏景光/ })).toHaveCount(0);
+  await myShipFilter.check();
+  await expect(page.getByRole('link', { name: /諸伏高明/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /追跡開始/ })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /諸伏景光/ })).toHaveCount(0);
 
   const cardType = page.getByLabel('卡片類型');
   await expect(cardType).toBeEnabled();
@@ -301,35 +333,40 @@ test('mobile Listing edit form', async ({ page }) => {
   const sleeve = page.getByLabel('包手');
   await sleeve.tap();
   await expect(sleeve).not.toBeChecked();
-  await sleeve.tap();
-  await expect(sleeve).toBeChecked();
-  const sleeveFee = page.getByLabel('包材費');
-  await expectEditable(sleeveFee);
-  await sleeveFee.fill('30');
+  await expect(page.getByLabel('包材費')).toHaveCount(0);
   const myShip = page.getByLabel('支援賣貨便');
   await myShip.tap();
   await expect(myShip).not.toBeChecked();
-  await myShip.tap();
-  await expect(myShip).toBeChecked();
-  const myShipFee = page.getByLabel('賣貨便加價');
-  await expectEditable(myShipFee);
-  await myShipFee.fill('20');
+  await expect(page.getByLabel('賣貨便加價')).toHaveCount(0);
   const note = page.getByLabel('備註');
   await expectEditable(note);
   await note.fill('iPhone 編輯後備註');
 
   await page.getByRole('button', { name: '儲存變更' }).tap();
   await expect(page.getByRole('status')).toHaveText('已更新商品');
-  await expect.poll(() => readDocument('listings', listingId)).toMatchObject({
+  await expect.poll(async () => {
+    const updated = await readDocument('listings', listingId);
+    return {
+      listingPrice: updated?.listingPrice,
+      originalQuantity: updated?.originalQuantity,
+      remainingQuantity: updated?.remainingQuantity,
+      hasSleeve: updated?.hasSleeve,
+      supportsMyShip: updated?.supportsMyShip,
+      note: updated?.note,
+      imageUrls: updated?.imageUrls,
+      hasSleeveFee: Object.hasOwn(updated ?? {}, 'sleeveFee'),
+      hasMyShipFee: Object.hasOwn(updated ?? {}, 'myShipFee'),
+    };
+  }).toMatchObject({
     listingPrice: 475,
     originalQuantity: 5,
     remainingQuantity: 4,
-    hasSleeve: true,
-    sleeveFee: 30,
-    supportsMyShip: true,
-    myShipFee: 20,
+    hasSleeve: false,
+    supportsMyShip: false,
     note: 'iPhone 編輯後備註',
     imageUrls: [expect.not.stringMatching(oldUrl)],
+    hasSleeveFee: false,
+    hasMyShipFee: false,
   });
   await expectListingImagesMatchStorage(identity.uid, listingId, 1);
   await expect.poll(() => listStorageObjects(`listings/${identity.uid}/${listingId}/`))

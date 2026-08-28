@@ -311,6 +311,11 @@ test('rejects sold inventory and replaces images after a successful owner edit',
     .toEqual([oldPath]);
 
   await page.getByLabel('剩餘數量').fill('3');
+  await page.getByLabel('包手').uncheck();
+  await page.getByLabel('支援賣貨便').uncheck();
+  await page.getByLabel('備註').fill('E2E 編輯後備註');
+  await expect(page.getByLabel('包材費')).toHaveCount(0);
+  await expect(page.getByLabel('賣貨便加價')).toHaveCount(0);
   await page.getByLabel('替換商品圖片').setInputFiles(back);
   await page.getByRole('button', { name: '儲存變更' }).click();
   await expect(page.getByRole('status')).toHaveText('已更新商品');
@@ -327,6 +332,11 @@ test('rejects sold inventory and replaces images after a successful owner edit',
       remainingQuantity: updated?.remainingQuantity,
       listingPrice: updated?.listingPrice,
       imageUrls: updated?.imageUrls,
+      hasSleeve: updated?.hasSleeve,
+      supportsMyShip: updated?.supportsMyShip,
+      note: updated?.note,
+      hasSleeveFee: Object.hasOwn(updated ?? {}, 'sleeveFee'),
+      hasMyShipFee: Object.hasOwn(updated ?? {}, 'myShipFee'),
     };
   }).toMatchObject({
     sellerId: owner.uid,
@@ -338,6 +348,11 @@ test('rejects sold inventory and replaces images after a successful owner edit',
     remainingQuantity: 3,
     listingPrice: 450,
     imageUrls: [expect.not.stringMatching(oldUrl)],
+    hasSleeve: false,
+    supportsMyShip: false,
+    note: 'E2E 編輯後備註',
+    hasSleeveFee: false,
+    hasMyShipFee: false,
   });
   await expectPersistedImagesMatchStorage(owner.uid, listingId, 1);
   await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))

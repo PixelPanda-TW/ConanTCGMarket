@@ -26,8 +26,14 @@ function port(env: Record<string, string | boolean | undefined>, key: string, ex
 export function readFirebaseEmulatorEnv(
   env: Record<string, string | boolean | undefined>,
   projectId: string,
+  mode?: string,
 ): FirebaseEmulatorConfig | null {
-  if (env.VITE_FIREBASE_USE_EMULATORS !== 'true') return null;
+  if (env.VITE_FIREBASE_USE_EMULATORS !== 'true') {
+    if (mode === 'e2e') {
+      throw new Error('Unsafe Firebase Emulator configuration: Emulator mode must be explicitly enabled in E2E mode.');
+    }
+    return null;
+  }
 
   const host = env.VITE_FIREBASE_EMULATOR_HOST;
 

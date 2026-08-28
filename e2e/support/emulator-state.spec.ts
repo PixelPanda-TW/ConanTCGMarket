@@ -173,6 +173,19 @@ test('accepts only the demo project with loopback Emulator hosts', () => {
   expect(() => assertSafeEmulatorEnvironment(safeEnvironment)).not.toThrow();
 });
 
+for (const [key, value] of [
+  ['FIREBASE_AUTH_EMULATOR_HOST', '127.0.0.1:9100'],
+  ['FIRESTORE_EMULATOR_HOST', '127.0.0.1:8081'],
+  ['FIREBASE_STORAGE_EMULATOR_HOST', '127.0.0.1:9200'],
+] as const) {
+  test(`rejects an unexpected ${key} port`, () => {
+    expect(() => assertSafeEmulatorEnvironment({
+      ...safeEnvironment,
+      [key]: value,
+    })).toThrow(new RegExp(`Unsafe ${key}`));
+  });
+}
+
 for (const [name, hostname] of [
   ['IPv4 loopback', '127.0.0.1'],
   ['localhost', 'localhost'],

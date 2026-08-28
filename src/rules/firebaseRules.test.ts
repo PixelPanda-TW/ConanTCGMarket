@@ -146,7 +146,7 @@ describe('Firebase rules', () => {
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
     await assertFails(setDoc(doc(buyer, 'notificationDeliveryState', 'buyer-a'), {}));
   });
-  it('allows only the Sale owner to create and query records', async () => {
+  it('allows only the Listing owner to create and query immutable Sale records', async () => {
     const owner = environment.authenticatedContext('seller-a').firestore();
     const otherSeller = environment.authenticatedContext('seller-b').firestore();
     const publicDb = environment.unauthenticatedContext().firestore();
@@ -158,7 +158,16 @@ describe('Firebase rules', () => {
       collection(owner, 'sales'),
       where('sellerId', '==', 'seller-a'),
     )));
-    await assertFails(setDoc(doc(otherSeller, 'sales', 'cross-sale'), saleData));
+    await assertFails(setDoc(doc(otherSeller, 'sales', 'cross-sale'), {
+      ...saleData,
+      sellerId: 'seller-b',
+      listingId: 'active',
+    }));
+    await assertFails(setDoc(doc(otherSeller, 'sales', 'missing-listing-sale'), {
+      ...saleData,
+      sellerId: 'seller-b',
+      listingId: 'does-not-exist',
+    }));
     await assertFails(setDoc(doc(publicDb, 'sales', 'public-sale'), saleData));
     await assertFails(getDoc(doc(otherSeller, 'sales', 'owner-sale')));
     await assertFails(getDocs(query(

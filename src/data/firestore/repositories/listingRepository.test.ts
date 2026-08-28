@@ -7,6 +7,7 @@ const firestore = vi.hoisted(() => ({
   doc: vi.fn(),
   getDoc: vi.fn(),
   getDocs: vi.fn(),
+  getDocsFromCache: vi.fn(),
   getDocsFromServer: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
   query: vi.fn(),
@@ -78,17 +79,43 @@ describe('listing repository', () => {
     });
   });
 
-  it('uses a rejecting server-only read for public Marketplace error handling', async () => {
+  it('uses the server result first for public Marketplace freshness', async () => {
+    const listing = { id: 'listing-server' };
+    firestore.getDocsFromServer.mockResolvedValue({ docs: [{ data: () => listing }] });
+
+    await expect(listActiveListingsFromServer()).resolves.toEqual([listing]);
+
+    expect(firestore.getDocsFromCache).not.toHaveBeenCalled();
+  });
+
+  it('falls back to non-empty active Listing cache after a server failure', async () => {
     const unavailable = new Error('Firestore unavailable');
     firestore.getDocsFromServer.mockRejectedValue(unavailable);
+    const cachedListing = { id: 'listing-cached' };
+    firestore.getDocsFromCache.mockResolvedValue({ docs: [{ data: () => cachedListing }] });
 
-    await expect(listActiveListingsFromServer()).rejects.toBe(unavailable);
+    await expect(listActiveListingsFromServer()).resolves.toEqual([cachedListing]);
 
     expect(firestore.getDocsFromServer).toHaveBeenCalledWith({
       source: convertedCollection,
       constraints: [{ field: 'status', operator: '==', value: 'active' }],
     });
-    expect(firestore.getDocs).not.toHaveBeenCalled();
+    expect(firestore.getDocsFromCache).toHaveBeenCalledWith({
+      source: convertedCollection,
+      constraints: [{ field: 'status', operator: '==', value: 'active' }],
+    });
+  });
+
+  it.each([
+    ['an empty cache', { docs: [] }],
+    ['a failing cache', new Error('Cache unavailable')],
+  ] as const)('rethrows the original active Listing server error for %s', async (_name, cacheResult) => {
+    const unavailable = new Error('Firestore unavailable');
+    firestore.getDocsFromServer.mockRejectedValue(unavailable);
+    if (cacheResult instanceof Error) firestore.getDocsFromCache.mockRejectedValue(cacheResult);
+    else firestore.getDocsFromCache.mockResolvedValue(cacheResult);
+
+    await expect(listActiveListingsFromServer()).rejects.toBe(unavailable);
   });
 
   it("lists a seller's listings through the listings converter", async () => {

@@ -83,6 +83,13 @@ function assertNoFailureTolerance(candidate, { requireAbsent = false } = {}) {
   if (requireAbsent) assert.equal(occurrences, 0, 'current workflow must omit continue-on-error entirely');
 }
 
+function assertConcurrencyPolicy(candidate) {
+  assert.deepEqual(candidate.concurrency, {
+    group: 'pages-${{ github.workflow }}-${{ github.ref }}',
+    'cancel-in-progress': "${{ github.event_name == 'pull_request' }}",
+  });
+}
+
 function assertNoCredentialExpression(value, jobName) {
   for (const match of value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
     assert.doesNotMatch(
@@ -170,10 +177,7 @@ test('runs the exact quality, Rules, and E2E gates for pull requests and main pu
   });
   assert.deepEqual(Object.keys(jobs), ['quality', 'rules', 'e2e', 'deploy', 'smoke']);
   assert.deepEqual(workflow.permissions, { contents: 'read' });
-  assert.deepEqual(workflow.concurrency, {
-    group: 'pages-${{ github.workflow }}-${{ github.ref }}',
-    'cancel-in-progress': true,
-  });
+  assertConcurrencyPolicy(workflow);
 
   for (const jobName of ['quality', 'rules', 'e2e', 'deploy', 'smoke']) {
     assert.equal(jobs[jobName]['runs-on'], 'ubuntu-latest');
@@ -252,6 +256,16 @@ test('runs a read-only smoke only after deployment using its exact Pages URL', (
 });
 
 test('rejects failure-tolerance, credential, and Pages-action mutations', async (t) => {
+  await t.test('main deploy and smoke cannot be canceled by a later push', () => {
+    const alwaysCancel = structuredClone(workflow);
+    alwaysCancel.concurrency['cancel-in-progress'] = true;
+    assert.throws(() => assertConcurrencyPolicy(alwaysCancel));
+
+    const cancelMain = structuredClone(workflow);
+    cancelMain.concurrency['cancel-in-progress'] = "${{ github.event_name == 'push' }}";
+    assert.throws(() => assertConcurrencyPolicy(cancelMain));
+  });
+
   await t.test('continue-on-error cannot make a gate advisory', () => {
     const mutated = structuredClone(workflow);
     stepNamed(mutated.jobs.e2e, 'Run Emulator E2E')['continue-on-error'] = true;

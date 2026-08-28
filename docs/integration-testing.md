@@ -21,6 +21,11 @@ The mocked Google sign-in popup is served by the Auth Emulator; no real Google
 OAuth username, password, consent screen, or MFA is used. Digest coverage stops
 at a fake Gmail adapter, so no real Gmail is sent.
 
+Public Card Master and active-Listing reads remain server-first. If Firestore is
+temporarily unavailable, the app may use a non-empty local cache; an empty or
+failed cache preserves the original server error so error-state coverage cannot
+silently turn a failure into an empty marketplace.
+
 The post-deploy smoke test is deliberately separate. It targets the deployed
 production Pages URL and its read-only production-data boundary; it never signs
 in or writes. Runtime network guards block Auth sign-in, Functions calls, and
@@ -45,17 +50,19 @@ npx playwright install chromium webkit
 ```
 
 On Linux CI, use `npx playwright install --with-deps chromium webkit` instead.
-For `test:quality` in a checkout without an ignored `.env`, provide the six
-non-secret demo Firebase values used by the CI quality job; do not set
-`VITE_FIREBASE_USE_EMULATORS` for that unit/component gate. For example:
+For `test:quality` in a checkout without an ignored `.env`, scope the six
+non-secret demo Firebase values to that command only; do not set
+`VITE_FIREBASE_USE_EMULATORS` for that unit/component gate. This prevents a
+later production build in the same shell from inheriting demo configuration:
 
 ```bash
-export VITE_FIREBASE_API_KEY=demo-api-key
-export VITE_FIREBASE_AUTH_DOMAIN=demo-conan-tcg-e2e.firebaseapp.com
-export VITE_FIREBASE_PROJECT_ID=demo-conan-tcg-e2e
-export VITE_FIREBASE_STORAGE_BUCKET=demo-conan-tcg-e2e.appspot.com
-export VITE_FIREBASE_MESSAGING_SENDER_ID=000000000000
-export VITE_FIREBASE_APP_ID=1:000000000000:web:e2e000000000000000000
+VITE_FIREBASE_API_KEY=demo-api-key \
+VITE_FIREBASE_AUTH_DOMAIN=demo-conan-tcg-e2e.firebaseapp.com \
+VITE_FIREBASE_PROJECT_ID=demo-conan-tcg-e2e \
+VITE_FIREBASE_STORAGE_BUCKET=demo-conan-tcg-e2e.appspot.com \
+VITE_FIREBASE_MESSAGING_SENDER_ID=000000000000 \
+VITE_FIREBASE_APP_ID=1:000000000000:web:e2e000000000000000000 \
+npm run test:quality
 ```
 
 Do not use an existing production `.env` for E2E. A local production build may
@@ -67,7 +74,7 @@ Run the gates with Node 22. The order below matches the full local verification
 sequence; each command must exit 0.
 
 ```bash
-npm run test:quality
+# Run test:quality with the scoped command above when no safe local .env exists.
 npm run test:rules
 npm run test:e2e:chromium
 npm run test:e2e:webkit
@@ -79,8 +86,9 @@ git diff --check
 `test:quality` runs frontend tests, script contracts, Functions tests and lint,
 the Functions build, and an E2E-mode frontend build. `test:rules` starts the
 Firestore and Storage Emulators. The Chromium command runs the complete browser
-suite; WebKit uses an iPhone viewport to exercise core flows and every form
-interaction. `test:e2e` is the combined Emulator gate: it builds Functions,
+suite, including the Admin harness support specs exactly once; WebKit uses an
+iPhone viewport to exercise core flows and every form interaction. `test:e2e`
+is the combined Emulator gate: it builds Functions,
 owns the Emulator lifecycle and frontend server, resets/seeds state, runs both
 browser projects, and cleans up.
 
@@ -146,14 +154,17 @@ matrix where a denied action has no user-visible UI.
 | `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
 | `e2e/mvp-journey.spec.ts` | Login → Profile → Listing → public search → subscription → sale → public sold-out removal. |
 | `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation/Card Master interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
-| `e2e/smoke.spec.ts` | Public deployed entry/assets/routes and configuration-error checks, with no authentication or mutation. |
+| `e2e/support/*.spec.ts` | Admin harness reset/seed/Auth behavior and fixed loopback project/port safety checks; included only in Chromium. |
+| `e2e/smoke.spec.ts` | Public deployed entry/assets/routes, uncaught runtime errors, and configuration-error checks, with no authentication or mutation. |
 | `src/rules/firebaseRules.test.ts` | Listing and seller ownership, active/sold-out reads, Card Master write denial, Profiles, subscriptions/events/delivery state, Sales immutability, and per-seller Storage paths. |
 
 ## Reliability and evidence
 
 Playwright uses one worker. Local retries are disabled; CI permits one retry to
 capture diagnostics but `failOnFlakyTests` makes a retry-only pass fail the CI
-gate. Do not add fixed `waitForTimeout` sleeps—use web-first assertions and
+gate. The E2E Vite server is always newly owned by Playwright and never reuses a
+process already listening on port 4173. Do not add fixed `waitForTimeout`
+sleeps—use web-first assertions and
 bounded Emulator-state polling.
 
 Local evidence is written to ignored `playwright-report/`, `test-results/`, and
@@ -184,10 +195,14 @@ variables (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`,
 production artifact. Test jobs receive demo values or no credentials, never
 production values or Gmail secrets.
 
+Concurrency cancellation applies only to pull-request runs. A newer `main`
+push cannot cancel a deploy after publication but before its required smoke;
+that deploy-and-smoke chain always reaches a terminal result.
+
 After deployment, `smoke` checks the public entry, assets, approved hash routes,
-and configuration errors without authentication or writes. A smoke failure marks
-the workflow failed and preserves its evidence, but it does not roll back the
-already-published Pages version.
+configuration errors, and any uncaught page exception without authentication or
+writes. A smoke failure marks the workflow failed and preserves its evidence,
+but it does not roll back the already-published Pages version.
 
 ### Manual GitHub repository settings
 

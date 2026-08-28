@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: ['**/smoke.spec.ts', '**/support/**/*.spec.ts'],
+  testIgnore: ['**/smoke.spec.ts'],
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
@@ -22,7 +22,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: ['**/smoke.spec.ts', '**/support/**/*.spec.ts', '**/mobile-forms.spec.ts'],
+      testIgnore: ['**/smoke.spec.ts', '**/mobile-forms.spec.ts'],
     },
     {
       name: 'webkit-iphone',
@@ -33,7 +33,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --mode e2e --host 127.0.0.1 --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173/ConanTCGMarket/',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

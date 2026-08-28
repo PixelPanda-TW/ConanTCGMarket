@@ -1,4 +1,4 @@
-import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, getDocsFromServer, query, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, getDocsFromCache, getDocsFromServer, query, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
 import { validateListing, type Listing } from '../../../domain/models';
 import { auth } from '../../../lib/firebase/app';
 import { listingConverter } from '../converters';
@@ -40,8 +40,21 @@ export async function listActiveListings(): Promise<Listing[]> {
 }
 
 export async function listActiveListingsFromServer(): Promise<Listing[]> {
-  const snapshot = await getDocsFromServer(activeListingsQuery());
-  return snapshot.docs.map((doc) => doc.data());
+  const listings = activeListingsQuery();
+  try {
+    const snapshot = await getDocsFromServer(listings);
+    return snapshot.docs.map((doc) => doc.data());
+  } catch (serverError) {
+    try {
+      const cachedSnapshot = await getDocsFromCache(listings);
+      if (cachedSnapshot.docs.length > 0) {
+        return cachedSnapshot.docs.map((doc) => doc.data());
+      }
+    } catch {
+      // Preserve the server failure below; cache is only a best-effort fallback.
+    }
+    throw serverError;
+  }
 }
 
 export async function listSellerListings(sellerId: string): Promise<Listing[]> {

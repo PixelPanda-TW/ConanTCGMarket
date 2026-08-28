@@ -4,6 +4,7 @@ const firestore = vi.hoisted(() => ({
   collection: vi.fn(),
   connectFirestoreEmulator: vi.fn(),
   getDocs: vi.fn(),
+  getDocsFromCache: vi.fn(),
   getDocsFromServer: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
 }));
@@ -37,14 +38,45 @@ describe('card repository', () => {
     expect(firestore.getDocs).toHaveBeenCalledWith(convertedCollection);
   });
 
-  it('uses a rejecting server-only read for public Card Master error handling', async () => {
+  it('uses the server result first for public Card Master freshness', async () => {
+    const cards: Card[] = [
+      { key: '0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'] },
+    ];
+    firestore.getDocsFromServer.mockResolvedValue({
+      docs: cards.map((card) => ({ data: () => card })),
+    });
+
+    await expect(listCardsFromServer()).resolves.toEqual(cards);
+
+    expect(firestore.getDocsFromCache).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a non-empty Card Master cache after a server failure', async () => {
     const unavailable = new Error('Firestore unavailable');
     firestore.getDocsFromServer.mockRejectedValue(unavailable);
+    const cachedCards: Card[] = [
+      { key: '1096', cardId: '1096', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+    ];
+    firestore.getDocsFromCache.mockResolvedValue({
+      docs: cachedCards.map((card) => ({ data: () => card })),
+    });
 
-    await expect(listCardsFromServer()).rejects.toBe(unavailable);
+    await expect(listCardsFromServer()).resolves.toEqual(cachedCards);
 
     expect(firestore.getDocsFromServer).toHaveBeenCalledWith(convertedCollection);
-    expect(firestore.getDocs).not.toHaveBeenCalled();
+    expect(firestore.getDocsFromCache).toHaveBeenCalledWith(convertedCollection);
+  });
+
+  it.each([
+    ['an empty cache', { docs: [] }],
+    ['a failing cache', new Error('Cache unavailable')],
+  ] as const)('rethrows the original server error for %s', async (_name, cacheResult) => {
+    const unavailable = new Error('Firestore unavailable');
+    firestore.getDocsFromServer.mockRejectedValue(unavailable);
+    if (cacheResult instanceof Error) firestore.getDocsFromCache.mockRejectedValue(cacheResult);
+    else firestore.getDocsFromCache.mockResolvedValue(cacheResult);
+
+    await expect(listCardsFromServer()).rejects.toBe(unavailable);
   });
 
   it('merges legacy and composite-key cards by canonical identity without merging same-ID different names', async () => {

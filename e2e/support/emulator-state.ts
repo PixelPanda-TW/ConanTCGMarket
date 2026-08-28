@@ -75,14 +75,15 @@ export function assertSafeEmulatorEnvironment(
     throw new Error('Unsafe E2E project.');
   }
 
+  const expectedPorts = new Map([
+    ['FIREBASE_AUTH_EMULATOR_HOST', '9099'],
+    ['FIRESTORE_EMULATOR_HOST', '8080'],
+    ['FIREBASE_STORAGE_EMULATOR_HOST', '9199'],
+  ]);
   const firebaseEndpoints = new Map<string, EmulatorEndpoint>();
-  for (const key of [
-    'FIREBASE_AUTH_EMULATOR_HOST',
-    'FIRESTORE_EMULATOR_HOST',
-    'FIREBASE_STORAGE_EMULATOR_HOST',
-  ]) {
+  for (const [key, expectedPort] of expectedPorts) {
     const endpoint = parseEmulatorEndpoint(env[key]);
-    if (!endpoint) {
+    if (!endpoint || endpoint.port !== expectedPort) {
       throw new Error(`Unsafe ${key}.`);
     }
     firebaseEndpoints.set(key, endpoint);

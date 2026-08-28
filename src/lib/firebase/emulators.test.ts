@@ -15,6 +15,17 @@ describe('Firebase Emulator configuration', () => {
     expect(readFirebaseEmulatorEnv({}, 'conantcgmarket')).toBeNull();
   });
 
+  it.each([undefined, 'false'] as const)(
+    'rejects %s Emulator enablement in E2E mode',
+    (enabledValue) => {
+      expect(() => readFirebaseEmulatorEnv(
+        enabledValue === undefined ? {} : { VITE_FIREBASE_USE_EMULATORS: enabledValue },
+        'demo-conan-tcg-e2e',
+        'e2e',
+      )).toThrow(/Emulator mode must be explicitly enabled/);
+    },
+  );
+
   it.each(['127.0.0.1', 'localhost'] as const)('accepts fixed configuration on %s', (host) => {
     expect(readFirebaseEmulatorEnv({ ...enabled, VITE_FIREBASE_EMULATOR_HOST: host }, 'demo-conan-tcg-e2e')).toEqual({
       host,

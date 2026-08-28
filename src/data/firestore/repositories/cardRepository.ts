@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, getDocsFromServer } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, getDocsFromCache, getDocsFromServer } from 'firebase/firestore';
 import type { Card } from '../../../domain/models';
 import { cardConverter } from '../converters';
 import { firestoreDb } from '../database';
@@ -53,8 +53,21 @@ export async function listCards(): Promise<Card[]> {
 }
 
 export async function listCardsFromServer(): Promise<Card[]> {
-  const snapshot = await getDocsFromServer(cardCollection());
-  return mergeCardsByCanonicalIdentity(snapshot.docs.map((doc) => doc.data()));
+  const cards = cardCollection();
+  try {
+    const snapshot = await getDocsFromServer(cards);
+    return mergeCardsByCanonicalIdentity(snapshot.docs.map((doc) => doc.data()));
+  } catch (serverError) {
+    try {
+      const cachedSnapshot = await getDocsFromCache(cards);
+      if (cachedSnapshot.docs.length > 0) {
+        return mergeCardsByCanonicalIdentity(cachedSnapshot.docs.map((doc) => doc.data()));
+      }
+    } catch {
+      // Preserve the server failure below; cache is only a best-effort fallback.
+    }
+    throw serverError;
+  }
 }
 
 export async function getCard(cardKey: string): Promise<Card | null> {

@@ -6,7 +6,11 @@ service cloud.firestore {
     match /listings/{id} { allow read: if resource.data.status == 'active' || (request.auth != null && request.auth.uid == resource.data.sellerId); allow create: if request.auth != null && request.auth.uid == request.resource.data.sellerId; allow update, delete: if request.auth != null && request.auth.uid == resource.data.sellerId; }
     match /sales/{id} {
       allow read: if request.auth != null && request.auth.uid == resource.data.sellerId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.sellerId;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.sellerId
+        && request.resource.data.listingId is string
+        && exists(/databases/$(database)/documents/listings/$(request.resource.data.listingId))
+        && get(/databases/$(database)/documents/listings/$(request.resource.data.listingId)).data.sellerId == request.auth.uid;
       allow update, delete: if false;
     }
     function isValidNotificationSubscription() {

@@ -38,24 +38,36 @@ function readOnlyViolation(request: Request): string | null {
   return `Mutating request blocked: ${method} ${endpoint}`;
 }
 
-async function expectNoConfigurationErrors(
+async function expectNoSmokeErrors(
   page: Page,
-  errors: readonly string[],
+  pageErrors: readonly string[],
+  consoleErrors: readonly string[],
   networkViolations: readonly string[],
 ) {
   await expect(page.locator('body')).not.toContainText(configurationErrorPattern);
   const renderedStates = await page.locator('[role="status"], [role="alert"]').allTextContents();
   expect(renderedStates.join('\n')).not.toMatch(configurationErrorPattern);
-  expect(errors.filter((message) => configurationErrorPattern.test(message))).toEqual([]);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors.filter((message) => configurationErrorPattern.test(message))).toEqual([]);
   expect(networkViolations).toEqual([]);
 }
 
-test('deployed public entry, assets, and hash routes load without configuration errors', async ({ page, request }) => {
-  const errors: string[] = [];
+test('runtime validation rejects a generic uncaught page error', async ({ page }) => {
+  await expect(expectNoSmokeErrors(
+    page,
+    ['generic uncaught runtime failure'],
+    [],
+    [],
+  )).rejects.toThrow();
+});
+
+test('deployed public entry, assets, and hash routes load without runtime or configuration errors', async ({ page, request }) => {
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
   const networkViolations: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') consoleErrors.push(message.text());
   });
   await page.route('**/*', async (route) => {
     const violation = readOnlyViolation(route.request());
@@ -85,7 +97,7 @@ test('deployed public entry, assets, and hash routes load without configuration 
     page.locator('a.listing-card').first()
       .or(page.getByText('目前沒有符合條件的商品。', { exact: true })),
   ).toBeVisible();
-  await expectNoConfigurationErrors(page, errors, networkViolations);
+  await expectNoSmokeErrors(page, pageErrors, consoleErrors, networkViolations);
 
   const assetUrls = await page.locator('script[src], link[rel="stylesheet"][href]').evaluateAll((elements) => (
     elements.map((element) => new URL(
@@ -107,7 +119,7 @@ test('deployed public entry, assets, and hash routes load without configuration 
     page.getByLabel('搜尋卡牌')
       .or(page.getByRole('status').filter({ hasText: '目前沒有可顯示的卡牌資料。' })),
   ).toBeVisible();
-  await expectNoConfigurationErrors(page, errors, networkViolations);
+  await expectNoSmokeErrors(page, pageErrors, consoleErrors, networkViolations);
 
   const privateRoutes = [
     {
@@ -136,6 +148,6 @@ test('deployed public entry, assets, and hash routes load without configuration 
     await page.goto(route.hash);
     await expect(page.getByRole('heading', { name: route.heading, level: 1 })).toBeVisible();
     await expect(page.getByText(route.guidance, { exact: true })).toBeVisible();
-    await expectNoConfigurationErrors(page, errors, networkViolations);
+    await expectNoSmokeErrors(page, pageErrors, consoleErrors, networkViolations);
   }
 });
