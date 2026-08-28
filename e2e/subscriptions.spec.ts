@@ -126,6 +126,15 @@ test('shows raw-substring coverage', async ({ page }) => {
     await expect(page.getByRole('link', { name: '管理我的訂閱' }))
       .toHaveAttribute('href', '#/notifications');
   }
+
+  await page.getByRole('link', { name: '管理我的訂閱' }).click();
+  await expect(page).toHaveURL(/#\/notifications$/);
+  await expect(page.getByRole('heading', { name: '我的訂閱' })).toBeVisible();
+  await expect(page.getByText('諸伏', { exact: true })).toBeVisible();
+  await expect.poll(() => readDocument('notificationSubscriptions', buyer.uid)).toMatchObject({
+    cardNames: ['諸伏'],
+    emailDailyEnabled: true,
+  });
 });
 
 test('removes only the selected exact name', async ({ page }) => {
