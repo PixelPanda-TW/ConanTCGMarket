@@ -3,6 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 
 import { signInWithMockGoogle } from './support/auth';
 import {
+  E2E_BUCKET,
   listDocuments,
   listStorageObjects,
   readDocument,
@@ -23,6 +24,39 @@ const back = fileURLToPath(new URL('./fixtures/card-back.png', import.meta.url))
 async function expectNoListingsOrImages(): Promise<void> {
   await expect.poll(() => listDocuments('listings')).toEqual([]);
   await expect.poll(() => listStorageObjects('listings/')).toEqual([]);
+}
+
+async function expectPersistedImagesMatchStorage(
+  sellerId: string,
+  listingId: string,
+  expectedCount: number,
+): Promise<void> {
+  const prefix = `listings/${sellerId}/${listingId}/`;
+  const bucketPathPrefix = `/v0/b/${E2E_BUCKET}/o/`;
+
+  await expect(async () => {
+    const listing = await readDocument('listings', listingId);
+    const imageUrls = listing?.imageUrls;
+    const objects = await listStorageObjects(prefix);
+    expect(Array.isArray(imageUrls)).toBe(true);
+    expect(imageUrls).toHaveLength(expectedCount);
+    expect(objects).toHaveLength(expectedCount);
+    expect(new Set(imageUrls as string[])).toHaveProperty('size', expectedCount);
+
+    const decodedObjectPaths = (imageUrls as string[]).map((downloadUrl) => {
+      const parsed = new URL(downloadUrl);
+      expect(parsed.origin).toBe('http://127.0.0.1:9199');
+      expect(parsed.pathname.startsWith(bucketPathPrefix)).toBe(true);
+      expect(parsed.searchParams.get('alt')).toBe('media');
+      const objectPath = decodeURIComponent(parsed.pathname.slice(bucketPathPrefix.length));
+      expect(parsed.pathname).toBe(`${bucketPathPrefix}${encodeURIComponent(objectPath)}`);
+      expect(objectPath.startsWith(prefix)).toBe(true);
+      return objectPath;
+    });
+
+    expect(new Set(decodedObjectPaths)).toHaveProperty('size', expectedCount);
+    expect(decodedObjectPaths.toSorted()).toEqual(objects.toSorted());
+  }).toPass();
 }
 
 async function completeRequiredListingFields(page: import('@playwright/test').Page): Promise<void> {
@@ -153,6 +187,7 @@ test('creates a complete Listing, uploads images, and captures its event', async
   });
   await createSellerProfile(page);
   await page.goto('#/sell');
+  await expect(page.getByText('同版本、相近卡況才合併刊登。')).toBeVisible();
   await selectCardMetadata(page, {
     cardType: 'character', cardName: '諸伏高明', rarity: 'D', cardId: '0501',
   });
@@ -192,9 +227,7 @@ test('creates a complete Listing, uploads images, and captures its event', async
   expect(listing?.updatedAt).toBeInstanceOf(Timestamp);
   expect((listing?.createdAt as Timestamp).toMillis())
     .toBe((listing?.updatedAt as Timestamp).toMillis());
-  expect(listing?.imageUrls).toHaveLength(2);
-  await expect.poll(() => listStorageObjects(`listings/${seller.uid}/${listingId}/`))
-    .toHaveLength(2);
+  await expectPersistedImagesMatchStorage(seller.uid, listingId, 2);
   await expect.poll(() => readDocument('listingEvents', listingId)).toMatchObject({
     listingId,
     cardName: '諸伏高明',
@@ -202,7 +235,19 @@ test('creates a complete Listing, uploads images, and captures its event', async
     rarity: 'D',
     discordStatus: 'disabled',
   });
+  const detailImages = page.getByRole('img', { name: '諸伏高明 實卡照片' });
+  await expect(detailImages).toHaveCount(2);
+  for (const image of await detailImages.all()) await expect(image).toBeVisible();
+  await expect(page.getByText('角色卡', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '諸伏高明', level: 2 })).toBeVisible();
+  await expect(page.getByText('D · ID 0501', { exact: true })).toBeVisible();
+  await expect(page.getByText('NT$500')).toBeVisible();
+  await expect(page.getByText('剩餘 5 張')).toBeVisible();
+  await expect(page.getByText('包手（包材費 NT$20）')).toBeVisible();
+  await expect(page.getByText('支援賣貨便（加價 NT$10）')).toBeVisible();
   await expect(page.getByText('E2E 商品備註')).toBeVisible();
+  await expect(page.getByText('E2E 賣家', { exact: true })).toBeVisible();
+  await expect(page.getByText('以 discord 聯絡：e2e-seller')).toBeVisible();
   await expect(page.getByRole('link', { name: '管理此商品' }))
     .toHaveAttribute('href', `#/listing/${listingId}/edit`);
   await page.goto('./');
@@ -232,6 +277,13 @@ test('rejects sold inventory and replaces images after a successful owner edit',
   await page.goto(`#/listing/${listingId}/edit`);
 
   await expect(page.getByRole('heading', { name: '編輯商品' })).toBeVisible();
+  await expect(page.getByText('角色卡', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '諸伏高明', level: 2 })).toBeVisible();
+  await expect(page.getByText('D · ID 0501', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('卡片類型')).toHaveCount(0);
+  await expect(page.getByLabel('卡片名稱')).toHaveCount(0);
+  await expect(page.getByLabel('稀有度')).toHaveCount(0);
+  await expect(page.getByLabel('卡片 ID')).toHaveCount(0);
   const existingImages = page.locator('[aria-label="目前商品圖片"]');
   await expect(existingImages).toBeVisible();
   await expect(existingImages.getByRole('img', { name: '目前商品圖片' })).toHaveCount(1);
@@ -239,6 +291,21 @@ test('rejects sold inventory and replaces images after a successful owner edit',
   await page.getByLabel('剩餘數量').fill('1');
   await page.getByRole('button', { name: '儲存變更' }).click();
   await expect(page.getByRole('alert')).toContainText('價格、庫存或圖片不正確');
+  await expect.poll(async () => {
+    const unchanged = await readDocument('listings', listingId);
+    const seededSale = await readDocument('sales', 'e2e-sale-1');
+    return {
+      listingPrice: unchanged?.listingPrice,
+      remainingQuantity: unchanged?.remainingQuantity,
+      imageUrls: unchanged?.imageUrls,
+      saleQuantity: seededSale?.quantity,
+    };
+  }).toEqual({
+    listingPrice: 500,
+    remainingQuantity: 3,
+    imageUrls: [oldUrl],
+    saleQuantity: 2,
+  });
   await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))
     .toEqual([oldPath]);
 
@@ -271,24 +338,9 @@ test('rejects sold inventory and replaces images after a successful owner edit',
     listingPrice: 450,
     imageUrls: [expect.not.stringMatching(oldUrl)],
   });
-  await expect.poll(async () => {
-    const objects = await listStorageObjects(`listings/${owner.uid}/${listingId}/`);
-    const updated = await readDocument('listings', listingId);
-    const imageUrls = updated?.imageUrls;
-    return {
-      objectCount: objects.length,
-      oldObjectExists: objects.includes(oldPath),
-      persistedUrlMatchesObject: objects.length === 1
-        && Array.isArray(imageUrls)
-        && imageUrls.length === 1
-        && typeof imageUrls[0] === 'string'
-        && decodeURIComponent(new URL(imageUrls[0]).pathname).endsWith(`/o/${objects[0]}`),
-    };
-  }).toEqual({
-    objectCount: 1,
-    oldObjectExists: false,
-    persistedUrlMatchesObject: true,
-  });
+  await expectPersistedImagesMatchStorage(owner.uid, listingId, 1);
+  await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))
+    .not.toContain(oldPath);
 });
 
 test('enforces ownership and cancel-or-confirm deletion', async ({ page }) => {
@@ -320,22 +372,46 @@ test('enforces ownership and cancel-or-confirm deletion', async ({ page }) => {
   await page.goto(`#/listing/${listingId}/edit`);
 
   await expect(page.getByRole('heading', { name: '無法編輯商品' })).toBeVisible();
+  await expect(page.locator('form')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '儲存變更' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '刪除商品' })).toHaveCount(0);
+  await expect(page.getByLabel('價格')).toHaveCount(0);
+  await expect(page.getByLabel('剩餘數量')).toHaveCount(0);
+  await expect(page.getByLabel('替換商品圖片')).toHaveCount(0);
+  await expect.poll(() => readDocument('listings', listingId)).toMatchObject({
+    sellerId: owner.uid,
+    listingPrice: 500,
+    originalQuantity: 5,
+    remainingQuantity: 5,
+    imageUrls: [frontUrl, backUrl],
+    status: 'active',
+  });
+  await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))
+    .toEqual([backPath, frontPath]);
   await page.goto('./');
   await page.getByRole('button', { name: '登出' }).click();
   await signInWithMockGoogle(page, ownerIdentity);
   await page.goto(`#/listing/${listingId}/edit`);
   await expect(page.getByRole('heading', { name: '編輯商品' })).toBeVisible();
 
-  page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('button', { name: '刪除商品' }).click();
+  const cancelDialogPromise = page.waitForEvent('dialog');
+  const cancelClickPromise = page.getByRole('button', { name: '刪除商品' }).click();
+  const cancelDialog = await cancelDialogPromise;
+  expect(cancelDialog.type()).toBe('confirm');
+  expect(cancelDialog.message()).toBe('確定要刪除這筆商品嗎？此操作無法復原。');
+  await cancelDialog.dismiss();
+  await cancelClickPromise;
   await expect.poll(() => readDocument('listings', listingId)).not.toBeNull();
   await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))
     .toEqual([backPath, frontPath]);
 
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: '刪除商品' }).click();
+  const confirmDialogPromise = page.waitForEvent('dialog');
+  const confirmClickPromise = page.getByRole('button', { name: '刪除商品' }).click();
+  const confirmDialog = await confirmDialogPromise;
+  expect(confirmDialog.type()).toBe('confirm');
+  expect(confirmDialog.message()).toBe('確定要刪除這筆商品嗎？此操作無法復原。');
+  await confirmDialog.accept();
+  await confirmClickPromise;
   await expect(page).toHaveURL(/#\/dashboard$/);
   await expect.poll(() => readDocument('listings', listingId)).toBeNull();
   await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))
