@@ -99,6 +99,7 @@ terminals:
 **Terminal A — start the Emulators:**
 
 ```bash
+npm run build:functions
 npx firebase emulators:start --project demo-conan-tcg-e2e --only auth,firestore,storage,functions
 ```
 
@@ -116,9 +117,11 @@ npm run test:smoke -- --base-url http://127.0.0.1:4174/ConanTCGMarket/
 ```
 
 Stop the preview and Emulator processes after the result is captured. `test:e2e`
-owns its own Emulator/frontend lifecycle; this manual preview smoke sequence
-does not, so Terminal A and B must remain running. The smoke suite remains
-network-guarded and read-only in either case.
+builds Functions and owns its own Emulator/frontend lifecycle. This manual
+preview smoke sequence does neither, so after a clean install Terminal A must
+compile `functions/lib` before starting the Functions Emulator, and Terminal A
+and B must remain running. The smoke suite remains network-guarded and
+read-only in either case.
 
 Never point a mutating test command at a production Firebase project. The smoke
 command is the only deployment-URL command and it is read-only.
