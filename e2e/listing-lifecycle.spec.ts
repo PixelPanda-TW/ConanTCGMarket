@@ -248,8 +248,9 @@ test('creates a complete Listing, uploads images, and captures its event', async
   await expect(page.getByText('E2E 商品備註')).toBeVisible();
   await expect(page.getByText('E2E 賣家', { exact: true })).toBeVisible();
   await expect(page.getByText('以 discord 聯絡：e2e-seller')).toBeVisible();
-  await expect(page.getByRole('link', { name: '管理此商品' }))
-    .toHaveAttribute('href', `#/listing/${listingId}/edit`);
+  const managementLink = page.getByRole('link', { name: '管理此商品' });
+  await expect(managementLink).toBeVisible();
+  await expect(managementLink).toHaveAttribute('href', `#/listing/${listingId}/edit`);
   await page.goto('./');
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toBeVisible();
 });
