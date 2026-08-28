@@ -6,13 +6,14 @@ repository policy that workflow YAML cannot enforce.
 
 ## Safety model
 
-All automated browser and Firebase Rules tests use the `demo-conan-tcg-e2e`
-project (Rules uses its own `demo-conan-tcg` Emulator project) and loopback
-Firebase Emulators. E2E is fail-closed: it runs only when Emulator mode is
-explicitly enabled, the project ID starts with `demo-`, and all configured
-hosts are loopback. The E2E configuration uses Auth on `127.0.0.1:9099`,
-Firestore on `127.0.0.1:8080`, Storage on `127.0.0.1:9199`, Functions on
-`127.0.0.1:5001`, and the Vite test server on `127.0.0.1:4173`.
+The Emulator browser suites (Chromium and WebKit) and Firebase Rules tests use
+demo projects and loopback Firebase Emulators: browser E2E uses
+`demo-conan-tcg-e2e`, while Rules uses `demo-conan-tcg`. E2E is fail-closed: it
+runs only when Emulator mode is explicitly enabled, the project ID starts with
+`demo-`, and all configured hosts are loopback. The E2E configuration uses Auth
+on `127.0.0.1:9099`, Firestore on `127.0.0.1:8080`, Storage on
+`127.0.0.1:9199`, Functions on `127.0.0.1:5001`, and the Vite test server on
+`127.0.0.1:4173`.
 
 These checks need no production Firebase credentials, service accounts, Gmail
 credentials, or production `.env` values, and perform **no production writes**.
@@ -20,9 +21,11 @@ The mocked Google sign-in popup is served by the Auth Emulator; no real Google
 OAuth username, password, consent screen, or MFA is used. Digest coverage stops
 at a fake Gmail adapter, so no real Gmail is sent.
 
-The post-deploy smoke test is deliberately separate. It accepts an HTTPS
-deployment URL (or a loopback HTTP URL for a local check), loads only public
-pages and assets, and blocks sign-in, Functions calls, and all Firebase writes.
+The post-deploy smoke test is deliberately separate. It targets the deployed
+production Pages URL and its read-only production-data boundary; it never signs
+in or writes. Runtime network guards block Auth sign-in, Functions calls, and
+Firebase mutations. A loopback HTTP target is allowed only for the local smoke
+procedure below.
 
 ## Prerequisites and clean install
 
@@ -88,18 +91,33 @@ npm run test:smoke -- --base-url <read-only-url>
 ```
 
 When the URL is a local loopback server, build and serve the E2E artifact—not a
-production `dist/` artifact—while the expected loopback Firebase services are
+production `dist/` artifact—while all four loopback Firebase services are
 available. The production artifact deliberately uses production configuration;
-against a local Emulator environment it can remain in a loading state. In one
-terminal, run:
+against a local Emulator environment it can remain in a loading state. Use three
+terminals:
+
+**Terminal A — start the Emulators:**
+
+```bash
+npx firebase emulators:start --project demo-conan-tcg-e2e --only auth,firestore,storage,functions
+```
+
+**Terminal B — build and serve the E2E artifact:**
 
 ```bash
 npm run build:e2e
-npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+npm run preview -- --host 127.0.0.1 --port 4174 --strictPort
 ```
 
-Then, in another terminal, run the smoke command with
-`http://127.0.0.1:4173/ConanTCGMarket/`. The smoke suite remains
+**Terminal C — run the smoke:**
+
+```bash
+npm run test:smoke -- --base-url http://127.0.0.1:4174/ConanTCGMarket/
+```
+
+Stop the preview and Emulator processes after the result is captured. `test:e2e`
+owns its own Emulator/frontend lifecycle; this manual preview smoke sequence
+does not, so Terminal A and B must remain running. The smoke suite remains
 network-guarded and read-only in either case.
 
 Never point a mutating test command at a production Firebase project. The smoke
@@ -115,6 +133,19 @@ full success-path coverage and high-risk business/permission failures. WebKit
 adds mobile navigation and each form. Rules tests remain the exhaustive access
 matrix where a denied action has no user-visible UI.
 
+| File | Operations covered |
+| --- | --- |
+| `e2e/public-marketplace.spec.ts` | Notice acknowledgement; public active-listing browsing, filters, ID search, loading, empty, sold-out exclusion, and error state. |
+| `e2e/card-master.spec.ts` | Card Master search, selection/summary/clear, plus empty, loading, and error states. |
+| `e2e/auth-profile.spec.ts` | Signed-out guidance, Profile validation, mock sign-in, create/edit/reload persistence, and sign-out. |
+| `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
+| `e2e/subscriptions.spec.ts` | Exact-name and detail-page subscriptions, consent/cancel, substring coverage, list/removal, and daily-email preference. |
+| `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
+| `e2e/mvp-journey.spec.ts` | Login → Profile → Listing → public search → subscription → sale → public sold-out removal. |
+| `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation/Card Master interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
+| `e2e/smoke.spec.ts` | Public deployed entry/assets/routes and configuration-error checks, with no authentication or mutation. |
+| `src/rules/firebaseRules.test.ts` | Listing and seller ownership, active/sold-out reads, Card Master write denial, Profiles, subscriptions/events/delivery state, Sales immutability, and per-seller Storage paths. |
+
 ## Reliability and evidence
 
 Playwright uses one worker. Local retries are disabled; CI permits one retry to
@@ -124,9 +155,10 @@ bounded Emulator-state polling.
 
 Local evidence is written to ignored `playwright-report/`, `test-results/`, and
 `*-debug.log` files. CI retains traces, failure screenshots/videos, HTML
-reports, and Firebase Emulator logs for 14 days. Artifact upload and teardown
-use failure/always conditions so an earlier test failure does not hide the
-evidence. Treat a flaky retry as a failure: inspect the retained trace and
+reports, and Firebase Emulator logs for 14 days. CI artifact uploads use their
+failure/always conditions so an earlier test failure does not hide the evidence.
+`firebase emulators:exec` owns Emulator teardown after its child command exits.
+Treat a flaky retry as a failure: inspect the retained trace and
 Emulator logs, reproduce locally with the relevant project, and fix or quarantine
 only after preserving a deterministic regression case.
 
@@ -168,9 +200,10 @@ secrets.
 - **Wrong Node or Java:** confirm Node 22 and Java 21 are selected, then repeat
   the clean installs. A different Node runtime can create unrelated test
   failures; Java is required before the Emulator commands can start.
-- **Port already in use:** stop the process holding 9099, 8080, 9199, 5001, or
-  4173, then rerun the command. Do not change the tracked loopback ports just
-  to work around a stale local process.
+- **Port already in use:** stop the process holding 9099, 8080, 9199, 5001,
+  the E2E server port 4173, or the manual smoke-preview port 4174, then rerun
+  the command. Do not change the tracked loopback ports just to work around a
+  stale local process.
 - **Browser executable missing:** run `npx playwright install chromium webkit`
   locally, or the `--with-deps` variant in Linux CI.
 - **ADC warning:** Emulator tests do not need Application Default Credentials.
