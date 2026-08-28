@@ -8,12 +8,32 @@ import {
   readDocument,
   seedListingImage,
   seedScenario,
+  updateListingAvailability,
 } from './support/emulator-state';
 import { activeListing, sale, sellerProfile, testCards } from './support/fixtures';
 import { expect, test } from './support/test';
 import { acknowledgeWelcome } from './support/ui';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/card-front.png', import.meta.url));
+const seededAt = Timestamp.fromDate(new Date('2026-08-27T00:00:00.000Z'));
+
+function projectSales(sales: Awaited<ReturnType<typeof listDocuments>>) {
+  return sales
+    .map(({ id, data }) => ({
+      saleId: id,
+      listingId: data.listingId,
+      sellerId: data.sellerId,
+      cardId: data.cardId,
+      quantity: data.quantity,
+      listingUnitPrice: data.listingUnitPrice,
+      soldUnitPrice: data.soldUnitPrice,
+      soldAt: data.soldAt,
+    }))
+    .sort((left, right) => (
+      Number(left.quantity) - Number(right.quantity)
+      || left.saleId.localeCompare(right.saleId)
+    ));
+}
 
 async function seedOwnerListing(
   page: Page,
@@ -38,20 +58,48 @@ async function seedOwnerListing(
   return { uid: owner.uid, imageUrl };
 }
 
-async function expectUnchangedListingWithoutSales(listingId: string): Promise<void> {
+async function snapshotCompleteListing(
+  listingId: string,
+  sellerId: string,
+  imageUrl: string,
+): Promise<{ id: string; data: Record<string, unknown> }> {
+  const listing = await readDocument('listings', listingId);
+  expect(listing).toEqual({
+    sellerId,
+    cardId: '0501',
+    cardType: 'character',
+    cardName: '諸伏高明',
+    characterName: '諸伏高明',
+    rarity: 'D',
+    imageUrls: [imageUrl],
+    listingPrice: 500,
+    originalQuantity: 5,
+    remainingQuantity: 5,
+    hasSleeve: true,
+    sleeveFee: 20,
+    supportsMyShip: true,
+    myShipFee: 10,
+    note: 'E2E 商品備註',
+    status: 'active',
+    createdAt: seededAt,
+    updatedAt: seededAt,
+  });
+  await expect.poll(() => listDocuments('sales')).toEqual([]);
+  return { id: listingId, data: listing! };
+}
+
+async function expectUnchangedListingWithoutSales(
+  listingId: string,
+  listingSnapshot: { id: string; data: Record<string, unknown> },
+): Promise<void> {
   await expect.poll(async () => {
     const [listing, sales] = await Promise.all([
       readDocument('listings', listingId),
       listDocuments('sales'),
     ]);
-    return {
-      remainingQuantity: listing?.remainingQuantity,
-      status: listing?.status,
-      sales,
-    };
+    return { listing: { id: listingId, data: listing }, sales };
   }).toEqual({
-    remainingQuantity: 5,
-    status: 'active',
+    listing: listingSnapshot,
     sales: [],
   });
 }
@@ -86,36 +134,26 @@ test('records partial and sold-out sales atomically and updates exact Dashboard 
       readDocument('listings', listingId),
       listDocuments('sales'),
     ]);
-    const persistedSale = sales[0];
     return {
       listing: {
         remainingQuantity: listing?.remainingQuantity,
         status: listing?.status,
         updatedAtIsTimestamp: listing?.updatedAt instanceof Timestamp,
       },
-      saleCount: sales.length,
-      sale: persistedSale && {
-        listingId: persistedSale.data.listingId,
-        sellerId: persistedSale.data.sellerId,
-        cardId: persistedSale.data.cardId,
-        quantity: persistedSale.data.quantity,
-        listingUnitPrice: persistedSale.data.listingUnitPrice,
-        soldUnitPrice: persistedSale.data.soldUnitPrice,
-        soldAtIsTimestamp: persistedSale.data.soldAt instanceof Timestamp,
-      },
+      sales: projectSales(sales),
     };
   }).toEqual({
     listing: { remainingQuantity: 3, status: 'active', updatedAtIsTimestamp: true },
-    saleCount: 1,
-    sale: {
+    sales: [{
+      saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
       listingId,
       sellerId: owner.uid,
       cardId: '0501',
       quantity: 2,
       listingUnitPrice: 500,
       soldUnitPrice: 450,
-      soldAtIsTimestamp: true,
-    },
+      soldAt: expect.any(Timestamp),
+    }],
   });
 
   await page.getByRole('button', { name: '登記成交' }).click();
@@ -138,34 +176,51 @@ test('records partial and sold-out sales atomically and updates exact Dashboard 
     return {
       remainingQuantity: listing?.remainingQuantity,
       status: listing?.status,
-      sales: sales
-        .map(({ data }) => ({
-          quantity: data.quantity,
-          soldUnitPrice: data.soldUnitPrice,
-          sellerId: data.sellerId,
-        }))
-        .sort((left, right) => Number(left.quantity) - Number(right.quantity)),
+      uniqueSaleIds: new Set(sales.map(({ id }) => id)).size,
+      sales: projectSales(sales),
     };
   }).toEqual({
     remainingQuantity: 0,
     status: 'sold_out',
+    uniqueSaleIds: 2,
     sales: [
-      { quantity: 2, soldUnitPrice: 450, sellerId: owner.uid },
-      { quantity: 3, soldUnitPrice: 500, sellerId: owner.uid },
+      {
+        saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+        listingId,
+        sellerId: owner.uid,
+        cardId: '0501',
+        quantity: 2,
+        listingUnitPrice: 500,
+        soldUnitPrice: 450,
+        soldAt: expect.any(Timestamp),
+      },
+      {
+        saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+        listingId,
+        sellerId: owner.uid,
+        cardId: '0501',
+        quantity: 3,
+        listingUnitPrice: 500,
+        soldUnitPrice: 500,
+        soldAt: expect.any(Timestamp),
+      },
     ],
   });
 
   await page.goto('./');
+  await expect(page.getByText('目前沒有符合條件的商品。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toHaveCount(0);
   await page.getByRole('button', { name: '登出' }).click();
   await page.goto('./');
+  await expect(page.getByText('目前沒有符合條件的商品。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toHaveCount(0);
 });
 
 test('cancels a sale modal with defaults without changing inventory', async ({ page }) => {
   const listingId = 'e2e-sale-cancel';
-  await seedOwnerListing(page, 'sales-cancel@example.test', listingId);
+  const owner = await seedOwnerListing(page, 'sales-cancel@example.test', listingId);
   await page.goto('#/dashboard');
+  const listingSnapshot = await snapshotCompleteListing(listingId, owner.uid, owner.imageUrl);
 
   await page.getByRole('button', { name: '登記成交' }).click();
   const dialog = page.getByRole('dialog', { name: '登記成交' });
@@ -174,7 +229,7 @@ test('cancels a sale modal with defaults without changing inventory', async ({ p
   await dialog.getByRole('button', { name: '取消' }).click();
 
   await expect(dialog).toHaveCount(0);
-  await expectUnchangedListingWithoutSales(listingId);
+  await expectUnchangedListingWithoutSales(listingId, listingSnapshot);
 });
 
 const invalidSales = [
@@ -187,12 +242,13 @@ const invalidSales = [
 for (const invalidSale of invalidSales) {
   test(`rejects ${invalidSale.name} and leaves Listing and Sales unchanged`, async ({ page }) => {
     const listingId = `e2e-sale-invalid-${invalidSale.name.replaceAll(' ', '-')}`;
-    await seedOwnerListing(
+    const owner = await seedOwnerListing(
       page,
       `sales-${invalidSale.name.replaceAll(' ', '-')}@example.test`,
       listingId,
     );
     await page.goto('#/dashboard');
+    const listingSnapshot = await snapshotCompleteListing(listingId, owner.uid, owner.imageUrl);
     await page.getByRole('button', { name: '登記成交' }).click();
     const dialog = page.getByRole('dialog', { name: '登記成交' });
     const field = invalidSale.field === 'quantity' ? '數量' : '實際單價';
@@ -201,7 +257,7 @@ for (const invalidSale of invalidSales) {
 
     await expect(dialog).toBeVisible();
     await expect(page.getByRole('alert')).toHaveText('成交數量或價格不正確。');
-    await expectUnchangedListingWithoutSales(listingId);
+    await expectUnchangedListingWithoutSales(listingId, listingSnapshot);
   });
 }
 
@@ -218,9 +274,14 @@ test('hides owner controls and data from another signed-in seller', async ({ pag
     email: 'authorization-other@example.test',
     displayName: 'Authorization Other',
   });
-  const listingId = 'e2e-authorization-listing';
-  const imageUrl = await seedListingImage(
-    `listings/${owner.uid}/${listingId}/front.png`,
+  const activeListingId = 'e2e-authorization-active';
+  const soldOutListingId = 'e2e-authorization-sold-out';
+  const activeImageUrl = await seedListingImage(
+    `listings/${owner.uid}/${activeListingId}/front.png`,
+    fixturePath,
+  );
+  const soldOutImageUrl = await seedListingImage(
+    `listings/${owner.uid}/${soldOutListingId}/front.png`,
     fixturePath,
   );
   await seedScenario({
@@ -229,14 +290,34 @@ test('hides owner controls and data from another signed-in seller', async ({ pag
       sellerProfile(owner.uid, 'Authorization Owner'),
       sellerProfile(other.uid, 'Authorization Other'),
     ],
-    listings: [activeListing(owner.uid, imageUrl, { id: listingId })],
-    sales: [sale(owner.uid, listingId, { id: 'e2e-authorization-sale' })],
+    listings: [
+      activeListing(owner.uid, activeImageUrl, { id: activeListingId }),
+      activeListing(owner.uid, soldOutImageUrl, {
+        id: soldOutListingId,
+        cardId: '1096',
+        cardName: '諸伏景光',
+        characterName: '諸伏景光',
+        rarity: 'R',
+        originalQuantity: 2,
+        remainingQuantity: 2,
+      }),
+    ],
+    sales: [sale(owner.uid, soldOutListingId, {
+      id: 'e2e-authorization-sale',
+      cardId: '1096',
+      quantity: 2,
+    })],
+  });
+  await expect.poll(() => readDocument('listingEvents', soldOutListingId)).not.toBeNull();
+  await updateListingAvailability(soldOutListingId, {
+    remainingQuantity: 0,
+    status: 'sold_out',
   });
 
-  await page.goto(`#/listing/${listingId}`);
+  await page.goto(`#/listing/${activeListingId}`);
   await expect(page.getByRole('heading', { name: '商品詳情', level: 1 })).toBeVisible();
   await expect(page.getByRole('link', { name: '管理此商品' })).toHaveCount(0);
-  await page.goto(`#/listing/${listingId}/edit`);
+  await page.goto(`#/listing/${activeListingId}/edit`);
   await expect(page.getByRole('heading', { name: '無法編輯商品' })).toBeVisible();
   await expect(page.locator('form')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '儲存變更' })).toHaveCount(0);
@@ -246,23 +327,37 @@ test('hides owner controls and data from another signed-in seller', async ({ pag
   await expect(page.getByText('販售中：0', { exact: true })).toBeVisible();
   await expect(page.getByText('已售張數：0', { exact: true })).toBeVisible();
   await expect(page.getByText('成交金額：NT$0', { exact: true })).toBeVisible();
-  await expect(page.getByText('諸伏高明', { exact: true })).toHaveCount(0);
+  const activeSection = page.getByRole('heading', { name: '販售中' }).locator('..');
+  const soldOutSection = page.getByRole('heading', { name: '已售罄' }).locator('..');
+  await expect(activeSection).not.toContainText('諸伏高明');
+  await expect(activeSection).not.toContainText('諸伏景光');
+  await expect(soldOutSection).not.toContainText('諸伏高明');
+  await expect(soldOutSection).not.toContainText('諸伏景光');
+  await expect(activeSection.locator('.listing-card')).toHaveCount(0);
+  await expect(soldOutSection.locator('.dashboard-sold-out-listing')).toHaveCount(0);
   await expect.poll(async () => {
-    const [listing, seededSale] = await Promise.all([
-      readDocument('listings', listingId),
+    const [activeOwnerListing, soldOutOwnerListing, seededSale] = await Promise.all([
+      readDocument('listings', activeListingId),
+      readDocument('listings', soldOutListingId),
       readDocument('sales', 'e2e-authorization-sale'),
     ]);
     return {
-      listingSellerId: listing?.sellerId,
-      listingRemainingQuantity: listing?.remainingQuantity,
-      listingStatus: listing?.status,
+      activeListing: {
+        sellerId: activeOwnerListing?.sellerId,
+        remainingQuantity: activeOwnerListing?.remainingQuantity,
+        status: activeOwnerListing?.status,
+      },
+      soldOutListing: {
+        sellerId: soldOutOwnerListing?.sellerId,
+        remainingQuantity: soldOutOwnerListing?.remainingQuantity,
+        status: soldOutOwnerListing?.status,
+      },
       saleSellerId: seededSale?.sellerId,
       saleQuantity: seededSale?.quantity,
     };
   }).toEqual({
-    listingSellerId: owner.uid,
-    listingRemainingQuantity: 5,
-    listingStatus: 'active',
+    activeListing: { sellerId: owner.uid, remainingQuantity: 5, status: 'active' },
+    soldOutListing: { sellerId: owner.uid, remainingQuantity: 0, status: 'sold_out' },
     saleSellerId: owner.uid,
     saleQuantity: 2,
   });

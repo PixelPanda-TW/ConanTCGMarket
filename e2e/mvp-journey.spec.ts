@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { Timestamp } from 'firebase-admin/firestore';
 
 import { signInWithMockGoogle } from './support/auth';
 import {
@@ -16,6 +17,24 @@ import {
 } from './support/ui';
 
 const front = fileURLToPath(new URL('./fixtures/card-front.png', import.meta.url));
+
+function projectSales(sales: Awaited<ReturnType<typeof listDocuments>>) {
+  return sales
+    .map(({ id, data }) => ({
+      saleId: id,
+      listingId: data.listingId,
+      sellerId: data.sellerId,
+      cardId: data.cardId,
+      quantity: data.quantity,
+      listingUnitPrice: data.listingUnitPrice,
+      soldUnitPrice: data.soldUnitPrice,
+      soldAt: data.soldAt,
+    }))
+    .sort((left, right) => (
+      Number(left.quantity) - Number(right.quantity)
+      || left.saleId.localeCompare(right.saleId)
+    ));
+}
 
 test('composes login, Profile, Listing, search, subscription, sales, and public sold-out removal', async ({ page }) => {
   await seedScenario({ cards: testCards });
@@ -87,21 +106,21 @@ test('composes login, Profile, Listing, search, subscription, sales, and public 
     return {
       remainingQuantity: listing?.remainingQuantity,
       status: listing?.status,
-      saleCount: sales.length,
-      sale: sales[0]?.data,
+      sales: projectSales(sales),
     };
-  }).toMatchObject({
+  }).toEqual({
     remainingQuantity: 3,
     status: 'active',
-    saleCount: 1,
-    sale: {
+    sales: [{
+      saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
       listingId,
       sellerId: owner.uid,
       cardId: '0501',
       quantity: 2,
       listingUnitPrice: 500,
       soldUnitPrice: 450,
-    },
+      soldAt: expect.any(Timestamp),
+    }],
   });
 
   await page.getByRole('button', { name: '登記成交' }).click();
@@ -122,22 +141,42 @@ test('composes login, Profile, Listing, search, subscription, sales, and public 
     return {
       remainingQuantity: listing?.remainingQuantity,
       status: listing?.status,
-      sales: sales
-        .map(({ data }) => ({ quantity: data.quantity, soldUnitPrice: data.soldUnitPrice }))
-        .sort((left, right) => Number(left.quantity) - Number(right.quantity)),
+      uniqueSaleIds: new Set(sales.map(({ id }) => id)).size,
+      sales: projectSales(sales),
     };
   }).toEqual({
     remainingQuantity: 0,
     status: 'sold_out',
+    uniqueSaleIds: 2,
     sales: [
-      { quantity: 2, soldUnitPrice: 450 },
-      { quantity: 3, soldUnitPrice: 500 },
+      {
+        saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+        listingId,
+        sellerId: owner.uid,
+        cardId: '0501',
+        quantity: 2,
+        listingUnitPrice: 500,
+        soldUnitPrice: 450,
+        soldAt: expect.any(Timestamp),
+      },
+      {
+        saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+        listingId,
+        sellerId: owner.uid,
+        cardId: '0501',
+        quantity: 3,
+        listingUnitPrice: 500,
+        soldUnitPrice: 500,
+        soldAt: expect.any(Timestamp),
+      },
     ],
   });
 
   await page.goto('./');
+  await expect(page.getByText('目前沒有符合條件的商品。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toHaveCount(0);
   await page.getByRole('button', { name: '登出' }).click();
   await page.goto('./');
+  await expect(page.getByText('目前沒有符合條件的商品。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toHaveCount(0);
 });

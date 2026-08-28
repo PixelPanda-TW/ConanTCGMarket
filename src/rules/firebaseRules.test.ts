@@ -167,6 +167,17 @@ describe('Firebase rules', () => {
     )));
     await assertFails(getDoc(doc(publicDb, 'sales', 'owner-sale')));
   });
+  it('rejects even the Sale owner updating or deleting an immutable record', async () => {
+    const owner = environment.authenticatedContext('seller-a').firestore();
+    const immutableSale = doc(owner, 'sales', 'immutable-owner-sale');
+
+    await assertSucceeds(setDoc(immutableSale, saleData));
+    const updateFailure = await assertFails(updateDoc(immutableSale, { soldUnitPrice: 400 }));
+    expect(updateFailure.code).toBe('permission-denied');
+    const deleteFailure = await assertFails(deleteDoc(immutableSale));
+    expect(deleteFailure.code).toBe('permission-denied');
+    await assertSucceeds(getDoc(immutableSale));
+  });
   it('allows a seller to create and delete an image only within that seller path', async () => {
     const ownerStorage = environment.authenticatedContext('seller-a').storage();
     const otherStorage = environment.authenticatedContext('seller-b').storage();
