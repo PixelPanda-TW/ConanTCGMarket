@@ -40,6 +40,7 @@
     "jsdom": "^30.0.1",
     "typescript": "latest",
     "vite": "latest",
-    "vitest": "latest"
+    "vitest": "latest",
+    "yaml": "2.9.0"
   }
 }
