@@ -336,13 +336,23 @@ test('mobile Listing edit form', async ({ page }) => {
     .not.toContain(oldPath);
 
   const beforeCancel = await readDocument('listings', listingId);
+  const replacementUrl = (beforeCancel?.imageUrls as string[])[0];
   const dialogPromise = page.waitForEvent('dialog');
   const deletePromise = page.getByRole('button', { name: '刪除商品' }).tap();
   const dialog = await dialogPromise;
   expect(dialog.message()).toBe('確定要刪除這筆商品嗎？此操作無法復原。');
   await dialog.dismiss();
   await deletePromise;
+  await page.reload();
+  await expect(page).toHaveURL(new RegExp(`#\/listing\/${listingId}\/edit$`));
+  await expect(page.getByRole('heading', { name: '編輯商品' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '刪除商品' })).toBeVisible();
+  await expect(page.locator('[aria-label="目前商品圖片"]')
+    .getByRole('img', { name: '目前商品圖片' })).toHaveAttribute('src', replacementUrl);
   await expect.poll(() => readDocument('listings', listingId)).toEqual(beforeCancel);
+  await expectListingImagesMatchStorage(identity.uid, listingId, 1);
+  await expect.poll(() => listStorageObjects(`listings/${identity.uid}/${listingId}/`))
+    .not.toContain(oldPath);
   await expectNoHorizontalScroll(page);
 });
 
@@ -359,6 +369,7 @@ test('mobile sale dialog', async ({ page }) => {
     listings: [activeListing(identity.uid, image, { id: listingId })],
   });
   await page.goto('#/dashboard');
+  const beforeInvalidSales = await readDocument('listings', listingId);
 
   await page.getByRole('button', { name: '登記成交' }).tap();
   let dialog = page.getByRole('dialog', { name: '登記成交' });
@@ -380,12 +391,27 @@ test('mobile sale dialog', async ({ page }) => {
   await dialog.getByLabel('數量').fill('0');
   await dialog.getByRole('button', { name: '確認成交' }).tap();
   await expect(page.getByRole('alert')).toHaveText('成交數量或價格不正確。');
-  await expect.poll(() => listDocuments('sales')).toEqual([]);
+  await page.reload();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => ({
+    listing: await readDocument('listings', listingId),
+    sales: await listDocuments('sales'),
+  })).toEqual({ listing: beforeInvalidSales, sales: [] });
+
+  await page.getByRole('button', { name: '登記成交' }).tap();
+  dialog = page.getByRole('dialog', { name: '登記成交' });
   await dialog.getByLabel('數量').fill('6');
   await dialog.getByRole('button', { name: '確認成交' }).tap();
   await expect(page.getByRole('alert')).toHaveText('成交數量或價格不正確。');
-  await expect.poll(() => listDocuments('sales')).toEqual([]);
+  await page.reload();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect.poll(async () => ({
+    listing: await readDocument('listings', listingId),
+    sales: await listDocuments('sales'),
+  })).toEqual({ listing: beforeInvalidSales, sales: [] });
 
+  await page.getByRole('button', { name: '登記成交' }).tap();
+  dialog = page.getByRole('dialog', { name: '登記成交' });
   await dialog.getByLabel('數量').fill('2');
   await dialog.getByLabel('實際單價').fill('450');
   await dialog.getByRole('button', { name: '確認成交' }).tap();
@@ -435,6 +461,13 @@ test('mobile subscription confirmation', async ({ page }) => {
   await confirmation.getByRole('button', { name: '取消', exact: true }).tap();
   await expect.poll(() => readDocument('notificationSubscriptions', identity.uid)).toBeNull();
 
+  await page.reload();
+  await cardType.selectOption('character');
+  await cardName.fill('諸伏高明');
+  await expect(page.getByRole('button', { name: '訂閱諸伏高明' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '選擇通知方式' })).toHaveCount(0);
+  await expect.poll(() => readDocument('notificationSubscriptions', identity.uid)).toBeNull();
+
   await page.getByRole('button', { name: '訂閱諸伏高明' }).tap();
   confirmation = page.getByRole('heading', { name: '選擇通知方式' }).locator('..');
   await expect(confirmation.getByRole('button', { name: '確認訂閱' })).toBeDisabled();
@@ -465,6 +498,8 @@ test('mobile notification settings', async ({ page }) => {
   const dailyEmail = page.getByLabel('每日彙整 Email 通知');
   await expect(dailyEmail).toBeEnabled();
   await expect(dailyEmail).toBeChecked();
+  await dailyEmail.focus();
+  await expect(dailyEmail).toBeFocused();
   await dailyEmail.tap();
   await expect.poll(() => readDocument('notificationSubscriptions', identity.uid)).toMatchObject({
     cardNames: ['諸伏高明', '諸伏景光'],
