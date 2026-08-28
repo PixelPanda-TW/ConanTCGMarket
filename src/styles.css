@@ -453,6 +453,9 @@ h1 {
 .profile-form input[aria-invalid='true'] { border-color: var(--danger); box-shadow: 0 0 0 3px rgb(180 35 24 / 14%); }
 
 .listing-form input[type="file"] {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   min-height: 48px;
   padding: 6px;
 }
@@ -498,6 +501,10 @@ h1 {
 
 .service-fee {
   flex: 1 1 220px;
+}
+
+.listing-form {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 @media (max-width: 760px) {
