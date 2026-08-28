@@ -67,7 +67,7 @@ export async function createListingThroughUi(
   await page.getByLabel('支援賣貨便').check();
   await page.getByLabel('賣貨便加價').fill('10');
   await page.getByLabel('備註').fill('E2E 商品備註');
-  await page.getByRole('button', { name: '刊登商品' }).click();
+  await page.getByRole('button', { name: '建立刊登' }).click();
   await expect(page).toHaveURL(/#\/listing\/[^/]+$/);
   return new URL(page.url()).hash.split('/').at(-1)!;
 }

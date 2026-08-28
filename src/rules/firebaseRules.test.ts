@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, ref, uploadBytes } from 'firebase/storage';
 
 let environment: RulesTestEnvironment;
 const activeListing = { sellerId: 'seller-a', cardId: 'CP-001', imageUrls: ['https://example.test/card.jpg'], listingPrice: 500, originalQuantity: 5, remainingQuantity: 5, hasSleeve: true, supportsMyShip: true, status: 'active', createdAt: new Date(), updatedAt: new Date() };
@@ -29,6 +29,15 @@ const subscriptionData = {
   emailDailyEnabled: true,
   updatedAt: new Date(),
 };
+const saleData = {
+  listingId: 'active',
+  sellerId: 'seller-a',
+  cardId: '0501',
+  quantity: 1,
+  listingUnitPrice: 500,
+  soldUnitPrice: 450,
+  soldAt: new Date(),
+};
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-conan-tcg', firestore: { rules: await readFile('firestore.rules', 'utf8') }, storage: { rules: await readFile('storage.rules', 'utf8') } });
@@ -42,18 +51,25 @@ beforeAll(async () => {
 afterAll(async () => environment?.cleanup());
 
 describe('Firebase rules', () => {
-  it('allows an owner to create a generic Listing but rejects another seller mutation', async () => {
+  it('allows an owner to create a generic Listing but rejects public and cross-seller writes', async () => {
     const sellerA = environment.authenticatedContext('seller-a').firestore();
     const sellerB = environment.authenticatedContext('seller-b').firestore();
+    const unauthenticated = environment.unauthenticatedContext().firestore();
     const listing = doc(sellerA, 'listings', 'event-listing');
 
     await assertSucceeds(setDoc(listing, eventListing));
+    await assertFails(setDoc(doc(unauthenticated, 'listings', 'blocked'), eventListing));
     await assertFails(setDoc(doc(sellerB, 'listings', 'event-listing'), { ...eventListing, listingPrice: 1 }));
   });
-  it('allows public active-listing reads but rejects sold-out reads', async () => {
-    const db = environment.unauthenticatedContext().firestore();
-    await assertSucceeds(getDocs(query(collection(db, 'listings'), where('status', '==', 'active'))));
-    await assertFails(getDoc(doc(db, 'listings', 'sold')));
+  it('allows public active and owner private Listing reads but rejects sold-out cross-user reads', async () => {
+    const publicDb = environment.unauthenticatedContext().firestore();
+    const ownerDb = environment.authenticatedContext('seller-a').firestore();
+    const otherDb = environment.authenticatedContext('seller-b').firestore();
+
+    await assertSucceeds(getDocs(query(collection(publicDb, 'listings'), where('status', '==', 'active'))));
+    await assertSucceeds(getDoc(doc(ownerDb, 'listings', 'sold')));
+    await assertFails(getDoc(doc(publicDb, 'listings', 'sold')));
+    await assertFails(getDoc(doc(otherDb, 'listings', 'sold')));
   });
   it('rejects a seller modifying another seller listing', async () => {
     await assertFails(setDoc(doc(environment.authenticatedContext('seller-b').firestore(), 'listings', 'active'), { ...activeListing, listingPrice: 1 }));
@@ -82,10 +98,12 @@ describe('Firebase rules', () => {
   });
   it('allows an owner to create, read, update, and delete a card name subscription', async () => {
     const buyerA = environment.authenticatedContext('buyer-a').firestore();
+    const publicDb = environment.unauthenticatedContext().firestore();
     const subscription = doc(buyerA, 'notificationSubscriptions', 'buyer-a');
 
     await assertSucceeds(setDoc(subscription, subscriptionData));
     await assertSucceeds(getDoc(subscription));
+    await assertFails(getDoc(doc(publicDb, 'notificationSubscriptions', 'buyer-a')));
     await assertSucceeds(updateDoc(subscription, { cardNames: [] }));
     await assertSucceeds(deleteDoc(subscription));
   });
@@ -128,9 +146,35 @@ describe('Firebase rules', () => {
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
     await assertFails(setDoc(doc(buyer, 'notificationDeliveryState', 'buyer-a'), {}));
   });
-  it('allows a seller image only within that seller path', async () => {
-    const storage = environment.authenticatedContext('seller-a').storage();
-    await assertSucceeds(uploadBytes(ref(storage, 'listings/seller-a/listing-1/card.jpg'), new Blob(['image'], { type: 'image/jpeg' })));
-    await assertFails(uploadBytes(ref(storage, 'listings/seller-b/listing-1/card.jpg'), new Blob(['image'], { type: 'image/jpeg' })));
+  it('allows only the Sale owner to create and query records', async () => {
+    const owner = environment.authenticatedContext('seller-a').firestore();
+    const otherSeller = environment.authenticatedContext('seller-b').firestore();
+    const publicDb = environment.unauthenticatedContext().firestore();
+    const ownerSale = doc(owner, 'sales', 'owner-sale');
+
+    await assertSucceeds(setDoc(ownerSale, saleData));
+    await assertSucceeds(getDoc(ownerSale));
+    await assertSucceeds(getDocs(query(
+      collection(owner, 'sales'),
+      where('sellerId', '==', 'seller-a'),
+    )));
+    await assertFails(setDoc(doc(otherSeller, 'sales', 'cross-sale'), saleData));
+    await assertFails(setDoc(doc(publicDb, 'sales', 'public-sale'), saleData));
+    await assertFails(getDoc(doc(otherSeller, 'sales', 'owner-sale')));
+    await assertFails(getDocs(query(
+      collection(otherSeller, 'sales'),
+      where('sellerId', '==', 'seller-a'),
+    )));
+    await assertFails(getDoc(doc(publicDb, 'sales', 'owner-sale')));
+  });
+  it('allows a seller to create and delete an image only within that seller path', async () => {
+    const ownerStorage = environment.authenticatedContext('seller-a').storage();
+    const otherStorage = environment.authenticatedContext('seller-b').storage();
+    const ownerImage = ref(ownerStorage, 'listings/seller-a/listing-1/card.jpg');
+
+    await assertSucceeds(uploadBytes(ownerImage, new Blob(['image'], { type: 'image/jpeg' })));
+    await assertFails(uploadBytes(ref(ownerStorage, 'listings/seller-b/listing-1/card.jpg'), new Blob(['image'], { type: 'image/jpeg' })));
+    await assertFails(deleteObject(ref(otherStorage, 'listings/seller-a/listing-1/card.jpg')));
+    await assertSucceeds(deleteObject(ownerImage));
   });
 });
