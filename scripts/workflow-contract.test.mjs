@@ -72,14 +72,25 @@ function visitValues(value, path, visitor) {
   }
 }
 
-function assertNoFailureTolerance(candidate) {
+function assertNoFailureTolerance(candidate, { requireAbsent = false } = {}) {
+  let occurrences = 0;
   visitValues(candidate, 'workflow', (key, value, path) => {
-    assert.notEqual(
-      key === 'continue-on-error' && value === true,
-      true,
-      `${path} must not tolerate failures`,
-    );
+    if (key === 'continue-on-error') {
+      occurrences += 1;
+      assert.equal(value, false, `${path} must not tolerate failures unless set to literal false`);
+    }
   });
+  if (requireAbsent) assert.equal(occurrences, 0, 'current workflow must omit continue-on-error entirely');
+}
+
+function assertNoCredentialExpression(value, jobName) {
+  for (const match of value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
+    assert.doesNotMatch(
+      match[1],
+      /\b(?:vars|secrets)\s*(?:\.|\[)/i,
+      `${jobName} must not reference repository variables or secrets`,
+    );
+  }
 }
 
 function assertCredentialIsolation(candidate) {
@@ -89,11 +100,7 @@ function assertCredentialIsolation(candidate) {
     visitValues(job, `workflow.jobs.${jobName}`, (key, value) => {
       assert.doesNotMatch(key, /GMAIL/i, `${jobName} must not receive Gmail credentials`);
       if (typeof value !== 'string') return;
-      assert.doesNotMatch(
-        value,
-        /\$\{\{\s*(?:vars|secrets)\./,
-        `${jobName} must not reference repository variables or secrets`,
-      );
+      assertNoCredentialExpression(value, jobName);
       assert.doesNotMatch(value, /GMAIL/i, `${jobName} must not receive Gmail credentials`);
     });
   }
@@ -185,7 +192,7 @@ test('runs the exact quality, Rules, and E2E gates for pull requests and main pu
   assert.equal(stepNamed(jobs.e2e, 'Install Functions dependencies').run, 'npm --prefix functions ci');
   assert.equal(stepNamed(jobs.e2e, 'Install Playwright browsers').run, 'npx playwright install --with-deps chromium webkit');
   assert.equal(stepNamed(jobs.e2e, 'Run Emulator E2E').run, 'npm run test:e2e');
-  assertNoFailureTolerance(workflow);
+  assertNoFailureTolerance(workflow, { requireAbsent: true });
 });
 
 test('deploys only a gated main push with the minimum Pages permissions', () => {
@@ -249,6 +256,10 @@ test('rejects failure-tolerance, credential, and Pages-action mutations', async 
     const mutated = structuredClone(workflow);
     stepNamed(mutated.jobs.e2e, 'Run Emulator E2E')['continue-on-error'] = true;
     assert.throws(() => assertNoFailureTolerance(mutated), /continue-on-error.*must not tolerate failures/);
+
+    const expressionMutation = structuredClone(workflow);
+    stepNamed(expressionMutation.jobs.smoke, 'Run read-only deployment smoke')['continue-on-error'] = '${{ true }}';
+    assert.throws(() => assertNoFailureTolerance(expressionMutation), /continue-on-error.*must not tolerate failures/);
   });
 
   await t.test('workflow and E2E environments cannot gain repository credentials', () => {
@@ -261,6 +272,12 @@ test('rejects failure-tolerance, credential, and Pages-action mutations', async 
       VITE_FIREBASE_PROJECT_ID: '${{ vars.VITE_FIREBASE_PROJECT_ID }}',
     };
     assert.throws(() => assertCredentialIsolation(e2eEnvMutation), /must not reference repository variables or secrets/);
+
+    const bracketMutation = structuredClone(workflow);
+    stepNamed(bracketMutation.jobs.rules, 'Test Firebase Rules').env = {
+      GATE_INPUT: "${{ format('{0}', secrets['DEPLOY_TOKEN']) }}",
+    };
+    assert.throws(() => assertCredentialIsolation(bracketMutation), /must not reference repository variables or secrets/);
   });
 
   await t.test('generic artifacts cannot replace the Pages artifact', () => {
