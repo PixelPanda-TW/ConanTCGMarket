@@ -55,8 +55,9 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
       setMessage('刊登成功'); window.location.hash = `#/listing/${id}`;
     } catch (error) { setMessage(error instanceof Error ? error.message : '刊登失敗，請稍後再試。'); } finally { setSaving(false); }
   }
-  if (isLoading || profile === undefined) return <PageShell width="wide-form"><p>載入中</p></PageShell>;
+  if (isLoading) return <PageShell width="wide-form"><p>載入中</p></PageShell>;
   if (!user) return <PageShell width="wide-form"><h1>刊登商品</h1><p>請先使用 Google 登入，才能刊登商品。</p></PageShell>;
+  if (profile === undefined) return <PageShell width="wide-form"><p>載入中</p></PageShell>;
   if (!profile) return <PageShell width="wide-form"><h1>刊登商品</h1><p>請先完成賣家個人檔案，才能刊登商品。</p><a href="#/profile">前往設定個人檔案</a></PageShell>;
   return <PageShell width="wide-form" backToMarketplace><section className="profile-page sell-page"><h1>刊登商品</h1><p>同版本、相近卡況才合併刊登。</p><form className="profile-form listing-form" onSubmit={submit} noValidate>
     <CardMetadataSelector
