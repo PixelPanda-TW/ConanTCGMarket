@@ -87,7 +87,7 @@ function assertNoCredentialExpression(value, jobName) {
   for (const match of value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
     assert.doesNotMatch(
       match[1],
-      /\b(?:vars|secrets)\s*(?:\.|\[)/i,
+      /\b(?:vars|secrets)\b/i,
       `${jobName} must not reference repository variables or secrets`,
     );
   }
@@ -278,6 +278,27 @@ test('rejects failure-tolerance, credential, and Pages-action mutations', async 
       GATE_INPUT: "${{ format('{0}', secrets['DEPLOY_TOKEN']) }}",
     };
     assert.throws(() => assertCredentialIsolation(bracketMutation), /must not reference repository variables or secrets/);
+  });
+
+  await t.test('bare secrets context cannot enter a test job', () => {
+    const mutated = structuredClone(workflow);
+    stepNamed(mutated.jobs.e2e, 'Run Emulator E2E').env = {
+      GATE_INPUT: '${{ toJSON(secrets) }}',
+    };
+    assert.throws(() => assertCredentialIsolation(mutated), /must not reference repository variables or secrets/);
+  });
+
+  await t.test('bare vars context cannot enter a test job', () => {
+    const mutated = structuredClone(workflow);
+    stepNamed(mutated.jobs.rules, 'Test Firebase Rules').env = {
+      GATE_INPUT: '${{ toJSON(vars) }}',
+    };
+    assert.throws(() => assertCredentialIsolation(mutated), /must not reference repository variables or secrets/);
+  });
+
+  await t.test('unrelated identifier substrings are not credential contexts', () => {
+    assert.doesNotThrow(() => assertNoCredentialExpression('${{ toJSON(mysecrets) }}', 'e2e'));
+    assert.doesNotThrow(() => assertNoCredentialExpression('${{ toJSON(varsuffix) }}', 'rules'));
   });
 
   await t.test('generic artifacts cannot replace the Pages artifact', () => {
