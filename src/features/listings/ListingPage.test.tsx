@@ -141,4 +141,67 @@ describe('ListingPage card-name subscriptions', () => {
     expect(await screen.findByRole('heading', { name: '未提供卡片名稱' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
   });
+
+  describe('seller contact presentation', () => {
+    it('renders LINE as an encoded external ID link', async () => {
+      repositories.getPublicSellerProfile.mockResolvedValue({
+        ...seller,
+        contactType: 'line',
+        contactValue: '@seller',
+      });
+
+      render(<ListingPage id="listing-1" />);
+
+      const link = await screen.findByRole('link', { name: 'LINE ID：@seller' });
+      expect(link.getAttribute('href')).toBe('https://line.me/ti/p/~%40seller');
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noreferrer');
+    });
+
+    it('renders Discord as plain ID text', async () => {
+      repositories.getPublicSellerProfile.mockResolvedValue({
+        ...seller,
+        contactType: 'discord',
+        contactValue: 'seller_name',
+      });
+
+      render(<ListingPage id="listing-1" />);
+
+      expect(await screen.findByText('Discord ID：seller_name')).toBeTruthy();
+      expect(screen.queryByRole('link', { name: 'Discord ID：seller_name' })).toBeNull();
+    });
+
+    it.each([
+      ['facebook', 'https://www.facebook.com/seller', 'Facebook 個人頁面'],
+      ['threads', 'https://www.threads.net/@seller', 'Threads 個人頁面'],
+    ] as const)('renders a canonical %s profile link', async (contactType, contactValue, label) => {
+      repositories.getPublicSellerProfile.mockResolvedValue({
+        ...seller,
+        contactType,
+        contactValue,
+      });
+
+      render(<ListingPage id="listing-1" />);
+
+      const link = await screen.findByRole('link', { name: label });
+      expect(link.getAttribute('href')).toBe(contactValue);
+    });
+
+    it.each([
+      ['threads', '@legacy'],
+      ['facebook', 'javascript:alert(1)'],
+    ] as const)('keeps an invalid legacy %s contact non-interactive', async (contactType, contactValue) => {
+      repositories.getPublicSellerProfile.mockResolvedValue({
+        ...seller,
+        contactType,
+        contactValue,
+      });
+
+      render(<ListingPage id="listing-1" />);
+
+      expect(await screen.findByText('聯絡方式需要由賣家更新')).toBeTruthy();
+      expect(screen.queryByRole('link', { name: '聯絡方式需要由賣家更新' })).toBeNull();
+      expect([...document.querySelectorAll('a')].some((link) => link.getAttribute('href') === contactValue)).toBe(false);
+    });
+  });
 });

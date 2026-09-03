@@ -1,21 +1,21 @@
 import { useEffect, useState } from 'react';
-import type { Card, Listing } from '../../domain/models';
+import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { getListing, getPublicSellerProfile, listCards } from '../../data/firestore/repositories';
 import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
 import { CardNameSubscriptionControl } from '../notifications/CardNameSubscriptionControl';
 import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
+import { sellerContactPresentation } from '../../domain/sellerContact';
 
 export function ListingPage({ id }: { id: string }) {
   const { user } = useAuth();
   const [listing, setListing] = useState<Listing | null>();
   const [cards, setCards] = useState<readonly Card[]>();
-  const [seller, setSeller] = useState<{
-    displayName: string;
-    contactType: string;
-    contactValue: string;
-  } | null>();
+  const [seller, setSeller] = useState<Pick<
+    SellerProfile,
+    'displayName' | 'contactType' | 'contactValue'
+  > | null>();
 
   useEffect(() => {
     let isCurrent = true;
@@ -60,6 +60,9 @@ export function ListingPage({ id }: { id: string }) {
     && metadata.resolution !== 'missing';
   const isKnownCardName = hasResolvedCardName
     && isKnownSubscriptionCardName(cards ?? [], metadata.cardName);
+  const contact = seller
+    ? sellerContactPresentation(seller.contactType, seller.contactValue)
+    : undefined;
   return (
     <PageShell width="listing" backToMarketplace>
       <article className="listing-page">
@@ -101,15 +104,21 @@ export function ListingPage({ id }: { id: string }) {
             <hr />
             <p className="seller-label">賣家</p>
             <p className="seller-name">{seller?.displayName ?? '賣家'}</p>
-            {seller ? (
-              <a
-                className="contact-link"
-                href={seller.contactType === 'line' ? `https://line.me/ti/p/~${seller.contactValue}` : undefined}
-                target="_blank"
-                rel="noreferrer"
-              >
-                以 {seller.contactType} 聯絡：{seller.contactValue}
-              </a>
+            {contact ? (
+              contact.href ? (
+                <a
+                  className="contact-link"
+                  href={contact.href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {contact.label}{contact.value ? `：${contact.value}` : ''}
+                </a>
+              ) : (
+                <p className="contact-value">
+                  {contact.label}{contact.value ? `：${contact.value}` : ''}
+                </p>
+              )
             ) : <p>聯絡方式載入中</p>}
             {listing.note && <p className="listing-note">{listing.note}</p>}
             {user?.uid === listing.sellerId && (
