@@ -395,6 +395,7 @@ git commit -m "feat: gate buyer subscriptions by account status"
 - Modify: `e2e/support/emulator-state.ts`
 - Modify: `e2e/support/emulator-state.spec.ts`
 - Create: `e2e/account-access.spec.ts`
+- Modify: `e2e/support/auth.ts`
 - Modify as required: `e2e/support/fixtures.ts`
 
 ### RED
@@ -409,11 +410,11 @@ First add unit tests for canonical account-access seeding and timestamp conversi
 - receives blocked Profile, Sell, Listing edit, and Notification Settings screens;
 - opens Dashboard history and sees no edit or Sale-registration actions.
 
-Run the helper unit test, then the new browser scenario without exporting production environment variables:
+Run the helper spec, then the new browser scenario through the script that starts the full Emulator set. Do not export production environment variables:
 
 ```bash
-npm test -- --run e2e/support/emulator-state.spec.ts
-npx playwright test e2e/account-access.spec.ts --project=chromium
+npm run test:e2e:chromium -- e2e/support/emulator-state.spec.ts
+npm run test:e2e:chromium -- e2e/account-access.spec.ts
 ```
 
 Expected: helper test initially FAIL before seed support, then browser test FAIL before all live UI wiring is correct.
@@ -427,7 +428,7 @@ Rerun both focused commands and require PASS.
 ### Commit
 
 ```bash
-git add e2e/support/emulator-state.ts e2e/support/emulator-state.spec.ts e2e/account-access.spec.ts e2e/support/fixtures.ts
+git add e2e/support/emulator-state.ts e2e/support/emulator-state.spec.ts e2e/account-access.spec.ts e2e/support/auth.ts e2e/support/fixtures.ts
 git commit -m "test: cover suspended account access journey"
 ```
 
