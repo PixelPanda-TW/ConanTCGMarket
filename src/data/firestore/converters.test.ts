@@ -53,37 +53,22 @@ describe('Firestore converters', () => {
     });
   });
 
-  it('converts a legacy Card Master document using its document ID as cardId', () => {
-    const snapshot = {
-      id: '0501',
-      data: () => ({ characterName: '諸伏高明', rarities: ['D'] }),
-    };
+  it.each([
+    ['document-ID cardId fallback', '0501', { characterName: '諸伏高明', rarities: ['D'] }],
+    ['legacy nameZh', '0502', { nameZh: '毛利蘭', rarities: ['SR'] }],
+    ['legacy nameJa', '0503', { nameJa: '江戸川コナン', rarities: ['R'] }],
+    ['scalar rarity', 'card_scalar', {
+      cardId: '0504', cardType: 'character', cardName: '灰原哀', rarity: 'R',
+    }],
+    ['an extra field', 'card_extra', {
+      cardId: '0505', cardType: 'character', cardName: '工藤新一', rarities: ['R'], effect: 'forbidden',
+    }],
+  ] as const)('rejects non-canonical Card Master data: %s', (_name, id, data) => {
+    const snapshot = { id, data: () => data };
 
-    expect(cardConverter.fromFirestore(snapshot as never, {} as never)).toEqual({
-      key: '0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'],
-    });
-  });
-
-  it('converts a legacy nameZh Card Master field to cardName', () => {
-    const snapshot = {
-      id: '0502',
-      data: () => ({ nameZh: '毛利蘭', rarities: ['SR'] }),
-    };
-
-    expect(cardConverter.fromFirestore(snapshot as never)).toEqual({
-      key: '0502', cardId: '0502', cardType: 'character', cardName: '毛利蘭', rarities: ['SR'],
-    });
-  });
-
-  it('converts a legacy nameJa Card Master field to cardName', () => {
-    const snapshot = {
-      id: '0503',
-      data: () => ({ nameJa: '江戸川コナン', rarities: ['R'] }),
-    };
-
-    expect(cardConverter.fromFirestore(snapshot as never)).toEqual({
-      key: '0503', cardId: '0503', cardType: 'character', cardName: '江戸川コナン', rarities: ['R'],
-    });
+    expect(() => cardConverter.fromFirestore(snapshot as never)).toThrow(
+      'Card Master document requires exactly cardId, cardType, cardName, and rarities.',
+    );
   });
 
   it('writes cardId with the allowlisted Card Master fields', () => {

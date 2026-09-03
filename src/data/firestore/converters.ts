@@ -25,6 +25,18 @@ function readData(snapshot: QueryDocumentSnapshot, options?: SnapshotOptions): F
   return snapshot.data(options);
 }
 
+const canonicalCardFields = ['cardId', 'cardName', 'cardType', 'rarities'] as const;
+
+function assertCanonicalCardFields(data: FirestoreData) {
+  const fields = Object.keys(data).sort();
+  if (
+    fields.length !== canonicalCardFields.length
+    || fields.some((field, index) => field !== canonicalCardFields[index])
+  ) {
+    throw new Error('Card Master document requires exactly cardId, cardType, cardName, and rarities.');
+  }
+}
+
 function timestampToDate(value: unknown, fieldName: string): Date {
   if (!(value instanceof Timestamp)) {
     throw new Error(`Expected Firestore Timestamp for ${fieldName}.`);
@@ -50,15 +62,13 @@ export const cardConverter: FirestoreDataConverter<Card> = {
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
-    const explicitCardId = typeof data.cardId === 'string' ? normalizeCardId(data.cardId) : undefined;
+    assertCanonicalCardFields(data);
     const card: Card = {
       key: snapshot.id,
-      cardId: explicitCardId ?? normalizeCardId(snapshot.id),
-      cardType: (data.cardType ?? 'character') as Card['cardType'],
-      cardName: (data.cardName ?? data.characterName ?? data.nameZh ?? data.nameJa) as string,
-      rarities: Array.isArray(data.rarities)
-        ? data.rarities as string[]
-        : [data.rarity as string],
+      cardId: normalizeCardId(data.cardId as string),
+      cardType: data.cardType as Card['cardType'],
+      cardName: data.cardName as string,
+      rarities: data.rarities as string[],
     };
 
     validateCard(card);
