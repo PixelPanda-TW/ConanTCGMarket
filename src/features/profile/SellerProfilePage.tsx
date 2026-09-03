@@ -3,6 +3,7 @@ import type { ContactType, SellerProfile } from '../../domain/models';
 import { getSellerProfile, saveSellerProfile } from '../../data/firestore/repositories';
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
+import { sellerContactFieldDefinition } from '../../domain/sellerContact';
 import {
   profileContactTypes,
   type ProfileFormErrors,
@@ -45,6 +46,7 @@ export function SellerProfilePage() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const isMountedRef = useRef(true);
   const activeUserUidRef = useRef<string | null>(null);
+  const contactField = sellerContactFieldDefinition(form.contactType);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -231,18 +233,24 @@ export function SellerProfilePage() {
               </p>
             )}
 
-            <label>
-              聯絡帳號或連結
-              <input
-                value={form.contactValue}
-                onChange={(event) => {
-                  setForm((currentForm) => ({ ...currentForm, contactValue: event.target.value }));
-                  setFormErrors((errors) => ({ ...errors, contactValue: undefined }));
-                }}
-                aria-invalid={Boolean(formErrors.contactValue)}
-                aria-describedby={formErrors.contactValue ? 'contact-value-error' : undefined}
-              />
+            <label htmlFor="seller-contact-value">
+              {contactField.label}
             </label>
+            <input
+              id="seller-contact-value"
+              value={form.contactValue}
+              placeholder={contactField.placeholder}
+              inputMode={contactField.inputMode}
+              onChange={(event) => {
+                setForm((currentForm) => ({ ...currentForm, contactValue: event.target.value }));
+                setFormErrors((errors) => ({ ...errors, contactValue: undefined }));
+              }}
+              aria-invalid={Boolean(formErrors.contactValue)}
+              aria-describedby={formErrors.contactValue
+                ? 'seller-contact-helper contact-value-error'
+                : 'seller-contact-helper'}
+            />
+            <p id="seller-contact-helper">{contactField.helper}</p>
             {formErrors.contactValue && (
               <p className="field-error" id="contact-value-error" role="alert">
                 {formErrors.contactValue}
