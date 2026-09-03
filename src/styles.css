@@ -131,6 +131,22 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: #cf222e;
 }
 
+.account-access-notice {
+  flex-basis: 100%;
+  border-inline-start: 4px solid hsl(var(--warning));
+  border-radius: var(--radius);
+  background: hsl(var(--warning) / .1);
+  padding: 10px 12px;
+}
+
+.account-access-notice p {
+  margin: 0;
+}
+
+.account-access-notice p + p {
+  margin-top: 4px;
+}
+
 .masthead {
   padding: 28px 0;
 }
