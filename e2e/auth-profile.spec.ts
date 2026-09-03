@@ -21,7 +21,7 @@ test('validates required Profile fields without persisting invalid data', async 
   await page.goto('#/profile');
 
   await page.getByLabel('顯示名稱').fill('   ');
-  await page.getByLabel('聯絡帳號或連結').fill('   ');
+  await page.getByLabel('LINE ID').fill('   ');
   await page.getByRole('button', { name: '儲存個人檔案' }).click();
 
   await expect(page.getByRole('alert').filter({ hasText: '請填寫顯示名稱。' })).toBeVisible();
@@ -49,19 +49,20 @@ test('signs in, creates and edits a Profile, reloads, then signs out', async ({ 
 
   await page.getByLabel('顯示名稱').fill('更新後賣家');
   await page.getByLabel('聯絡方式').selectOption('threads');
-  await page.getByLabel('聯絡帳號或連結').fill('@updated');
+  await page.getByLabel('Threads 個人頁面連結').fill('https://threads.net/@updated/');
   await page.getByRole('button', { name: '儲存個人檔案' }).click();
   await expect(page.getByRole('status')).toContainText('已儲存個人檔案');
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: '更新後賣家',
     contactType: 'threads',
-    contactValue: '@updated',
+    contactValue: 'https://www.threads.net/@updated',
   });
 
   await page.reload();
   await expect(page.getByLabel('顯示名稱')).toHaveValue('更新後賣家');
   await expect(page.getByLabel('聯絡方式')).toHaveValue('threads');
-  await expect(page.getByLabel('聯絡帳號或連結')).toHaveValue('@updated');
+  await expect(page.getByLabel('Threads 個人頁面連結'))
+    .toHaveValue('https://www.threads.net/@updated');
 
   await page.goto('./');
   await page.getByRole('button', { name: '登出' }).click();

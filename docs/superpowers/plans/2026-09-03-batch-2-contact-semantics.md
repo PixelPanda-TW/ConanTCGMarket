@@ -375,7 +375,7 @@ In `docs/milestones.md`, update Milestone 3 to state the one-preferred-contact c
 - [ ] **Step 5: Run formatting and reference scans**
 
 ```bash
-rg -n "聯絡帳號或連結|@updated|@mobile-updated|以 discord 聯絡" src e2e docs/milestones.md
+rg -n "聯絡帳號或連結|contactValue: '@(updated|mobile-updated)'|以 (line|discord|threads|facebook) 聯絡" src e2e docs/milestones.md
 rg -n "href=.*contactValue|href=\{seller\.contactValue\}" src
 git diff --check
 ```
@@ -433,7 +433,7 @@ npm run test:e2e:chromium
 - [ ] **Step 4: Run final acceptance scans**
 
 ```bash
-rg -n "聯絡帳號或連結|@updated|@mobile-updated|以 discord 聯絡" src e2e docs/milestones.md
+rg -n "聯絡帳號或連結|contactValue: '@(updated|mobile-updated)'|以 (line|discord|threads|facebook) 聯絡" src e2e docs/milestones.md
 rg -n "href=.*contactValue|href=\{seller\.contactValue\}" src
 git diff --check
 git status -sb

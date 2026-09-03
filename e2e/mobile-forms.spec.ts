@@ -159,23 +159,30 @@ test('mobile Profile form', async ({ page }) => {
 
   const displayName = page.getByLabel('顯示名稱');
   const contactType = page.getByLabel('聯絡方式');
-  const contactValue = page.getByLabel('聯絡帳號或連結');
   await expectEditable(displayName);
   await expect(contactType).toBeEnabled();
-  await expectEditable(contactValue);
+  await expectEditable(page.getByLabel('LINE ID'));
   await expect(contactType.locator('option')).toHaveText([
     'LINE',
     'Discord',
     'Threads',
     'Facebook',
   ]);
-  for (const option of ['line', 'discord', 'threads', 'facebook']) {
+  const contactFields = [
+    ['line', 'LINE ID', '請填寫 LINE ID，不要貼網址。'],
+    ['discord', 'Discord ID', '只會顯示 ID 文字，不會建立連結。'],
+    ['threads', 'Threads 個人頁面連結', '必須是 threads.net/@帳號 的個人頁面 HTTPS 連結。'],
+    ['facebook', 'Facebook 個人頁面連結', '必須是 facebook.com 的個人頁面 HTTPS 連結。'],
+  ] as const;
+  for (const [option, label, helper] of contactFields) {
     await contactType.selectOption(option);
     await expect(contactType).toHaveValue(option);
+    await expectEditable(page.getByLabel(label));
+    await expect(page.getByText(helper)).toBeVisible();
   }
 
   await displayName.fill('   ');
-  await contactValue.fill('   ');
+  await page.getByLabel('Facebook 個人頁面連結').fill('   ');
   await page.getByRole('button', { name: '儲存個人檔案' }).tap();
   await expect(page.getByRole('alert').filter({ hasText: '請填寫顯示名稱。' })).toBeVisible();
   await expect(page.getByRole('alert').filter({ hasText: '請填寫聯絡方式。' })).toBeVisible();
@@ -183,7 +190,7 @@ test('mobile Profile form', async ({ page }) => {
 
   await displayName.fill('行動版賣家');
   await contactType.selectOption('discord');
-  await contactValue.fill('mobile-profile');
+  await page.getByLabel('Discord ID').fill('mobile-profile');
   await page.getByRole('button', { name: '儲存個人檔案' }).tap();
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: '行動版賣家',
@@ -193,18 +200,19 @@ test('mobile Profile form', async ({ page }) => {
 
   await displayName.fill('行動版更新賣家');
   await contactType.selectOption('threads');
-  await contactValue.fill('@mobile-updated');
+  await page.getByLabel('Threads 個人頁面連結').fill('https://threads.net/@mobile-updated/');
   await page.getByRole('button', { name: '儲存個人檔案' }).tap();
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: '行動版更新賣家',
     contactType: 'threads',
-    contactValue: '@mobile-updated',
+    contactValue: 'https://www.threads.net/@mobile-updated',
   });
 
   await page.reload();
   await expect(displayName).toHaveValue('行動版更新賣家');
   await expect(contactType).toHaveValue('threads');
-  await expect(contactValue).toHaveValue('@mobile-updated');
+  await expect(page.getByLabel('Threads 個人頁面連結'))
+    .toHaveValue('https://www.threads.net/@mobile-updated');
   await expectNoHorizontalScroll(page);
 });
 

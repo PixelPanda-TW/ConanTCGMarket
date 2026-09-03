@@ -68,7 +68,7 @@ Status: implemented as model, converter, and repository foundations. Firestore s
 
 ## Milestone 3: Seller Profile
 
-Status: implemented. Added a GitHub Pages-compatible `#/profile` route, seller-scoped Firestore profile repository, profile create/update form, validation, and authenticated access checks. UI-level async flow tests remain a follow-up test-hardening item; pure validation, route, and request-lifecycle guards are covered.
+Status: implemented for one preferred seller contact. The `#/profile` route, seller-scoped repository, create/update form, async request guards, and component/browser coverage are in place. LINE and Discord store IDs; Facebook and Threads store validated HTTPS personal-profile links. Authenticated-only contact disclosure remains pending in the account/contact security batches.
 
 ### Goal
 
@@ -78,8 +78,9 @@ Allow signed-in sellers to create and manage their public seller identity and co
 
 - `/profile` route.
 - Seller display name field.
-- Contact type field with LINE, Discord, Threads, and Facebook.
-- Contact value field.
+- One preferred contact selected from LINE, Discord, Threads, and Facebook.
+- LINE and Discord identifier fields with service-specific validation.
+- Facebook and Threads HTTPS personal-profile URL fields with canonicalization.
 - Profile create and update flow.
 - Guard that sends sellers to profile setup before listing cards.
 
@@ -87,7 +88,7 @@ Allow signed-in sellers to create and manage their public seller identity and co
 
 - A signed-in seller can create a profile.
 - A signed-in seller can update their profile.
-- Listing pages display only the seller-provided contact method.
+- Listing pages render LINE as an ID link, Discord as ID text, and Facebook/Threads as validated personal-profile links.
 - Google email is not shown as a public contact method.
 
 ## Milestone 4: Minimal Card Master

@@ -247,7 +247,8 @@ test('creates a complete Listing, uploads images, and captures its event', async
   await expect(page.getByText('支援賣貨便（加價 NT$10）')).toBeVisible();
   await expect(page.getByText('E2E 商品備註')).toBeVisible();
   await expect(page.getByText('E2E 賣家', { exact: true })).toBeVisible();
-  await expect(page.getByText('以 discord 聯絡：e2e-seller')).toBeVisible();
+  await expect(page.getByText('Discord ID：e2e-seller')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Discord ID：e2e-seller' })).toHaveCount(0);
   const managementLink = page.getByRole('link', { name: '管理此商品' });
   await expect(managementLink).toBeVisible();
   await expect(managementLink).toHaveAttribute('href', `#/listing/${listingId}/edit`);

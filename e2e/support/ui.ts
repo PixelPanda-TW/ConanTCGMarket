@@ -1,8 +1,9 @@
 import { expect, type Page } from '@playwright/test';
+import type { ContactType } from '../../src/domain/models';
 
 export interface SellerProfileValues {
   displayName: string;
-  contactType: string;
+  contactType: ContactType;
   contactValue: string;
 }
 
@@ -12,6 +13,13 @@ export interface CardMetadataValues {
   rarity: string;
   cardId: string;
 }
+
+const contactValueLabels: Record<ContactType, string> = {
+  line: 'LINE ID',
+  discord: 'Discord ID',
+  facebook: 'Facebook 個人頁面連結',
+  threads: 'Threads 個人頁面連結',
+};
 
 export async function acknowledgeWelcome(page: Page): Promise<void> {
   const dialog = page.getByRole('dialog', { name: '網站使用與安全提醒' });
@@ -31,7 +39,7 @@ export async function createSellerProfile(
   await page.goto('#/profile');
   await page.getByLabel('顯示名稱').fill(values.displayName);
   await page.getByLabel('聯絡方式').selectOption(values.contactType);
-  await page.getByLabel('聯絡帳號或連結').fill(values.contactValue);
+  await page.getByLabel(contactValueLabels[values.contactType]).fill(values.contactValue);
   await page.getByRole('button', { name: '儲存個人檔案' }).click();
   await expect(page.getByRole('status')).toContainText('已儲存個人檔案');
 }
