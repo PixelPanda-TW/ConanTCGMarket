@@ -1,4 +1,8 @@
 import type { ContactType } from '../../domain/models';
+import {
+  normalizeAndValidateContact,
+  sellerContactFieldDefinition,
+} from '../../domain/sellerContact';
 
 export const profileContactTypes = ['line', 'discord', 'threads', 'facebook'] as const;
 
@@ -27,7 +31,7 @@ export function normalizeProfileForm(values: ProfileFormState): ProfileFormState
 }
 
 export function validateProfileForm(values: ProfileFormState) {
-  const normalizedValues = normalizeProfileForm(values);
+  let normalizedValues = normalizeProfileForm(values);
   const errors: ProfileFormErrors = {};
 
   if (normalizedValues.displayName.length === 0) {
@@ -36,10 +40,18 @@ export function validateProfileForm(values: ProfileFormState) {
 
   if (!profileContactTypes.includes(normalizedValues.contactType)) {
     errors.contactType = '請選擇支援的聯絡方式。';
-  }
-
-  if (normalizedValues.contactValue.length === 0) {
-    errors.contactValue = '請填寫聯絡方式。';
+  } else {
+    const contact = normalizeAndValidateContact(
+      normalizedValues.contactType,
+      normalizedValues.contactValue,
+    );
+    if (contact.ok) {
+      normalizedValues = { ...normalizedValues, contactValue: contact.value };
+    } else {
+      errors.contactValue = contact.reason === 'required'
+        ? '請填寫聯絡方式。'
+        : sellerContactFieldDefinition(normalizedValues.contactType).invalidMessage;
+    }
   }
 
   return { values: normalizedValues, errors };
