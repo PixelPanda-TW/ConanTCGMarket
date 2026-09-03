@@ -79,28 +79,21 @@ describe('card repository', () => {
     await expect(listCardsFromServer()).rejects.toBe(unavailable);
   });
 
-  it('merges legacy and composite-key cards by canonical identity without merging same-ID different names', async () => {
-    const legacyCard: Card = {
-      key: '0501', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'],
+  it('retains every canonical record and sorts without hiding duplicate identities', async () => {
+    const duplicateB: Card = {
+      key: 'card_b', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'],
     };
-    const compositeCard: Card = {
-      key: 'card_abc', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['SR', 'D'],
+    const laterCard: Card = {
+      key: 'card_z', cardId: '1096', cardType: 'character', cardName: '諸伏景光', rarities: ['R'],
     };
-    const sameIdDifferentName: Card = {
-      key: 'card_def', cardId: '0501', cardType: 'character', cardName: '諸伏景光', rarities: ['R'],
-    };
-    const sameIdDifferentType: Card = {
-      key: 'card_ghi', cardId: '0501', cardType: 'event', cardName: '諸伏高明', rarities: ['C'],
+    const duplicateA: Card = {
+      key: 'card_a', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D'],
     };
     firestore.getDocs.mockResolvedValue({
-      docs: [legacyCard, compositeCard, sameIdDifferentName, sameIdDifferentType].map((card) => ({ data: () => card })),
+      docs: [duplicateB, laterCard, duplicateA].map((card) => ({ data: () => card })),
     });
 
-    await expect(listCards()).resolves.toEqual([
-      { key: 'card_def', cardId: '0501', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
-      { key: 'card_abc', cardId: '0501', cardType: 'character', cardName: '諸伏高明', rarities: ['D', 'SR'] },
-      { key: 'card_ghi', cardId: '0501', cardType: 'event', cardName: '諸伏高明', rarities: ['C'] },
-    ]);
+    await expect(listCards()).resolves.toEqual([duplicateA, duplicateB, laterCard]);
   });
 
   it('matches normalized Chinese names and returns all matching rarities', () => {

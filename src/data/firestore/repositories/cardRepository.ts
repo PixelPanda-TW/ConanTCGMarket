@@ -8,10 +8,6 @@ export { searchCards } from '../../cards/cardSearch';
 const cardCollection = () =>
   collection(firestoreDb, collections.cards).withConverter(cardConverter);
 
-function canonicalIdentity(card: Card): string {
-  return JSON.stringify([card.cardType, card.cardName.trim().normalize('NFC'), card.cardId]);
-}
-
 function compareCards(left: Card, right: Card): number {
   for (const [leftValue, rightValue] of [
     [left.cardId, right.cardId],
@@ -26,42 +22,25 @@ function compareCards(left: Card, right: Card): number {
   return 0;
 }
 
-export function mergeCardsByCanonicalIdentity(cards: readonly Card[]): Card[] {
-  const mergedByIdentity = new Map<string, Card>();
-
-  for (const card of cards) {
-    const identity = canonicalIdentity(card);
-    const current = mergedByIdentity.get(identity);
-    if (!current) {
-      mergedByIdentity.set(identity, card);
-      continue;
-    }
-
-    const preferred = current.key === current.cardId && card.key !== card.cardId ? card : current;
-    mergedByIdentity.set(identity, {
-      ...preferred,
-      rarities: [...new Set([...current.rarities, ...card.rarities])].sort(),
-    });
-  }
-
-  return [...mergedByIdentity.values()].sort(compareCards);
+function sortCards(cards: readonly Card[]): Card[] {
+  return [...cards].sort(compareCards);
 }
 
 export async function listCards(): Promise<Card[]> {
   const snapshot = await getDocs(cardCollection());
-  return mergeCardsByCanonicalIdentity(snapshot.docs.map((doc) => doc.data()));
+  return sortCards(snapshot.docs.map((doc) => doc.data()));
 }
 
 export async function listCardsFromServer(): Promise<Card[]> {
   const cards = cardCollection();
   try {
     const snapshot = await getDocsFromServer(cards);
-    return mergeCardsByCanonicalIdentity(snapshot.docs.map((doc) => doc.data()));
+    return sortCards(snapshot.docs.map((doc) => doc.data()));
   } catch (serverError) {
     try {
       const cachedSnapshot = await getDocsFromCache(cards);
       if (cachedSnapshot.docs.length > 0) {
-        return mergeCardsByCanonicalIdentity(cachedSnapshot.docs.map((doc) => doc.data()));
+        return sortCards(cachedSnapshot.docs.map((doc) => doc.data()));
       }
     } catch {
       // Preserve the server failure below; cache is only a best-effort fallback.
