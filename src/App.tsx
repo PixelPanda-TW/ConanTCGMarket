@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { CardMasterPage } from './features/cards/CardMasterPage';
 import { SellerProfilePage } from './features/profile/SellerProfilePage';
 import { SellPage } from './features/sell/SellPage';
 import { ListingPage } from './features/listings/ListingPage';
@@ -35,9 +34,6 @@ function App() {
     return <SellerProfilePage />;
   }
 
-  if (route === 'cards') {
-    return <CardMasterPage />;
-  }
   if (route === 'sell') return <SellPage />;
   if (route === 'dashboard') return <DashboardPage />;
   if (route === 'notifications') return <NotificationSettingsPage />;

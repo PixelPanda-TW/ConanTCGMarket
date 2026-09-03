@@ -6,8 +6,9 @@ describe('app routes', () => {
     expect(getAppRoute('#/profile')).toBe('profile');
   });
 
-  it('maps the cards hash to the card master route', () => {
-    expect(getAppRoute('#/cards')).toBe('cards');
+  it('canonicalizes the retired cards hash to the marketplace home', () => {
+    expect(canonicalHomeHash('#/cards')).toBe('#');
+    expect(getAppRoute(canonicalHomeHash('#/cards'))).toBe('marketplace');
   });
 
   it('maps the sell hash to the sell route', () => {

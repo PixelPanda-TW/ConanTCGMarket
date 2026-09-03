@@ -538,17 +538,6 @@ h1 {
   opacity: 0.65;
 }
 
-.card-master-page {
-  width: min(760px, 100%);
-  margin: 0 auto;
-}
-
-.card-master-page .eyebrow {
-  margin-top: 28px;
-}
-
-.card-master-state,
-.card-selector,
 .selected-card-summary {
   margin-top: 24px;
   border: 1px solid #d0d7de;
@@ -557,88 +546,8 @@ h1 {
   padding: 20px;
 }
 
-.card-selector {
-  display: grid;
-  gap: 16px;
-}
-
-.card-selector-search {
-  display: grid;
-  gap: 6px;
-  font-weight: 700;
-}
-
-.card-selector-search input {
-  min-height: 44px;
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
-  background: #fff;
-  padding: 0 12px;
-  color: #1f2328;
-}
-
-.card-selector-selected {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  border: 1px solid #bf8700;
-  border-radius: 8px;
-  background: #fff8c5;
-  padding: 12px;
-}
-
-.card-selector-selected p,
-.card-selector-empty,
 .selected-card-summary p {
   margin: 0;
-}
-
-.card-selector-selected button {
-  min-height: 36px;
-  border: 1px solid #8250df;
-  border-radius: 8px;
-  background: #fff;
-  color: #6639ba;
-  padding: 0 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.card-selector-results {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-
-.card-selector-option {
-  display: flex;
-  flex-wrap: wrap;
-  min-height: 52px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
-  background: #fff;
-  padding: 10px 12px;
-  color: #1f2328;
-  text-align: left;
-  cursor: pointer;
-}
-
-.card-selector-option > :first-child { flex: 1 1 100%; }
-.card-selector-id { color: hsl(var(--muted-foreground)); font-size: 13px; font-variant-numeric: tabular-nums; }
-
-.card-selector-option:hover {
-  border-color: #0969da;
-  background: #ddf4ff;
-}
-
-.card-selector-rarity {
-  color: #8250df;
-  font-weight: 800;
 }
 
 .selected-card-summary h2 {
@@ -883,13 +792,10 @@ h1 {
 
   .profile-state,
   .profile-form,
-  .card-master-state,
-  .card-selector,
   .selected-card-summary {
     padding: 16px;
   }
 
-  .card-selector-results,
   .selected-card-summary dl {
     grid-template-columns: 1fr;
   }
@@ -954,8 +860,7 @@ button:hover,
   background: hsl(var(--primary) / .86);
 }
 
-.auth-status button,
-.card-selector-selected button {
+.auth-status button {
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--secondary));
@@ -967,8 +872,6 @@ button:hover,
 .filters,
 .profile-state,
 .profile-form,
-.card-master-state,
-.card-selector,
 .selected-card-summary,
 .listing-purchase-panel,
 .dashboard-summary p,
@@ -985,7 +888,6 @@ button:hover,
 
 .profile-form label,
 .modal label,
-.card-selector-search,
 .seller-name,
 .listing-details h2 {
   color: hsl(var(--foreground));
@@ -1004,8 +906,7 @@ button:hover,
 .filters input:not([type='checkbox']),
 .profile-form input,
 .profile-form select,
-.profile-form textarea,
-.card-selector-search input {
+.profile-form textarea {
   border: 1px solid hsl(var(--input));
   border-radius: var(--radius);
   background: hsl(var(--background) / .78);
@@ -1020,8 +921,7 @@ textarea::placeholder {
 
 .profile-form input:focus,
 .profile-form select:focus,
-.profile-form textarea:focus,
-.card-selector-search input:focus {
+.profile-form textarea:focus {
   border-color: hsl(var(--ring));
   box-shadow: 0 0 0 2px hsl(var(--ring) / .22);
 }
@@ -1033,23 +933,13 @@ textarea::placeholder {
 }
 
 .listing-card:hover,
-.marketplace .listing-card:hover,
-.card-selector-option:hover {
+.marketplace .listing-card:hover {
   border-color: hsl(var(--primary));
   background: hsl(var(--accent));
   box-shadow: 0 18px 38px hsl(var(--primary) / .16);
 }
 
-.card-selector-option,
-.card-selector-selected {
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--card) / .72);
-  color: hsl(var(--card-foreground));
-}
-
 .rarity,
-.card-selector-rarity,
 .listing-price {
   color: hsl(var(--primary));
 }

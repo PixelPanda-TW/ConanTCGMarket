@@ -1,13 +1,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { listCardsFromServer } from './data/firestore/repositories';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-
-vi.mock('./data/firestore/repositories', () => ({
-  listCardsFromServer: vi.fn(),
-}));
 
 vi.mock('./features/marketplace/MarketplacePage', () => ({
   MarketplacePage: () => <h1>marketplace page</h1>,
@@ -24,38 +19,17 @@ vi.mock('./features/notifications/NotificationSettingsPage', () => ({
 
 afterEach(() => {
   window.location.hash = '';
-  vi.mocked(listCardsFromServer).mockReset();
   cleanup();
 });
 
-beforeEach(() => {
-  vi.mocked(listCardsFromServer).mockResolvedValue([]);
-});
-
 describe('App routes', () => {
-  it('renders the card master for the cards hash', () => {
+  it('renders Marketplace for the retired cards hash', () => {
     window.location.hash = '#/cards';
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: '卡牌資料庫' })).toBeTruthy();
-  });
-
-  it('loads public Card Master records through the repository by default', async () => {
-    window.location.hash = '#/cards';
-    const user = (await import('@testing-library/user-event')).default.setup();
-    vi.mocked(listCardsFromServer).mockResolvedValue([
-      { key: 'partner_1167', cardId: '1167', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'] },
-    ]);
-
-    render(<App />);
-
-    const option = await screen.findByRole('button', { name: 'Partner 卡（拍檔卡） · 江戶川柯南 · ID 1167 · P' });
-    await user.click(option);
-
-    expect(listCardsFromServer).toHaveBeenCalledOnce();
-    expect(screen.getByText('1167')).toBeTruthy();
-    expect(screen.getByText('Partner 卡（拍檔卡）')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'marketplace page' })).toBeTruthy();
+    expect(window.location.hash).not.toBe('#/cards');
   });
 
   it('preserves marketplace and profile routes', () => {
