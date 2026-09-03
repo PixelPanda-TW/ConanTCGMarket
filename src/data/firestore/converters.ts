@@ -10,6 +10,7 @@ import {
   validateNotificationSubscription,
   validateSale,
   validateSellerProfile,
+  validateSellerProfileStructure,
   type Card,
   type Listing,
   type NotificationSubscription,
@@ -161,7 +162,7 @@ export const sellerProfileConverter: FirestoreDataConverter<SellerProfile> = {
       updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
     };
 
-    validateSellerProfile(profile);
+    validateSellerProfileStructure(profile);
     return profile;
   },
 };

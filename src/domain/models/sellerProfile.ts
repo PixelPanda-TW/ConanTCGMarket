@@ -11,7 +11,7 @@ export interface SellerProfile {
 
 const contactTypes: ContactType[] = ['line', 'discord', 'threads', 'facebook'];
 
-export function validateSellerProfile(profile: SellerProfile) {
+export function validateSellerProfileStructure(profile: SellerProfile) {
   if (typeof profile.uid !== 'string' || profile.uid.length === 0) {
     throw new Error('Seller profile requires uid.');
   }
@@ -36,3 +36,12 @@ export function validateSellerProfile(profile: SellerProfile) {
     throw new Error('Seller profile requires a valid updatedAt date.');
   }
 }
+
+export function validateSellerProfile(profile: SellerProfile) {
+  validateSellerProfileStructure(profile);
+  const contact = normalizeAndValidateContact(profile.contactType, profile.contactValue);
+  if (!contact.ok || contact.value !== profile.contactValue) {
+    throw new Error('Seller profile requires a canonical contactValue for contactType.');
+  }
+}
+import { normalizeAndValidateContact } from '../sellerContact';

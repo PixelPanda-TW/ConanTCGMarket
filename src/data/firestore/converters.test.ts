@@ -221,6 +221,49 @@ describe('Firestore converters', () => {
     });
   });
 
+  it('rejects a legacy contact value when writing a seller profile', () => {
+    expect(() => sellerProfileConverter.toFirestore({
+      uid: 'seller-1',
+      displayName: 'Seller',
+      contactType: 'threads',
+      contactValue: '@legacy',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+    })).toThrow('Seller profile requires a canonical contactValue for contactType.');
+  });
+
+  it('writes a canonical social profile URL unchanged', () => {
+    expect(sellerProfileConverter.toFirestore({
+      uid: 'seller-1',
+      displayName: 'Seller',
+      contactType: 'threads',
+      contactValue: 'https://www.threads.net/@seller',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+    })).toMatchObject({
+      contactType: 'threads',
+      contactValue: 'https://www.threads.net/@seller',
+    });
+  });
+
+  it('keeps a legacy seller contact readable for owner correction', () => {
+    const snapshot = {
+      id: 'seller-1',
+      data: () => ({
+        displayName: 'Seller',
+        contactType: 'threads',
+        contactValue: '@legacy',
+        createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+        updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
+      }),
+    };
+
+    expect(sellerProfileConverter.fromFirestore(snapshot as never)).toMatchObject({
+      contactType: 'threads',
+      contactValue: '@legacy',
+    });
+  });
+
   it('converts sale timestamps to Date values', () => {
     const snapshot = {
       id: 'sale-1',

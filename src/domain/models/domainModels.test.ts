@@ -5,6 +5,7 @@ import {
   validateNotificationSubscription,
   validateSale,
   validateSellerProfile,
+  validateSellerProfileStructure,
   type Card,
   type Listing,
   type NotificationSubscription,
@@ -215,7 +216,62 @@ describe('domain model validation', () => {
     expect(() => validateListing(listing)).toThrow('Listing requires 1 to 3 image URLs.');
   });
 
-  it('rejects seller profiles without contact values', () => {
+  it('accepts canonical seller contacts for every supported service', () => {
+    const baseProfile: SellerProfile = {
+      uid: 'seller-1',
+      displayName: 'Seller',
+      contactType: 'line',
+      contactValue: '@seller',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateSellerProfile(baseProfile)).not.toThrow();
+    expect(() => validateSellerProfile({
+      ...baseProfile, contactType: 'discord', contactValue: 'seller_name',
+    })).not.toThrow();
+    expect(() => validateSellerProfile({
+      ...baseProfile, contactType: 'facebook', contactValue: 'https://www.facebook.com/seller',
+    })).not.toThrow();
+    expect(() => validateSellerProfile({
+      ...baseProfile, contactType: 'threads', contactValue: 'https://www.threads.net/@seller',
+    })).not.toThrow();
+  });
+
+  it.each([
+    ['threads', '@legacy'],
+    ['facebook', 'https://www.facebook.com/groups/conan'],
+    ['discord', 'https://discord.gg/conan'],
+    ['facebook', 'https://m.facebook.com/seller'],
+  ] as const)('rejects noncanonical %s seller contact writes', (contactType, contactValue) => {
+    const profile: SellerProfile = {
+      uid: 'seller-1',
+      displayName: 'Seller',
+      contactType,
+      contactValue,
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateSellerProfile(profile)).toThrow(
+      'Seller profile requires a canonical contactValue for contactType.',
+    );
+  });
+
+  it('keeps a non-empty legacy contact structurally readable for correction', () => {
+    const profile: SellerProfile = {
+      uid: 'seller-1',
+      displayName: 'Seller',
+      contactType: 'threads',
+      contactValue: '@legacy',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateSellerProfileStructure(profile)).not.toThrow();
+  });
+
+  it('rejects seller profiles without contact values structurally', () => {
     const profile: SellerProfile = {
       uid: 'seller-1',
       displayName: 'Seller',
@@ -225,7 +281,7 @@ describe('domain model validation', () => {
       updatedAt: new Date('2026-08-17T00:00:00.000Z'),
     };
 
-    expect(() => validateSellerProfile(profile)).toThrow('Seller profile requires contactValue.');
+    expect(() => validateSellerProfileStructure(profile)).toThrow('Seller profile requires contactValue.');
   });
 
   it('rejects sale quantity above zero requirement', () => {

@@ -1,4 +1,4 @@
-import type { ContactType } from './models';
+import type { ContactType } from './models/sellerProfile';
 
 export type ContactValidationReason = 'required' | 'identifier' | 'profile-url';
 
