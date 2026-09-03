@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  validateAccountAccess,
   validateCard,
   validateListing,
   validateNotificationSubscription,
@@ -7,6 +8,7 @@ import {
   validateSellerProfile,
   validateSellerProfileStructure,
   type Card,
+  type AccountAccess,
   type Listing,
   type NotificationSubscription,
   type Sale,
@@ -15,6 +17,84 @@ import {
 import { CARD_TYPES, cardTypeLabel, isCardType } from '../cardType';
 
 describe('domain model validation', () => {
+  const activeAccount: AccountAccess = {
+    uid: 'buyer-1',
+    status: 'active',
+    confirmedViolationCount: 0,
+    updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+  };
+
+  it('accepts canonical active and suspended account access records', () => {
+    expect(() => validateAccountAccess(activeAccount)).not.toThrow();
+    expect(() => validateAccountAccess({
+      ...activeAccount,
+      status: 'suspended',
+      confirmedViolationCount: 2,
+      suspensionReason: 'Repeated marketplace policy violations.',
+      suspendedAt: new Date('2026-09-02T00:00:00.000Z'),
+      suspendedBy: 'admin-1',
+    })).not.toThrow();
+  });
+
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid confirmed violation count %s',
+    (confirmedViolationCount) => {
+      expect(() => validateAccountAccess({
+        ...activeAccount,
+        confirmedViolationCount,
+      })).toThrow('non-negative integer');
+    },
+  );
+
+  it('rejects suspension fields on an active account', () => {
+    expect(() => validateAccountAccess({
+      ...activeAccount,
+      suspensionReason: 'Should not exist.',
+    } as unknown as AccountAccess)).toThrow('must omit suspension fields');
+  });
+
+  it.each([
+    {},
+    { suspensionReason: '', suspendedAt: new Date(), suspendedBy: 'admin-1' },
+    { suspensionReason: ' reason', suspendedAt: new Date(), suspendedBy: 'admin-1' },
+    { suspensionReason: 'Reason', suspendedBy: 'admin-1' },
+    { suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: '' },
+  ])('rejects incomplete or noncanonical suspended account fields %#', (fields) => {
+    expect(() => validateAccountAccess({
+      ...activeAccount,
+      status: 'suspended',
+      ...fields,
+    } as AccountAccess)).toThrow();
+  });
+
+  it('enforces identifier and suspension reason bounds', () => {
+    expect(() => validateAccountAccess({ ...activeAccount, uid: 'x'.repeat(129) }))
+      .toThrow('1 to 128');
+    expect(() => validateAccountAccess({ ...activeAccount, uid: ' buyer-1' }))
+      .toThrow('trimmed');
+    expect(() => validateAccountAccess({
+      ...activeAccount,
+      status: 'suspended',
+      suspensionReason: 'x'.repeat(1001),
+      suspendedAt: new Date(),
+      suspendedBy: 'admin-1',
+    })).toThrow('1 to 1000');
+    expect(() => validateAccountAccess({
+      ...activeAccount,
+      status: 'suspended',
+      suspensionReason: 'Reason',
+      suspendedAt: new Date(),
+      suspendedBy: 'x'.repeat(129),
+    })).toThrow('1 to 128');
+  });
+
+  it('rejects unsupported status and invalid updatedAt values', () => {
+    expect(() => validateAccountAccess({ ...activeAccount, status: 'pending' } as never))
+      .toThrow('active or suspended');
+    expect(() => validateAccountAccess({ ...activeAccount, updatedAt: new Date('invalid') }))
+      .toThrow('valid updatedAt');
+  });
+
   it('accepts notification subscriptions for complete raw Card Master names', () => {
     const subscription: NotificationSubscription = {
       uid: 'buyer-1',

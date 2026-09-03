@@ -6,4 +6,5 @@ export const collections = {
   notificationSubscriptions: 'notificationSubscriptions',
   notificationDeliveryState: 'notificationDeliveryState',
   listingEvents: 'listingEvents',
+  accountAccess: 'accountAccess',
 } as const;

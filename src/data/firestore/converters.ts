@@ -5,6 +5,7 @@ import {
   type SnapshotOptions,
 } from 'firebase/firestore';
 import {
+  validateAccountAccess,
   validateCard,
   validateListing,
   validateNotificationSubscription,
@@ -12,6 +13,7 @@ import {
   validateSellerProfile,
   validateSellerProfileStructure,
   type Card,
+  type AccountAccess,
   type Listing,
   type NotificationSubscription,
   type Sale,
@@ -49,6 +51,69 @@ function timestampToDate(value: unknown, fieldName: string): Date {
 function dateToTimestamp(value: Date): Timestamp {
   return Timestamp.fromDate(value);
 }
+
+const activeAccountAccessFields = [
+  'status',
+  'confirmedViolationCount',
+  'updatedAt',
+] as const;
+const suspendedAccountAccessFields = [
+  ...activeAccountAccessFields,
+  'suspensionReason',
+  'suspendedAt',
+  'suspendedBy',
+] as const;
+
+function hasExactAccountAccessFields(data: FirestoreData): boolean {
+  const expected = data.status === 'active'
+    ? activeAccountAccessFields
+    : data.status === 'suspended'
+      ? suspendedAccountAccessFields
+      : [];
+  const keys = Object.keys(data);
+  return keys.length === expected.length && expected.every((field) => keys.includes(field));
+}
+
+export const accountAccessConverter: FirestoreDataConverter<AccountAccess> = {
+  toFirestore(value) {
+    const access = value as AccountAccess;
+    validateAccountAccess(access);
+    const data: FirestoreData = {
+      status: access.status,
+      confirmedViolationCount: access.confirmedViolationCount,
+      updatedAt: dateToTimestamp(access.updatedAt),
+    };
+    if (access.status === 'suspended') {
+      data.suspensionReason = access.suspensionReason;
+      data.suspendedAt = dateToTimestamp(access.suspendedAt);
+      data.suspendedBy = access.suspendedBy;
+    }
+    return data;
+  },
+  fromFirestore(snapshot, options) {
+    const data = readData(snapshot, options);
+    if (!hasExactAccountAccessFields(data)) {
+      throw new Error('Account access document has invalid fields.');
+    }
+
+    const common = {
+      uid: snapshot.id,
+      confirmedViolationCount: data.confirmedViolationCount as number,
+      updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
+    };
+    const access: AccountAccess = data.status === 'suspended'
+      ? {
+          ...common,
+          status: 'suspended',
+          suspensionReason: data.suspensionReason as string,
+          suspendedAt: timestampToDate(data.suspendedAt, 'suspendedAt'),
+          suspendedBy: data.suspendedBy as string,
+        }
+      : { ...common, status: 'active' };
+    validateAccountAccess(access);
+    return access;
+  },
+};
 
 export const cardConverter: FirestoreDataConverter<Card> = {
   toFirestore(card) {

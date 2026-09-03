@@ -1,14 +1,69 @@
 import { describe, expect, it } from 'vitest';
 import { Timestamp } from 'firebase/firestore';
 import {
+  accountAccessConverter,
   cardConverter,
   listingConverter,
   saleConverter,
   sellerProfileConverter,
   notificationSubscriptionConverter,
 } from './converters';
+import { collections } from './paths';
 
 describe('Firestore converters', () => {
+  it('exposes the account access collection path', () => {
+    expect(collections.accountAccess).toBe('accountAccess');
+  });
+
+  it('converts canonical active and suspended account access documents', () => {
+    const updatedAt = Timestamp.fromDate(new Date('2026-09-03T00:00:00.000Z'));
+    expect(accountAccessConverter.fromFirestore({
+      id: 'buyer-1',
+      data: () => ({ status: 'active', confirmedViolationCount: 0, updatedAt }),
+    } as never)).toEqual({
+      uid: 'buyer-1', status: 'active', confirmedViolationCount: 0, updatedAt: updatedAt.toDate(),
+    });
+
+    const suspendedAt = Timestamp.fromDate(new Date('2026-09-02T00:00:00.000Z'));
+    expect(accountAccessConverter.fromFirestore({
+      id: 'seller-1',
+      data: () => ({
+        status: 'suspended', confirmedViolationCount: 2, suspensionReason: 'Reason',
+        suspendedAt, suspendedBy: 'admin-1', updatedAt,
+      }),
+    } as never)).toEqual({
+      uid: 'seller-1', status: 'suspended', confirmedViolationCount: 2,
+      suspensionReason: 'Reason', suspendedAt: suspendedAt.toDate(), suspendedBy: 'admin-1',
+      updatedAt: updatedAt.toDate(),
+    });
+  });
+
+  it('writes only canonical account access fields and converts timestamps', () => {
+    expect(accountAccessConverter.toFirestore({
+      uid: 'seller-1', status: 'suspended', confirmedViolationCount: 2,
+      suspensionReason: 'Reason', suspendedAt: new Date('2026-09-02T00:00:00.000Z'),
+      suspendedBy: 'admin-1', updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+      unknown: 'ignored',
+    } as never)).toEqual({
+      status: 'suspended', confirmedViolationCount: 2, suspensionReason: 'Reason',
+      suspendedAt: Timestamp.fromDate(new Date('2026-09-02T00:00:00.000Z')),
+      suspendedBy: 'admin-1',
+      updatedAt: Timestamp.fromDate(new Date('2026-09-03T00:00:00.000Z')),
+    });
+  });
+
+  it.each([
+    ['extra active field', { status: 'active', confirmedViolationCount: 0, updatedAt: Timestamp.now(), extra: true }],
+    ['missing active field', { status: 'active', updatedAt: Timestamp.now() }],
+    ['active suspension field', { status: 'active', confirmedViolationCount: 0, suspensionReason: 'No', updatedAt: Timestamp.now() }],
+    ['missing suspended field', { status: 'suspended', confirmedViolationCount: 1, suspensionReason: 'Reason', updatedAt: Timestamp.now() }],
+    ['malformed timestamp', { status: 'active', confirmedViolationCount: 0, updatedAt: new Date() }],
+    ['unsupported status', { status: 'pending', confirmedViolationCount: 0, updatedAt: Timestamp.now() }],
+  ])('rejects malformed account access data: %s', (_name, data) => {
+    expect(() => accountAccessConverter.fromFirestore({ id: 'buyer-1', data: () => data } as never))
+      .toThrow();
+  });
+
   it('converts Firestore listing timestamps to Date values', () => {
     const snapshot = {
       id: 'listing-1',
