@@ -131,6 +131,27 @@ describe('MarketplacePage', () => {
     fireEvent.change(screen.getByLabelText('稀有度'), { target: { value: 'R' } });
   });
 
+  it('does not invent metadata when a legacy Listing ID is absent from Card Master', async () => {
+    render(
+      <MarketplacePage
+        loadListings={async () => [{
+          ...activeListing,
+          id: 'missing-card-master-listing',
+          cardId: '0002',
+          cardType: undefined,
+          cardName: undefined,
+          characterName: undefined,
+          rarity: undefined,
+        }]}
+        loadCards={async () => []}
+        loadSeller={async () => seller}
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { name: '未提供卡片名稱' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '毛利蘭' })).toBeNull();
+  });
+
   it('shows the generic control for an exact Event name without requiring rarity or ID', async () => {
     render(
       <MarketplacePage

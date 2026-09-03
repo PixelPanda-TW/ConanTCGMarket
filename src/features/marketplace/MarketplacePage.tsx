@@ -3,7 +3,6 @@ import { CardMetadataSelector, type CardMetadataSelection } from '../../componen
 import { CardIdSearchField } from '../../components/CardIdSearchField';
 import { PageShell } from '../../components/PageShell';
 import { WelcomeNoticeDialog } from '../../components/WelcomeNoticeDialog';
-import { developmentCards } from '../../data/cards/developmentCards';
 import {
   getPublicSellerProfile,
   listActiveListingsFromServer,
@@ -11,12 +10,12 @@ import {
 } from '../../data/firestore/repositories';
 import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { hasKnownCardName } from '../../domain/cardMetadata';
+import { resolveListingMetadata } from '../../domain/listingMetadata';
 import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { filterListings, validateCardIdQuery } from '../../listingFilters';
 import { cardTypeLabel } from '../../domain/cardType';
 import { AuthStatus } from '../auth/AuthStatus';
 import { CardNameSubscriptionControl } from '../notifications/CardNameSubscriptionControl';
-import { resolveMarketplaceListingMetadata } from './marketplaceCatalog';
 
 interface MarketplaceListing extends Listing {
   cardName: string;
@@ -65,7 +64,7 @@ export function MarketplacePage({
             .map(async (listing) => {
               return {
                 listing,
-                metadata: resolveMarketplaceListingMetadata(listing, loadedCards, developmentCards),
+                metadata: resolveListingMetadata(listing, loadedCards),
                 profile: await loadSeller(listing.sellerId),
               };
             }),
