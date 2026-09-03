@@ -61,7 +61,7 @@ Implement:
 - canonical serialization with no undefined fields;
 - `collections.accountAccess = 'accountAccess'` and model barrel export.
 
-Rerun the focused test command and require PASS. Run `npm run lint` to catch type/export mistakes.
+Rerun the focused test command and require PASS. Run `npm run build:e2e` to catch type/export mistakes.
 
 ### Commit
 
@@ -155,7 +155,7 @@ Expected: FAIL because the provider has no account observer or access state.
 
 Export a discriminated `AccountAccessState`, extend `AuthState` with `accountAccessState` and `isActiveAccount`, and compose the observers with cleanup/generation protection. Keep `isLoading` true until both Auth and the first access result settle for a signed-in UID. Map missing access to active and read failures to unavailable without signing the user out.
 
-Rerun the focused test and `npm run lint`.
+Rerun the focused test and `npm run build:e2e`.
 
 ### Commit
 
@@ -246,7 +246,7 @@ Expected: FAIL because state-specific UI does not exist.
 
 Implement one reusable notice for suspended/unavailable states and update AuthStatus to branch on the provider state. Add minimal responsive/contrast/focus styling using existing tokens; do not invent admin or appeal controls.
 
-Rerun focused tests and `npm run lint`.
+Rerun focused tests and `npm run build:e2e`.
 
 ### Commit
 
@@ -289,7 +289,7 @@ Expected: FAIL because signed-in users currently load and render regardless of a
 
 Gate both effects and render branches on `accountAccessState.state === 'active'`. Reuse the shared notice and retain existing signed-out copy. Include account state in effect dependencies so a live suspension clears contextual form/private state and prevents stale promise results from rendering.
 
-Rerun focused tests and `npm run lint`.
+Rerun focused tests and `npm run build:e2e`.
 
 ### Commit
 
@@ -335,7 +335,7 @@ Expected: FAIL because controls depend only on UID and Dashboard has no read-onl
 
 Thread account state through each surface. Require active access for ownership actions, short-circuit edit loaders when not active, and add a Dashboard read-only branch that preserves owner queries for suspended accounts but removes all mutation handlers/controls. Fail closed without private loads for unavailable state. Clear pending modal/action context on access-state transitions.
 
-Rerun focused tests and `npm run lint`.
+Rerun focused tests and `npm run build:e2e`.
 
 ### Commit
 
@@ -377,7 +377,7 @@ Expected: FAIL because subscription surfaces currently use authentication alone.
 
 Require active account state before reads or mutations, reuse the account notice in the settings page, and reset generation-scoped local state when access changes. The compact Marketplace control may show concise non-actionable account guidance rather than the full page notice.
 
-Rerun focused tests and `npm run lint`.
+Rerun focused tests and `npm run build:e2e`.
 
 ### Commit
 
@@ -474,7 +474,6 @@ source ../../.env
 set +a
 npm test -- --run
 npm --prefix functions test
-npm run lint
 npm run build
 ```
 
@@ -493,7 +492,7 @@ Requirements:
 - all Functions suites pass;
 - Firestore and Storage Rules suites pass;
 - all Chromium E2E suites pass;
-- lint/build pass;
+- frontend build and Functions lint/build pass;
 - no unexpected generated files or production-data changes exist;
 - only the known Vite bundle-size warning is acceptable.
 
