@@ -92,7 +92,7 @@ Allow signed-in sellers to create and manage their public seller identity and co
 
 ## Milestone 4: Minimal Card Master
 
-Status: implemented. Added public card repository/converter usage, development seed cards, Chinese/Japanese normalized client-side search for the small MVP dataset, a reusable selector, and a `#/cards` validation page. The selector is ready for `/sell`; production-scale search can move to a dedicated index later.
+Status: implemented as an internal application data source. Firestore Card Master records power Marketplace filtering, listing metadata validation, and listing creation; the retired public validation page and development seed fallback have been removed. Card Master mutations remain denied to clients until the admin-only management workflow is implemented.
 
 ### Goal
 
@@ -100,11 +100,11 @@ Create a searchable card master that supports listing creation without seller-en
 
 ### Deliverables
 
-- Firestore `cards` collection.
-- Card data shape with `id`, optional `nameZh`, optional `nameJa`, and `rarity`.
-- Small manually seeded card dataset for development.
-- Card search function.
-- Autocomplete card selector.
+- Public-read, client-write-denied Firestore `cards` collection.
+- Canonical `cardId`, `cardType`, `cardName`, and `rarities` document fields.
+- Controlled Rugia synchronization and deterministic composite-key import.
+- Normalized Card Master search and metadata helpers used inside Marketplace and listing creation.
+- Reusable `CardMetadataSelector` for Card Master-backed application workflows.
 
 ### Acceptance Criteria
 

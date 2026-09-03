@@ -137,7 +137,7 @@ command is the only deployment-URL command and it is read-only.
 ## What the suite covers
 
 Every current user operation has at least one named browser spec: public
-marketplace and Card Master browsing, mock authentication and profile,
+Marketplace browsing and Card Master-backed filtering, mock authentication and profile,
 listing creation/edit/delete and images, subscriptions, sales/dashboard,
 authorization failures, and the end-to-end MVP journey. Chromium provides the
 full success-path coverage and high-risk business/permission failures. WebKit
@@ -147,13 +147,12 @@ matrix where a denied action has no user-visible UI.
 | File | Operations covered |
 | --- | --- |
 | `e2e/public-marketplace.spec.ts` | Notice acknowledgement; public active-listing browsing, filters, ID search, loading, empty, sold-out exclusion, and error state. |
-| `e2e/card-master.spec.ts` | Card Master search, selection/summary/clear, plus empty, loading, and error states. |
 | `e2e/auth-profile.spec.ts` | Signed-out guidance, Profile validation, mock sign-in, create/edit/reload persistence, and sign-out. |
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
 | `e2e/subscriptions.spec.ts` | Exact-name and detail-page subscriptions, consent/cancel, substring coverage, list/removal, and daily-email preference. |
 | `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
 | `e2e/mvp-journey.spec.ts` | Login → Profile → Listing → public search → subscription → sale → public sold-out removal. |
-| `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation/Card Master interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
+| `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
 | `e2e/support/*.spec.ts` | Admin harness reset/seed/Auth behavior and fixed loopback project/port safety checks; included only in Chromium. |
 | `e2e/smoke.spec.ts` | Public deployed entry/assets/routes, uncaught runtime errors, and configuration-error checks, with no authentication or mutation. |
 | `src/rules/firebaseRules.test.ts` | Listing and seller ownership, active/sold-out reads, Card Master write denial, Profiles, subscriptions/events/delivery state, Sales immutability, and per-seller Storage paths. |

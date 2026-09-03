@@ -112,13 +112,8 @@ test('deployed public entry, assets, and hash routes load without runtime or con
   }
 
   await page.goto('#/cards');
-  await expect(page.getByRole('heading', { name: '卡牌資料庫', level: 1 })).toBeVisible();
-  await expect(page.getByText('載入卡牌資料中', { exact: true })).toBeHidden();
-  await expect(page.locator('.card-master-state[role="alert"]')).toHaveCount(0);
-  await expect(
-    page.getByLabel('搜尋卡牌')
-      .or(page.getByRole('status').filter({ hasText: '目前沒有可顯示的卡牌資料。' })),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: '搜尋正在販售的柯南 TCG 卡牌' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.location.hash)).not.toBe('#/cards');
   await expectNoSmokeErrors(page, pageErrors, consoleErrors, networkViolations);
 
   const privateRoutes = [

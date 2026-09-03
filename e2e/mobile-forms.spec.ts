@@ -74,7 +74,7 @@ async function signInMobile(
   });
 }
 
-test('mobile welcome, filters, result navigation, Card Master, and footer remain interactive', async ({ page }) => {
+test('mobile welcome, filters, result navigation, and footer remain interactive', async ({ page }) => {
   const image = await seedListingImage(
     'listings/mobile-seller/e2e-listing-active/front.png',
     front,
@@ -151,17 +151,6 @@ test('mobile welcome, filters, result navigation, Card Master, and footer remain
   await page.getByRole('link', { name: '← 返回市集' }).tap();
   await expect(page.getByRole('heading', { name: '搜尋正在販售的柯南 TCG 卡牌' })).toBeVisible();
 
-  await page.goto('#/cards');
-  const cardSearch = page.getByLabel('搜尋卡牌');
-  await expectEditable(cardSearch);
-  await cardSearch.fill('諸伏');
-  await expect(cardSearch).toHaveValue('諸伏');
-  await page.getByRole('button', { name: /角色卡 · 諸伏高明 · ID 0501 · D/ }).tap();
-  await expect(page.getByRole('heading', { name: '已選擇卡牌' }).locator('..'))
-    .toContainText('諸伏高明');
-  await expectNoHorizontalScroll(page);
-  await page.getByRole('link', { name: '← 返回市集' }).tap();
-  await expect(page.getByRole('heading', { name: '搜尋正在販售的柯南 TCG 卡牌' })).toBeVisible();
 });
 
 test('mobile Profile form', async ({ page }) => {
