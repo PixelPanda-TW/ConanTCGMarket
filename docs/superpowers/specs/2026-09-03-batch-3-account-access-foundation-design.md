@@ -47,9 +47,10 @@ A missing document resolves to the immutable default `{ status: 'active', confir
 Validation rules:
 
 - `status` is exactly `active` or `suspended`;
+- `uid` and `suspendedBy` are trimmed identifiers of 1–128 characters;
 - violation count is a finite non-negative integer;
 - active records omit all suspension-only fields;
-- suspended records require a trimmed, non-empty bounded reason, valid `suspendedAt`, and non-empty `suspendedBy`;
+- suspended records require a trimmed reason of 1–1000 characters, valid `suspendedAt`, and valid `suspendedBy`;
 - `updatedAt` is always valid;
 - converter reads/writes an exact allowlist and rejects extra fields.
 
