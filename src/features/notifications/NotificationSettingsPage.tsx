@@ -7,6 +7,7 @@ import {
 } from '../../data/firestore/repositories';
 import type { NotificationSubscription } from '../../domain/models';
 import { useAuth } from '../auth/AuthProvider';
+import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 
 interface CommittedAuthContext {
   uid: string | null;
@@ -14,13 +15,19 @@ interface CommittedAuthContext {
 }
 
 export function NotificationSettingsPage() {
-  const { isLoading: isAuthLoading, signIn, user } = useAuth();
+  const {
+    accountAccessState,
+    isActiveAccount,
+    isLoading: isAuthLoading,
+    signIn,
+    user,
+  } = useAuth();
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [loadedUid, setLoadedUid] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState(false);
-  const currentUid = user?.uid ?? null;
+  const currentUid = isActiveAccount ? user?.uid ?? null : null;
   const committedContextRef = useRef<CommittedAuthContext>({ uid: currentUid, generation: 0 });
   const saveOperationContextRef = useRef<CommittedAuthContext | null>(null);
   const hasLoadedCurrentUid = currentUid !== null && loadedUid === currentUid;
@@ -56,7 +63,7 @@ export function NotificationSettingsPage() {
     setSaveError(false);
     setLoadedUid(null);
 
-    if (isAuthLoading || !user) return;
+    if (isAuthLoading || !user || !isActiveAccount) return;
 
     void getNotificationSubscription(user.uid)
       .then((loadedSubscription) => {
@@ -74,12 +81,12 @@ export function NotificationSettingsPage() {
           setLoadedUid(user.uid);
         }
       });
-  }, [currentUid, isAuthLoading]);
+  }, [currentUid, isActiveAccount, isAuthLoading, user]);
 
   async function persistSettings(
     mutation: () => Promise<NotificationSubscription | null>,
   ) {
-    if (!user) return;
+    if (!user || !isActiveAccount) return;
 
     const requestContext = committedContextRef.current;
     if (saveOperationContextRef.current === requestContext) return;
@@ -124,6 +131,8 @@ export function NotificationSettingsPage() {
             <p>請先使用 Google 登入，才能管理卡名訂閱。</p>
             <button type="button" onClick={signIn}>使用 Google 登入</button>
           </div>
+        ) : !isActiveAccount ? (
+          <AccountAccessNotice state={accountAccessState} />
         ) : isLoading ? (
           <p className="profile-state" role="status" aria-live="polite">我的訂閱載入中</p>
         ) : contextualLoadError ? (

@@ -22,7 +22,13 @@ export function CardNameSubscriptionControl({
   cardName,
   isKnownCardName,
 }: CardNameSubscriptionControlProps) {
-  const { isLoading: isAuthLoading, signIn, user } = useAuth();
+  const {
+    accountAccessState,
+    isActiveAccount,
+    isLoading: isAuthLoading,
+    signIn,
+    user,
+  } = useAuth();
   const [subscription, setSubscription] = useState<NotificationSubscription | null>(null);
   const [loadedSubscriptionContext, setLoadedSubscriptionContext] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -34,7 +40,7 @@ export function CardNameSubscriptionControl({
   const [showSignInGuidance, setShowSignInGuidance] = useState(false);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
   const managementLinkRef = useRef<HTMLAnchorElement>(null);
-  const subscriptionContext = isKnownCardName && user
+  const subscriptionContext = isKnownCardName && user && isActiveAccount
     ? `${user.uid}\u0000${cardName}`
     : null;
   const committedContextRef = useRef<CommittedSubscriptionContext>({
@@ -121,6 +127,7 @@ export function CardNameSubscriptionControl({
       setShowSignInGuidance(true);
       return;
     }
+    if (!isActiveAccount) return;
 
     if (!exactSubscription) {
       setIsConfirmingSubscription(true);
@@ -134,7 +141,7 @@ export function CardNameSubscriptionControl({
   }
 
   async function confirmSubscription() {
-    if (!user || !emailDeliverySelected) return;
+    if (!user || !isActiveAccount || !emailDeliverySelected) return;
 
     await persistSubscription(
       () => addNotificationCardName(user.uid, cardName),
@@ -146,7 +153,7 @@ export function CardNameSubscriptionControl({
     mutation: () => Promise<NotificationSubscription | null>,
     successMessage: string,
   ) {
-    if (!user) return;
+    if (!user || !isActiveAccount) return;
 
     const requestContext = committedContextRef.current;
     if (saveOperationContextRef.current === requestContext) return;
@@ -178,6 +185,15 @@ export function CardNameSubscriptionControl({
 
   if (isAuthLoading || isSubscriptionLoading) {
     return <p className="subscription-status" aria-live="polite">卡名通知載入中</p>;
+  }
+
+  if (user && !isActiveAccount) {
+    const message = accountAccessState.state === 'suspended'
+      ? '帳號停權期間無法管理卡名通知。'
+      : accountAccessState.state === 'unavailable'
+        ? accountAccessState.message
+        : '帳號狀態確認中。';
+    return <p className="subscription-status" role="status" aria-live="polite">{message}</p>;
   }
 
   if (contextualLoadError) {

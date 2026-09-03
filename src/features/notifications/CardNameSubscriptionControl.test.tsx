@@ -15,6 +15,8 @@ const authState = vi.hoisted(() => ({
     user: { uid: 'buyer-1', displayName: 'Buyer', photoURL: null } as { uid: string; displayName: string; photoURL: null } | null,
     isLoading: false,
     error: null,
+    accountAccessState: { state: 'active', access: null } as Record<string, unknown>,
+    isActiveAccount: true,
     signIn: vi.fn(),
     signOut: vi.fn(),
   },
@@ -48,6 +50,8 @@ describe('CardNameSubscriptionControl', () => {
     vi.clearAllMocks();
     authState.current.user = { uid: 'buyer-1', displayName: 'Buyer', photoURL: null };
     authState.current.isLoading = false;
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
     subscriptions.getNotificationSubscription.mockResolvedValue(null);
     subscriptions.addNotificationCardName.mockImplementation(async (uid, cardName) => ({
       ...savedSubscription([cardName]),
@@ -57,6 +61,52 @@ describe('CardNameSubscriptionControl', () => {
       ...savedSubscription([]),
       uid,
     }));
+  });
+
+  it.each([
+    ['suspended', {
+      state: 'suspended',
+      access: {
+        uid: 'buyer-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+        updatedAt: new Date(),
+      },
+    }],
+    ['unavailable', { state: 'unavailable', message: '請重新整理。' }],
+  ])('does not load or mutate subscriptions for %s accounts', (_label, accountAccessState) => {
+    authState.current.accountAccessState = accountAccessState;
+    authState.current.isActiveAccount = false;
+
+    render(<CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />);
+
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /訂閱江戶川柯南/ })).toBeNull();
+    expect(subscriptions.getNotificationSubscription).not.toHaveBeenCalled();
+    expect(subscriptions.addNotificationCardName).not.toHaveBeenCalled();
+    expect(subscriptions.removeNotificationCardName).not.toHaveBeenCalled();
+  });
+
+  it('closes confirmation immediately when a live account update suspends the buyer', async () => {
+    const user = userEvent.setup();
+    const view = render(
+      <CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />,
+    );
+    await user.click(await screen.findByRole('button', { name: '訂閱江戶川柯南' }));
+    expect(screen.getByRole('heading', { name: '選擇通知方式' })).toBeTruthy();
+
+    authState.current.accountAccessState = {
+      state: 'suspended',
+      access: {
+        uid: 'buyer-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+        updatedAt: new Date(),
+      },
+    };
+    authState.current.isActiveAccount = false;
+    view.rerender(<CardNameSubscriptionControl cardName="江戶川柯南" isKnownCardName />);
+
+    expect(screen.queryByRole('heading', { name: '選擇通知方式' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '確認訂閱' })).toBeNull();
   });
 
   it('uses the theme ring and background separation for subscription focus indicators', () => {
