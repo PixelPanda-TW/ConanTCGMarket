@@ -6,20 +6,28 @@ import type { Card, Listing, SellerProfile } from '../../domain/models';
 import { ListingPage } from './ListingPage';
 
 const repositories = vi.hoisted(() => ({
+  addNotificationCardName: vi.fn(),
   getListing: vi.fn(),
+  getNotificationSubscription: vi.fn(),
   getPublicSellerProfile: vi.fn(),
   listCards: vi.fn(),
+  removeNotificationCardName: vi.fn(),
+}));
+const authState = vi.hoisted(() => ({
+  current: {
+    user: null as { uid: string } | null,
+    isLoading: false,
+    error: null,
+    accountAccessState: { state: 'signed-out' } as Record<string, unknown>,
+    isActiveAccount: false,
+    signIn: vi.fn(),
+    signOut: vi.fn(),
+  },
 }));
 
 vi.mock('../../data/firestore/repositories', () => repositories);
 vi.mock('../auth/AuthProvider', () => ({
-  useAuth: () => ({
-    user: null,
-    isLoading: false,
-    error: null,
-    signIn: vi.fn(),
-    signOut: vi.fn(),
-  }),
+  useAuth: () => authState.current,
 }));
 
 const cards: Card[] = [
@@ -61,6 +69,32 @@ describe('ListingPage card-name subscriptions', () => {
     repositories.getListing.mockResolvedValue(listing);
     repositories.listCards.mockResolvedValue(cards);
     repositories.getPublicSellerProfile.mockResolvedValue(seller);
+    repositories.getNotificationSubscription.mockResolvedValue(null);
+    authState.current.user = null;
+    authState.current.accountAccessState = { state: 'signed-out' };
+    authState.current.isActiveAccount = false;
+  });
+
+  it('shows management only to the active Listing owner', async () => {
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    const view = render(<ListingPage id="listing-1" />);
+    expect(await screen.findByRole('link', { name: '管理此商品' })).toBeTruthy();
+
+    authState.current.accountAccessState = {
+      state: 'suspended',
+      access: {
+        uid: 'seller-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+        updatedAt: new Date(),
+      },
+    };
+    authState.current.isActiveAccount = false;
+    view.rerender(<ListingPage id="listing-1" />);
+
+    expect(screen.getByRole('heading', { name: '商品詳情' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '管理此商品' })).toBeNull();
   });
 
   it.each([

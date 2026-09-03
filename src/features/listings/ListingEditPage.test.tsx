@@ -11,14 +11,23 @@ const repositories = vi.hoisted(() => ({
   listCards: vi.fn(),
   updateListing: vi.fn(),
 }));
-
-vi.mock('../../data/firestore/repositories', () => repositories);
-vi.mock('../../data/storage/storageService', () => ({
+const storage = vi.hoisted(() => ({
   deleteListingImages: vi.fn(),
   uploadListingImages: vi.fn(),
 }));
+const authState = vi.hoisted(() => ({
+  current: {
+    user: { uid: 'seller-1' } as { uid: string } | null,
+    isLoading: false,
+    accountAccessState: { state: 'active', access: null } as Record<string, unknown>,
+    isActiveAccount: true,
+  },
+}));
+
+vi.mock('../../data/firestore/repositories', () => repositories);
+vi.mock('../../data/storage/storageService', () => storage);
 vi.mock('../auth/AuthProvider', () => ({
-  useAuth: () => ({ user: { uid: 'seller-1' }, isLoading: false }),
+  useAuth: () => authState.current,
 }));
 
 const listing: Listing = {
@@ -47,6 +56,35 @@ describe('ListingEditPage', () => {
     repositories.getListing.mockResolvedValue(listing);
     repositories.listCards.mockResolvedValue([]);
     repositories.updateListing.mockResolvedValue(undefined);
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+  });
+
+  it.each([
+    ['suspended', {
+      state: 'suspended',
+      access: {
+        uid: 'seller-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+        updatedAt: new Date(),
+      },
+    }],
+    ['unavailable', { state: 'unavailable', message: '請重新整理。' }],
+  ])('blocks %s accounts before loading an editable Listing', (_label, accountAccessState) => {
+    authState.current.accountAccessState = accountAccessState;
+    authState.current.isActiveAccount = false;
+
+    render(<ListingEditPage id="listing-event" />);
+
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '儲存變更' })).toBeNull();
+    expect(repositories.getListing).not.toHaveBeenCalled();
+    expect(repositories.listCards).not.toHaveBeenCalled();
+    expect(repositories.updateListing).not.toHaveBeenCalled();
+    expect(repositories.deleteListing).not.toHaveBeenCalled();
+    expect(storage.uploadListingImages).not.toHaveBeenCalled();
+    expect(storage.deleteListingImages).not.toHaveBeenCalled();
   });
 
   it('shows immutable metadata read-only and preserves it in the update', async () => {

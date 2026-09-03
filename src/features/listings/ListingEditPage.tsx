@@ -7,13 +7,15 @@ import { deleteListingAndImages } from './listingDeletion';
 import { ListingForm } from './ListingForm';
 import { PageShell } from '../../components/PageShell';
 import { ListingMetadata } from './ListingMetadata';
+import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 
 export function ListingEditPage({ id }: { id: string }) {
-  const { user } = useAuth(); const [listing, setListing] = useState<Listing | null>(); const [cards, setCards] = useState<readonly Card[]>([]); const [files, setFiles] = useState<File[]>([]); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false);
+  const { accountAccessState, isActiveAccount, isLoading, user } = useAuth(); const [listing, setListing] = useState<Listing | null>(); const [cards, setCards] = useState<readonly Card[]>([]); const [files, setFiles] = useState<File[]>([]); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false);
   useEffect(() => {
     let isCurrent = true;
     setListing(undefined);
     setCards([]);
+    if (!user || !isActiveAccount) return () => { isCurrent = false; };
     void getListing(id).then((value) => {
       if (!isCurrent) return;
       setListing(value);
@@ -23,14 +25,16 @@ export function ListingEditPage({ id }: { id: string }) {
         .catch(() => { if (isCurrent) setCards([]); });
     }).catch(() => { if (isCurrent) setListing(null); });
     return () => { isCurrent = false; };
-  }, [id]);
+  }, [id, isActiveAccount, user]);
+  if (isLoading) return <PageShell><p>載入中</p></PageShell>;
+  if (user && !isActiveAccount) return <PageShell><section className="profile-state"><h1>無法編輯商品</h1><AccountAccessNotice state={accountAccessState} /><a href={`#/listing/${id}`}>返回商品</a></section></PageShell>;
   if (listing === undefined) return <PageShell><p>載入中</p></PageShell>;
   if (!listing || user?.uid !== listing.sellerId) return <PageShell><h1>無法編輯商品</h1><a href={`#/listing/${id}`}>返回商品</a></PageShell>;
   const sellerId = user.uid;
   const editable = listing;
   function change(patch: Partial<Listing>) { setListing({ ...editable, ...patch, updatedAt: new Date() }); }
-  async function submit(event: FormEvent) { event.preventDefault(); const sold = editable.originalQuantity - editable.remainingQuantity; if (editable.remainingQuantity < sold || editable.remainingQuantity > editable.originalQuantity || editable.listingPrice <= 0 || (files.length && (files.length > 3 || files.some((file) => !file.type.startsWith('image/'))))) { setError('價格、庫存或圖片不正確。'); return; } try { const imageUrls = files.length ? await uploadListingImages(sellerId, editable.id, files) : editable.imageUrls; await updateListing({ ...editable, imageUrls, status: editable.remainingQuantity === 0 ? 'sold_out' : 'active' }); if (files.length) void deleteListingImages(sellerId, editable.imageUrls).catch(() => undefined); setSaved(true); setError(null); } catch (caught) { setError(caught instanceof Error ? caught.message : '無法更新商品。'); } }
-  async function remove() { if (!window.confirm('確定要刪除這筆商品嗎？此操作無法復原。')) return; try { await deleteListingAndImages(editable, deleteListing, deleteListingImages); window.location.hash = '#/dashboard'; } catch (caught) { setError(caught instanceof Error ? caught.message : '無法刪除商品。'); } }
+  async function submit(event: FormEvent) { event.preventDefault(); if (!isActiveAccount) return; const sold = editable.originalQuantity - editable.remainingQuantity; if (editable.remainingQuantity < sold || editable.remainingQuantity > editable.originalQuantity || editable.listingPrice <= 0 || (files.length && (files.length > 3 || files.some((file) => !file.type.startsWith('image/'))))) { setError('價格、庫存或圖片不正確。'); return; } try { const imageUrls = files.length ? await uploadListingImages(sellerId, editable.id, files) : editable.imageUrls; await updateListing({ ...editable, imageUrls, status: editable.remainingQuantity === 0 ? 'sold_out' : 'active' }); if (files.length) void deleteListingImages(sellerId, editable.imageUrls).catch(() => undefined); setSaved(true); setError(null); } catch (caught) { setError(caught instanceof Error ? caught.message : '無法更新商品。'); } }
+  async function remove() { if (!isActiveAccount || !window.confirm('確定要刪除這筆商品嗎？此操作無法復原。')) return; try { await deleteListingAndImages(editable, deleteListing, deleteListingImages); window.location.hash = '#/dashboard'; } catch (caught) { setError(caught instanceof Error ? caught.message : '無法刪除商品。'); } }
   return <PageShell><section className="profile-page"><a href={`#/listing/${id}`}>返回商品</a><h1>編輯商品</h1><ListingMetadata listing={editable} cards={cards} /><form className="profile-form listing-form" onSubmit={submit}>
     <ListingForm
       price={editable.listingPrice}

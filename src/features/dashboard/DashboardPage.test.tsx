@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Listing } from '../../domain/models';
 import { DashboardPage } from './DashboardPage';
 
@@ -11,10 +11,18 @@ const repositories = vi.hoisted(() => ({
   listSellerSales: vi.fn(),
   recordSale: vi.fn(),
 }));
+const authState = vi.hoisted(() => ({
+  current: {
+    user: { uid: 'seller-1' } as { uid: string } | null,
+    isLoading: false,
+    accountAccessState: { state: 'active', access: null } as Record<string, unknown>,
+    isActiveAccount: true,
+  },
+}));
 
 vi.mock('../../data/firestore/repositories', () => repositories);
 vi.mock('../auth/AuthProvider', () => ({
-  useAuth: () => ({ user: { uid: 'seller-1' }, isLoading: false }),
+  useAuth: () => authState.current,
 }));
 
 const listing: Listing = {
@@ -26,6 +34,61 @@ const listing: Listing = {
 afterEach(cleanup);
 
 describe('DashboardPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.current = {
+      user: { uid: 'seller-1' },
+      isLoading: false,
+      accountAccessState: { state: 'active', access: null },
+      isActiveAccount: true,
+    };
+    repositories.listSellerListings.mockResolvedValue([]);
+    repositories.listSellerSales.mockResolvedValue([]);
+    repositories.listCards.mockResolvedValue([]);
+  });
+
+  it('keeps suspended seller history readable without mutation controls', async () => {
+    authState.current.accountAccessState = {
+      state: 'suspended',
+      access: {
+        uid: 'seller-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Confirmed reason', suspendedAt: new Date(),
+        suspendedBy: 'admin-1', updatedAt: new Date(),
+      },
+    };
+    authState.current.isActiveAccount = false;
+    repositories.listSellerListings.mockResolvedValue([
+      listing,
+      { ...listing, id: 'sold-listing', status: 'sold_out', remainingQuantity: 0 },
+    ]);
+    repositories.listSellerSales.mockResolvedValue([{
+      id: 'sale-1', listingId: 'sold-listing', sellerId: 'seller-1', cardId: '2200',
+      quantity: 1, listingUnitPrice: 500, soldUnitPrice: 450, soldAt: new Date(),
+    }]);
+
+    render(<DashboardPage />);
+
+    expect((await screen.findByRole('status')).textContent).toContain('Confirmed reason');
+    expect(await screen.findByText('成交金額：NT$450')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '販售中' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '已售罄' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '編輯' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '登記成交' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '登記成交' })).toBeNull();
+  });
+
+  it('does not load private dashboard data when access state is unavailable', () => {
+    authState.current.accountAccessState = { state: 'unavailable', message: '請重新整理。' };
+    authState.current.isActiveAccount = false;
+
+    render(<DashboardPage />);
+
+    expect(screen.getByRole('status').textContent).toBe('請重新整理。');
+    expect(repositories.listSellerListings).not.toHaveBeenCalled();
+    expect(repositories.listSellerSales).not.toHaveBeenCalled();
+    expect(repositories.listCards).not.toHaveBeenCalled();
+  });
+
   it('shows generic card metadata for active seller listings', async () => {
     repositories.listSellerListings.mockResolvedValue([listing]);
     repositories.listSellerSales.mockResolvedValue([]);

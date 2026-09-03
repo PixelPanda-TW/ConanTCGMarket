@@ -9,7 +9,7 @@ import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
 import { sellerContactPresentation } from '../../domain/sellerContact';
 
 export function ListingPage({ id }: { id: string }) {
-  const { user } = useAuth();
+  const { isActiveAccount, user } = useAuth();
   const [listing, setListing] = useState<Listing | null>();
   const [cards, setCards] = useState<readonly Card[]>();
   const [seller, setSeller] = useState<Pick<
@@ -121,7 +121,7 @@ export function ListingPage({ id }: { id: string }) {
               )
             ) : <p>聯絡方式載入中</p>}
             {listing.note && <p className="listing-note">{listing.note}</p>}
-            {user?.uid === listing.sellerId && (
+            {isActiveAccount && user?.uid === listing.sellerId && (
               <a className="edit-listing-link" href={`#/listing/${id}/edit`}>管理此商品</a>
             )}
           </aside>
