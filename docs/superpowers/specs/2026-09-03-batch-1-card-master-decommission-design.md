@@ -167,5 +167,5 @@ Batch 1 does not:
 6. Visiting `#/cards` replaces the hash with `#` and renders Marketplace.
 7. Card Master-backed Marketplace and listing creation behavior continues to work.
 8. Current documentation no longer advertises a public Card Master page.
-9. Production code, tests, and current documentation contain no orphaned references to the removed files or route.
+9. Production code, tests, and current documentation contain no orphaned references to the removed files or page implementation; `#/cards` remains only in canonical redirect code and its regression coverage.
 10. All verification gates listed above pass on Node 22.
