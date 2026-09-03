@@ -3,6 +3,7 @@ import type { Card, SellerProfile } from '../../domain/models';
 import { createListing, createListingId, getSellerProfile, listCards } from '../../data/firestore/repositories';
 import { uploadListingImages } from '../../data/storage/storageService';
 import { useAuth } from '../auth/AuthProvider';
+import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 import { PageShell } from '../../components/PageShell';
 import { CardMetadataSelector } from '../../components/CardMetadataSelector';
 import { ListingForm } from '../listings/ListingForm';
@@ -15,16 +16,26 @@ import {
 
 const initial: SellFormState = { cardId: '', cardType: 'character', cardName: '', rarity: '', files: [], listingPrice: '', quantity: '', hasSleeve: false, sleeveFee: '', supportsMyShip: false, myShipFee: '', note: '' };
 export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerProfile?: (uid: string) => Promise<SellerProfile | null> }) {
-  const { user, isLoading } = useAuth();
+  const { accountAccessState, isActiveAccount, user, isLoading } = useAuth();
   const [profile, setProfile] = useState<SellerProfile | null | undefined>();
   const [cards, setCards] = useState<readonly Card[] | null>(null);
   const [cardLoadError, setCardLoadError] = useState<string | null>(null);
   const [form, setForm] = useState(initial); const [errors, setErrors] = useState<SellFormErrors>({});
   const [message, setMessage] = useState<string | null>(null); const [saving, setSaving] = useState(false);
-  useEffect(() => { if (user) void loadSellerProfile(user.uid).then(setProfile).catch(() => setProfile(null)); }, [loadSellerProfile, user]);
   useEffect(() => {
     let isCurrent = true;
-    if (!user) {
+    if (!user || !isActiveAccount) {
+      setProfile(undefined);
+      return () => { isCurrent = false; };
+    }
+    void loadSellerProfile(user.uid)
+      .then((value) => { if (isCurrent) setProfile(value); })
+      .catch(() => { if (isCurrent) setProfile(null); });
+    return () => { isCurrent = false; };
+  }, [isActiveAccount, loadSellerProfile, user]);
+  useEffect(() => {
+    let isCurrent = true;
+    if (!user || !isActiveAccount) {
       setCards(null);
       return () => { isCurrent = false; };
     }
@@ -35,11 +46,11 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
       .catch(() => { if (isCurrent) setCardLoadError('無法載入卡牌資料，請重新整理後再試。'); });
 
     return () => { isCurrent = false; };
-  }, [user]);
+  }, [isActiveAccount, user]);
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setMessage(null); const result = validateSellForm(form); setForm(result.values); setErrors(result.errors);
-    if (Object.keys(result.errors).length || !user) return;
+    if (Object.keys(result.errors).length || !user || !isActiveAccount) return;
     try {
       if (!cards) {
         setMessage(cardLoadError ?? '卡牌資料載入中，請稍後再試。');
@@ -57,6 +68,7 @@ export function SellPage({ loadSellerProfile = getSellerProfile }: { loadSellerP
   }
   if (isLoading) return <PageShell width="wide-form"><p>載入中</p></PageShell>;
   if (!user) return <PageShell width="wide-form"><h1>刊登商品</h1><p>請先使用 Google 登入，才能刊登商品。</p></PageShell>;
+  if (!isActiveAccount) return <PageShell width="wide-form" backToMarketplace><section className="profile-page profile-state"><h1>刊登商品</h1><AccountAccessNotice state={accountAccessState} /></section></PageShell>;
   if (profile === undefined) return <PageShell width="wide-form"><p>載入中</p></PageShell>;
   if (!profile) return <PageShell width="wide-form"><h1>刊登商品</h1><p>請先完成賣家個人檔案，才能刊登商品。</p><a href="#/profile">前往設定個人檔案</a></PageShell>;
   return <PageShell width="wide-form" backToMarketplace><section className="profile-page sell-page"><h1>刊登商品</h1><p>同版本、相近卡況才合併刊登。</p><form className="profile-form listing-form" onSubmit={submit} noValidate>

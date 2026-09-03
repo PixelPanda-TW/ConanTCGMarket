@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   createListingIdMock,
@@ -15,8 +15,17 @@ const {
   uploadListingImagesMock: vi.fn(),
 }));
 
+const authState = vi.hoisted(() => ({
+  current: {
+    user: { uid: 'seller-1' } as { uid: string } | null,
+    isLoading: false,
+    accountAccessState: { state: 'active', access: null } as Record<string, unknown>,
+    isActiveAccount: true,
+  },
+}));
+
 vi.mock('../auth/AuthProvider', () => ({
-  useAuth: () => ({ user: { uid: 'seller-1' }, isLoading: false }),
+  useAuth: () => authState.current,
 }));
 
 vi.mock('../../data/firestore/repositories', () => ({
@@ -32,9 +41,9 @@ vi.mock('../../data/storage/storageService', () => ({
 
 import { SellPage } from './SellPage';
 
-const loadSellerProfile = async () => ({
+const loadSellerProfile = vi.fn(async () => ({
   uid: 'seller-1', displayName: 'Seller', contactType: 'line' as const, contactValue: 'seller-line', createdAt: new Date(), updatedAt: new Date(),
-});
+}));
 
 afterEach(() => {
   cleanup();
@@ -45,6 +54,40 @@ afterEach(() => {
 });
 
 describe('SellPage', () => {
+  beforeEach(() => {
+    authState.current = {
+      user: { uid: 'seller-1' },
+      isLoading: false,
+      accountAccessState: { state: 'active', access: null },
+      isActiveAccount: true,
+    };
+    loadSellerProfile.mockClear();
+  });
+
+  it.each([
+    ['suspended', {
+      state: 'suspended',
+      access: {
+        uid: 'seller-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+        updatedAt: new Date(),
+      },
+    }],
+    ['unavailable', { state: 'unavailable', message: '請重新整理。' }],
+  ])('blocks %s accounts before loading profile or Card Master data', (_label, accountAccessState) => {
+    authState.current.accountAccessState = accountAccessState;
+    authState.current.isActiveAccount = false;
+
+    render(<SellPage loadSellerProfile={loadSellerProfile} />);
+
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '建立刊登' })).toBeNull();
+    expect(loadSellerProfile).not.toHaveBeenCalled();
+    expect(listCardsMock).not.toHaveBeenCalled();
+    expect(uploadListingImagesMock).not.toHaveBeenCalled();
+    expect(createListingMock).not.toHaveBeenCalled();
+  });
+
   it('renders an independent back-to-market link with an arrow before the listing title', async () => {
     listCardsMock.mockResolvedValue([]);
     render(<SellPage loadSellerProfile={loadSellerProfile} />);

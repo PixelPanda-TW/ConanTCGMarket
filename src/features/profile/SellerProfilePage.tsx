@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ContactType, SellerProfile } from '../../domain/models';
 import { getSellerProfile, saveSellerProfile } from '../../data/firestore/repositories';
 import { useAuth } from '../auth/AuthProvider';
+import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 import { PageShell } from '../../components/PageShell';
 import { sellerContactFieldDefinition } from '../../domain/sellerContact';
 import {
@@ -34,7 +35,7 @@ function profileToForm(profile: SellerProfile): ProfileFormState {
 }
 
 export function SellerProfilePage() {
-  const { isLoading: isAuthLoading, user } = useAuth();
+  const { accountAccessState, isActiveAccount, isLoading: isAuthLoading, user } = useAuth();
   const [form, setForm] = useState<ProfileFormState>(emptyProfileForm);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
@@ -60,7 +61,7 @@ export function SellerProfilePage() {
     activeUserUidRef.current = user?.uid ?? null;
     setIsSaving(false);
 
-    if (!user) {
+    if (!user || !isActiveAccount) {
       setProfile(null);
       setForm(emptyProfileForm);
       setIsProfileLoading(false);
@@ -103,7 +104,7 @@ export function SellerProfilePage() {
     return () => {
       isCurrent = false;
     };
-  }, [loadAttempt, user]);
+  }, [isActiveAccount, loadAttempt, user]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,7 +114,7 @@ export function SellerProfilePage() {
     setFormErrors(validation.errors);
     setSaveSuccess(false);
 
-    if (Object.keys(validation.errors).length > 0 || !user) {
+    if (Object.keys(validation.errors).length > 0 || !user || !isActiveAccount) {
       return;
     }
 
@@ -164,6 +165,17 @@ export function SellerProfilePage() {
         <section className="profile-page profile-state">
           <h1>賣家個人檔案</h1>
           <p>請先使用 Google 登入，才能設定你的賣家聯絡方式。</p>
+        </section>
+      </PageShell>
+    );
+  }
+
+  if (!isActiveAccount) {
+    return (
+      <PageShell backToMarketplace>
+        <section className="profile-page profile-state">
+          <h1>賣家個人檔案</h1>
+          <AccountAccessNotice state={accountAccessState} />
         </section>
       </PageShell>
     );

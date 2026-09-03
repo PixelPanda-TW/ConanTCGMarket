@@ -10,6 +10,8 @@ const repositories = vi.hoisted(() => ({
 }));
 const authState = vi.hoisted(() => ({
   user: { uid: 'seller-1', displayName: 'Google Seller' },
+  accountAccessState: { state: 'active', access: null } as const,
+  isActiveAccount: true,
 }));
 
 vi.mock('../../data/firestore/repositories', () => repositories);
@@ -17,6 +19,8 @@ vi.mock('../auth/AuthProvider', () => ({
   useAuth: () => ({
     user: authState.user,
     isLoading: false,
+    accountAccessState: authState.accountAccessState,
+    isActiveAccount: authState.isActiveAccount,
     error: null,
     signIn: vi.fn(),
     signOut: vi.fn(),
@@ -30,6 +34,32 @@ describe('SellerProfilePage contact fields', () => {
     vi.clearAllMocks();
     repositories.getSellerProfile.mockResolvedValue(null);
     repositories.saveSellerProfile.mockResolvedValue(undefined);
+    authState.accountAccessState = { state: 'active', access: null };
+    authState.isActiveAccount = true;
+  });
+
+  it.each([
+    ['suspended', {
+      state: 'suspended',
+      access: {
+        uid: 'seller-1', status: 'suspended', confirmedViolationCount: 1,
+        suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+        updatedAt: new Date(),
+      },
+    }],
+    ['unavailable', { state: 'unavailable', message: '請重新整理。' }],
+  ] as const)('blocks %s accounts before loading an editable profile', (label, accountAccessState) => {
+    authState.accountAccessState = accountAccessState as never;
+    authState.isActiveAccount = false;
+
+    render(<SellerProfilePage />);
+
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect(screen.queryByRole('form')).toBeNull();
+    expect(screen.queryByRole('button', { name: '儲存個人檔案' })).toBeNull();
+    expect(repositories.getSellerProfile).not.toHaveBeenCalled();
+    expect(repositories.saveSellerProfile).not.toHaveBeenCalled();
+    expect(label).toBeTruthy();
   });
 
   it('explains the initial LINE identifier field', async () => {
