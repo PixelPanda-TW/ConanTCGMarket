@@ -1,18 +1,63 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /cards/{id} { allow read: if true; allow write: if false; }
-    match /sellerProfiles/{uid} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; }
-    match /listings/{id} { allow read: if resource.data.status == 'active' || (request.auth != null && request.auth.uid == resource.data.sellerId); allow create: if request.auth != null && request.auth.uid == request.resource.data.sellerId; allow update, delete: if request.auth != null && request.auth.uid == resource.data.sellerId; }
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function accountAccessPath() {
+      return /databases/$(database)/documents/accountAccess/$(request.auth.uid);
+    }
+
+    function isCanonicalActiveAccess(data) {
+      return data.keys().hasOnly(['status', 'confirmedViolationCount', 'updatedAt'])
+        && data.keys().hasAll(['status', 'confirmedViolationCount', 'updatedAt'])
+        && data.status == 'active'
+        && data.confirmedViolationCount is int
+        && data.confirmedViolationCount >= 0
+        && data.updatedAt is timestamp;
+    }
+
+    function isActiveAccount() {
+      return isAuthenticated()
+        && (!exists(accountAccessPath())
+          || isCanonicalActiveAccess(get(accountAccessPath()).data));
+    }
+
+    match /cards/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /accountAccess/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /sellerProfiles/{uid} {
+      allow read: if true;
+      allow write: if isActiveAccount() && request.auth.uid == uid;
+    }
+
+    match /listings/{id} {
+      allow read: if resource.data.status == 'active'
+        || (isAuthenticated() && request.auth.uid == resource.data.sellerId);
+      allow create: if isActiveAccount()
+        && request.auth.uid == request.resource.data.sellerId;
+      allow update, delete: if isActiveAccount()
+        && request.auth.uid == resource.data.sellerId;
+    }
+
     match /sales/{id} {
-      allow read: if request.auth != null && request.auth.uid == resource.data.sellerId;
-      allow create: if request.auth != null
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.sellerId;
+      allow create: if isActiveAccount()
         && request.auth.uid == request.resource.data.sellerId
         && request.resource.data.listingId is string
         && exists(/databases/$(database)/documents/listings/$(request.resource.data.listingId))
         && get(/databases/$(database)/documents/listings/$(request.resource.data.listingId)).data.sellerId == request.auth.uid;
       allow update, delete: if false;
     }
+
     function isValidNotificationSubscription() {
       return request.resource.data.keys().hasOnly(['cardNames', 'emailDailyEnabled', 'updatedAt'])
         && request.resource.data.keys().hasAll(['cardNames', 'emailDailyEnabled', 'updatedAt'])
@@ -22,13 +67,26 @@ service cloud.firestore {
         && request.resource.data.emailDailyEnabled is bool
         && request.resource.data.updatedAt is timestamp;
     }
+
     match /notificationSubscriptions/{uid} {
-      allow read, delete: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null && request.auth.uid == uid && isValidNotificationSubscription();
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow delete: if isActiveAccount() && request.auth.uid == uid;
+      allow create, update: if isActiveAccount()
+        && request.auth.uid == uid
+        && isValidNotificationSubscription();
     }
-    match /notificationDeliveryState/{id} { allow read, write: if false; }
-    match /notificationDigestRuns/{id} { allow read, write: if false; }
-    match /notificationDigestRuntime/{id} { allow read, write: if false; }
-    match /listingEvents/{id} { allow read, write: if false; }
+
+    match /notificationDeliveryState/{id} {
+      allow read, write: if false;
+    }
+    match /notificationDigestRuns/{id} {
+      allow read, write: if false;
+    }
+    match /notificationDigestRuntime/{id} {
+      allow read, write: if false;
+    }
+    match /listingEvents/{id} {
+      allow read, write: if false;
+    }
   }
 }

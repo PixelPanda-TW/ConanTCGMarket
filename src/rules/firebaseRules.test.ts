@@ -38,6 +38,19 @@ const saleData = {
   soldUnitPrice: 450,
   soldAt: new Date(),
 };
+const activeAccountAccess = {
+  status: 'active',
+  confirmedViolationCount: 0,
+  updatedAt: new Date(),
+};
+const suspendedAccountAccess = {
+  status: 'suspended',
+  confirmedViolationCount: 1,
+  suspensionReason: 'Confirmed marketplace policy violation.',
+  suspendedAt: new Date(),
+  suspendedBy: 'admin-1',
+  updatedAt: new Date(),
+};
 
 beforeAll(async () => {
   environment = await initializeTestEnvironment({ projectId: 'demo-conan-tcg', firestore: { rules: await readFile('firestore.rules', 'utf8') }, storage: { rules: await readFile('storage.rules', 'utf8') } });
@@ -46,11 +59,135 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'cards', 'card_test_hash'), partnerCardMaster);
     await setDoc(doc(context.firestore(), 'listings', 'active'), activeListing);
     await setDoc(doc(context.firestore(), 'listings', 'sold'), { ...activeListing, status: 'sold_out' });
+    await setDoc(doc(context.firestore(), 'accountAccess', 'active-user'), activeAccountAccess);
+    await setDoc(doc(context.firestore(), 'accountAccess', 'suspended-user'), suspendedAccountAccess);
+    await setDoc(doc(context.firestore(), 'accountAccess', 'malformed-active-user'), {
+      ...activeAccountAccess,
+      unexpected: true,
+    });
+    for (const uid of ['missing-user', 'active-user', 'suspended-user', 'malformed-active-user']) {
+      await setDoc(doc(context.firestore(), 'listings', `${uid}-listing`), {
+        ...activeListing,
+        sellerId: uid,
+        status: 'sold_out',
+      });
+    }
+    await setDoc(doc(context.firestore(), 'sales', 'suspended-user-sale'), {
+      ...saleData,
+      listingId: 'suspended-user-listing',
+      sellerId: 'suspended-user',
+    });
+    await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'suspended-user'), subscriptionData);
+    await uploadBytes(
+      ref(context.storage(), 'listings/suspended-user/existing/card.jpg'),
+      new Blob(['image'], { type: 'image/jpeg' }),
+    );
   });
 });
 afterAll(async () => environment?.cleanup());
 
 describe('Firebase rules', () => {
+  it('allows only the owner to read account access and denies every browser write', async () => {
+    const owner = environment.authenticatedContext('suspended-user').firestore();
+    const other = environment.authenticatedContext('other-user').firestore();
+    const publicDb = environment.unauthenticatedContext().firestore();
+    const ownerAccess = doc(owner, 'accountAccess', 'suspended-user');
+
+    await assertSucceeds(getDoc(ownerAccess));
+    await assertFails(getDoc(doc(other, 'accountAccess', 'suspended-user')));
+    await assertFails(getDoc(doc(publicDb, 'accountAccess', 'suspended-user')));
+    await assertFails(setDoc(doc(owner, 'accountAccess', 'new-owner-state'), activeAccountAccess));
+    await assertFails(updateDoc(ownerAccess, { status: 'active' }));
+    await assertFails(deleteDoc(ownerAccess));
+  });
+
+  it.each(['missing-user', 'active-user'])(
+    'allows current owner mutations for %s account access',
+    async (uid) => {
+      const db = environment.authenticatedContext(uid).firestore();
+      const profile = doc(db, 'sellerProfiles', uid);
+      const listing = doc(db, 'listings', `${uid}-new-listing`);
+      const subscription = doc(db, 'notificationSubscriptions', uid);
+
+      await assertSucceeds(setDoc(profile, {
+        displayName: uid, contactType: 'line', contactValue: uid,
+      }));
+      await assertSucceeds(updateDoc(profile, { displayName: `${uid}-updated` }));
+      await assertSucceeds(setDoc(listing, { ...eventListing, sellerId: uid }));
+      await assertSucceeds(updateDoc(listing, { listingPrice: 450 }));
+      await assertSucceeds(setDoc(doc(db, 'sales', `${uid}-sale`), {
+        ...saleData,
+        sellerId: uid,
+        listingId: `${uid}-listing`,
+      }));
+      await assertSucceeds(setDoc(subscription, subscriptionData));
+      await assertSucceeds(updateDoc(subscription, { emailDailyEnabled: false }));
+      await assertSucceeds(deleteDoc(subscription));
+      await assertSucceeds(deleteDoc(listing));
+    },
+  );
+
+  it.each(['suspended-user', 'malformed-active-user'])(
+    'denies every current owner mutation for %s account access',
+    async (uid) => {
+      const db = environment.authenticatedContext(uid).firestore();
+
+      await assertFails(setDoc(doc(db, 'sellerProfiles', uid), {
+        displayName: uid, contactType: 'line', contactValue: uid,
+      }));
+      await assertFails(setDoc(doc(db, 'listings', `${uid}-new-listing`), {
+        ...eventListing,
+        sellerId: uid,
+      }));
+      await assertFails(updateDoc(doc(db, 'listings', `${uid}-listing`), {
+        listingPrice: 450,
+      }));
+      await assertFails(deleteDoc(doc(db, 'listings', `${uid}-listing`)));
+      await assertFails(setDoc(doc(db, 'sales', `${uid}-new-sale`), {
+        ...saleData,
+        sellerId: uid,
+        listingId: `${uid}-listing`,
+      }));
+      await assertFails(setDoc(doc(db, 'notificationSubscriptions', uid), subscriptionData));
+      await assertFails(updateDoc(doc(db, 'notificationSubscriptions', uid), {
+        emailDailyEnabled: false,
+      }));
+      await assertFails(deleteDoc(doc(db, 'notificationSubscriptions', uid)));
+    },
+  );
+
+  it('preserves suspended owner history reads', async () => {
+    const db = environment.authenticatedContext('suspended-user').firestore();
+
+    await assertSucceeds(getDoc(doc(db, 'listings', 'suspended-user-listing')));
+    await assertSucceeds(getDoc(doc(db, 'sales', 'suspended-user-sale')));
+    await assertSucceeds(getDoc(doc(db, 'notificationSubscriptions', 'suspended-user')));
+  });
+
+  it.each(['missing-user', 'active-user'])(
+    'allows Listing image writes for %s account access',
+    async (uid) => {
+      const storage = environment.authenticatedContext(uid).storage();
+      const image = ref(storage, `listings/${uid}/listing/card.jpg`);
+      await assertSucceeds(uploadBytes(image, new Blob(['image'], { type: 'image/jpeg' })));
+      await assertSucceeds(deleteObject(image));
+    },
+  );
+
+  it.each(['suspended-user', 'malformed-active-user'])(
+    'denies Listing image writes for %s account access',
+    async (uid) => {
+      const storage = environment.authenticatedContext(uid).storage();
+      await assertFails(uploadBytes(
+        ref(storage, `listings/${uid}/new/card.jpg`),
+        new Blob(['image'], { type: 'image/jpeg' }),
+      ));
+      if (uid === 'suspended-user') {
+        await assertFails(deleteObject(ref(storage, 'listings/suspended-user/existing/card.jpg')));
+      }
+    },
+  );
+
   it('allows an owner to create a generic Listing but rejects public and cross-seller writes', async () => {
     const sellerA = environment.authenticatedContext('seller-a').firestore();
     const sellerB = environment.authenticatedContext('seller-b').firestore();

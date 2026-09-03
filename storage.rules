@@ -1,2 +1,28 @@
 rules_version = '2';
-service firebase.storage { match /b/{bucket}/o { match /listings/{uid}/{allPaths=**} { allow read: if true; allow write: if request.auth != null && request.auth.uid == uid; } } }
+service firebase.storage {
+  match /b/{bucket}/o {
+    function accountAccessPath() {
+      return /databases/(default)/documents/accountAccess/$(request.auth.uid);
+    }
+
+    function isCanonicalActiveAccess(data) {
+      return data.keys().hasOnly(['status', 'confirmedViolationCount', 'updatedAt'])
+        && data.keys().hasAll(['status', 'confirmedViolationCount', 'updatedAt'])
+        && data.status == 'active'
+        && data.confirmedViolationCount is int
+        && data.confirmedViolationCount >= 0
+        && data.updatedAt is timestamp;
+    }
+
+    function isActiveAccount() {
+      return request.auth != null
+        && (!firestore.exists(accountAccessPath())
+          || isCanonicalActiveAccess(firestore.get(accountAccessPath()).data));
+    }
+
+    match /listings/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isActiveAccount() && request.auth.uid == uid;
+    }
+  }
+}
