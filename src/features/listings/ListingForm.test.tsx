@@ -47,4 +47,11 @@ describe('ListingForm', () => {
     expect(screen.getByText('備註（選填）')).toBeTruthy();
     expect(screen.getByLabelText('其他交易需求提醒')).toBeTruthy();
   });
+
+  it('can omit inventory controls for trusted edit workflows', () => {
+    render(<ListingForm {...defaultProps} showQuantity={false} submitLabel="儲存變更" />);
+
+    expect(screen.queryByLabelText('數量')).toBeNull();
+    expect(screen.getByLabelText('價格')).toBeTruthy();
+  });
 });

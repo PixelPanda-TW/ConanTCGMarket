@@ -55,7 +55,9 @@ describe('ListingEditPage', () => {
     vi.clearAllMocks();
     repositories.getListing.mockResolvedValue(listing);
     repositories.listCards.mockResolvedValue([]);
-    repositories.updateListing.mockResolvedValue(undefined);
+    repositories.updateListing.mockResolvedValue(listing);
+    repositories.deleteListing.mockResolvedValue(['https://example.com/event.jpg']);
+    storage.deleteListingImages.mockResolvedValue(undefined);
     authState.current.user = { uid: 'seller-1' };
     authState.current.accountAccessState = { state: 'active', access: null };
     authState.current.isActiveAccount = true;
@@ -109,6 +111,7 @@ describe('ListingEditPage', () => {
     expect(screen.queryByLabelText('卡片名稱')).toBeNull();
     expect(screen.queryByLabelText('稀有度')).toBeNull();
     expect(screen.queryByLabelText('卡片 ID')).toBeNull();
+    expect(screen.queryByLabelText('剩餘數量')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('價格'), { target: { value: '600' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
@@ -120,6 +123,71 @@ describe('ListingEditPage', () => {
       rarity: 'C',
     })));
     expect(repositories.updateListing.mock.calls[0][0]).not.toHaveProperty('characterName');
+  });
+
+  it('shows a sold-out Listing to its owner without mutation controls', async () => {
+    repositories.getListing.mockResolvedValue({
+      ...listing, remainingQuantity: 0, status: 'sold_out',
+    });
+
+    render(<ListingEditPage id="listing-event" />);
+
+    expect(await screen.findByRole('heading', { name: '已售罄商品' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '追跡開始' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '儲存變更' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '刪除商品' })).toBeNull();
+  });
+
+  it('disables duplicate saves and adopts the server-returned version', async () => {
+    let resolveUpdate!: (value: Listing) => void;
+    repositories.updateListing.mockReturnValue(new Promise((resolve) => { resolveUpdate = resolve; }));
+    render(<ListingEditPage id="listing-event" />);
+    await screen.findByLabelText('價格');
+    fireEvent.change(screen.getByLabelText('價格'), { target: { value: '600' } });
+
+    const save = screen.getByRole('button', { name: '儲存變更' });
+    fireEvent.click(save);
+    fireEvent.click(save);
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(repositories.updateListing).toHaveBeenCalledTimes(1);
+
+    resolveUpdate({ ...listing, listingPrice: 600, updatedAt: new Date('2026-09-04T09:00:00Z') });
+    expect(await screen.findByText('已更新商品')).toBeTruthy();
+    expect((screen.getByLabelText('價格') as HTMLInputElement).value).toBe('600');
+  });
+
+  it('turns a stale callable conflict into reload guidance', async () => {
+    repositories.updateListing.mockRejectedValue({ code: 'functions/aborted' });
+    render(<ListingEditPage id="listing-event" />);
+    await screen.findByLabelText('價格');
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('商品已被更新，請重新載入');
+  });
+
+  it('deletes through the trusted version then cleans only returned images', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<ListingEditPage id="listing-event" />);
+    await screen.findByLabelText('價格');
+    fireEvent.click(screen.getByRole('button', { name: '刪除商品' }));
+
+    await waitFor(() => expect(repositories.deleteListing).toHaveBeenCalledWith(listing));
+    expect(storage.deleteListingImages).toHaveBeenCalledWith(
+      'seller-1', ['https://example.com/event.jpg'],
+    );
+  });
+
+  it('reports completed deletion separately when only image cleanup fails', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    storage.deleteListingImages.mockRejectedValue(new Error('storage unavailable'));
+    render(<ListingEditPage id="listing-event" />);
+    await screen.findByLabelText('價格');
+    fireEvent.click(screen.getByRole('button', { name: '刪除商品' }));
+
+    expect((await screen.findByRole('status')).textContent).toContain(
+      '商品已刪除，但圖片清理失敗',
+    );
+    expect(screen.queryByRole('button', { name: '刪除商品' })).toBeNull();
   });
 
   it('preserves characterName when saving an immutable character Listing', async () => {

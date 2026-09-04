@@ -34,6 +34,7 @@ interface ListingFormProps {
   submitLabel: string;
   submitDisabled?: boolean;
   secondaryAction?: ReactNode;
+  showQuantity?: boolean;
 }
 
 export function ListingForm({
@@ -61,6 +62,7 @@ export function ListingForm({
   submitLabel,
   submitDisabled = false,
   secondaryAction,
+  showQuantity = true,
 }: ListingFormProps) {
   const imageInputLabel = imageRequired ? imageLabel : `${imageLabel}（1–3 張）`;
 
@@ -94,13 +96,15 @@ export function ListingForm({
           </label>
           <FieldError message={errors.listingPrice} />
         </div>
-        <div>
-          <label>
-            <FieldLabel required>{quantityLabel}</FieldLabel>
-            <input aria-label={quantityLabel} aria-invalid={Boolean(errors.quantity)} inputMode="numeric" value={quantity} onChange={(event) => onQuantityChange(event.target.value)} required />
-          </label>
-          <FieldError message={errors.quantity} />
-        </div>
+        {showQuantity && (
+          <div>
+            <label>
+              <FieldLabel required>{quantityLabel}</FieldLabel>
+              <input aria-label={quantityLabel} aria-invalid={Boolean(errors.quantity)} inputMode="numeric" value={quantity} onChange={(event) => onQuantityChange(event.target.value)} required />
+            </label>
+            <FieldError message={errors.quantity} />
+          </div>
+        )}
       </div>
 
       <div className="listing-service-row">

@@ -23,4 +23,14 @@ describe('deleteListingAndImages', () => {
     );
     expect(deleteImages).toHaveBeenCalledWith('seller-1', ['stored-image-url']);
   });
+
+  it('marks cleanup failure as occurring after the Listing was deleted', async () => {
+    await expect(deleteListingAndImages(
+      { id: 'listing-1', sellerId: 'seller-1', imageUrls: ['image-url'] },
+      async () => ['stored-image-url'],
+      async () => { throw new Error('storage unavailable'); },
+    )).rejects.toMatchObject({
+      name: 'ListingImageCleanupError', listingDeleted: true,
+    });
+  });
 });
