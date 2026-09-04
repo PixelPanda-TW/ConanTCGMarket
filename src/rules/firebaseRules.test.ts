@@ -24,10 +24,14 @@ const partnerCardMaster = {
   cardName: '江戶川柯南',
   rarities: ['P'],
 };
-const subscriptionData = {
+const legacySubscriptionData = {
   cardNames: ['江戶川柯南', '洗牌情緣'],
   emailDailyEnabled: true,
   updatedAt: new Date(),
+};
+const subscriptionData = {
+  ...legacySubscriptionData,
+  sellerSubscriptions: [],
 };
 const saleData = {
   listingId: 'active',
@@ -103,7 +107,8 @@ beforeAll(async () => {
     });
     await setDoc(doc(context.firestore(), 'sales', 'owner-sale'), saleData);
     await setDoc(doc(context.firestore(), 'sales', 'immutable-owner-sale'), saleData);
-    await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'suspended-user'), subscriptionData);
+    await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'suspended-user'), legacySubscriptionData);
+    await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'legacy-owner'), legacySubscriptionData);
     await uploadBytes(
       ref(context.storage(), 'listings/suspended-user/existing/card.jpg'),
       new Blob(['image'], { type: 'image/jpeg' }),
@@ -345,6 +350,42 @@ describe('Firebase rules', () => {
     await assertSucceeds(updateDoc(subscription, { cardNames: [] }));
     await assertSucceeds(deleteDoc(subscription));
   });
+  it('allows bounded canonical seller subscriptions and preserves legacy owner reads', async () => {
+    const owner = environment.authenticatedContext('seller-subscription-owner').firestore();
+    const subscription = doc(owner, 'notificationSubscriptions', 'seller-subscription-owner');
+    const followedAt = new Date('2026-09-04T00:00:00.000Z');
+
+    await assertSucceeds(setDoc(subscription, {
+      ...subscriptionData,
+      sellerSubscriptions: [{ sellerId: 'seller-a', followedAt }],
+    }));
+    await assertSucceeds(updateDoc(subscription, {
+      sellerSubscriptions: [
+        { sellerId: 'seller-a', followedAt },
+        { sellerId: 'seller-b', followedAt },
+      ],
+    }));
+    await assertSucceeds(getDoc(subscription));
+    await assertSucceeds(deleteDoc(subscription));
+
+    const legacyOwner = environment.authenticatedContext('legacy-owner').firestore();
+    await assertSucceeds(getDoc(doc(legacyOwner, 'notificationSubscriptions', 'legacy-owner')));
+  });
+
+  it.each([
+    ['legacy card-only write', legacySubscriptionData],
+    ['non-list sellers', { ...subscriptionData, sellerSubscriptions: 'seller-a' }],
+    ['too many sellers', { ...subscriptionData, sellerSubscriptions: Array.from(
+      { length: 101 },
+      (_, index) => ({ sellerId: `seller-${index}`, followedAt: new Date() }),
+    ) }],
+  ])('rejects malformed seller subscription shape: %s', async (_label, value) => {
+    const owner = environment.authenticatedContext(`invalid-seller-${_label}`).firestore();
+    await assertFails(setDoc(
+      doc(owner, 'notificationSubscriptions', `invalid-seller-${_label}`),
+      value,
+    ));
+  });
   it('rejects another buyer and unauthenticated users reading or writing a subscription', async () => {
     const owner = environment.authenticatedContext('subscription-owner').firestore();
     const otherBuyer = environment.authenticatedContext('other-buyer').firestore();
@@ -381,8 +422,15 @@ describe('Firebase rules', () => {
   });
   it('rejects all browser reads and writes of notification events and delivery state', async () => {
     const buyer = environment.authenticatedContext('buyer-a').firestore();
-    await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
-    await assertFails(setDoc(doc(buyer, 'notificationDeliveryState', 'buyer-a'), {}));
+    for (const [collectionName, id] of [
+      ['listingEvents', 'listing-1'],
+      ['notificationDeliveryState', 'buyer-a'],
+      ['notificationDigestRuns', '2026-09-04'],
+      ['notificationDigestRuntime', 'batchCursor'],
+    ]) {
+      await assertFails(getDoc(doc(buyer, collectionName, id)));
+      await assertFails(setDoc(doc(buyer, collectionName, id), { value: 'blocked' }));
+    }
   });
   it('allows only the owner to read/query server-created immutable Sale records', async () => {
     const owner = environment.authenticatedContext('seller-a').firestore();

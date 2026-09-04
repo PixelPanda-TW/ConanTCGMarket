@@ -144,11 +144,20 @@ service cloud.firestore {
     }
 
     function isValidNotificationSubscription() {
-      return request.resource.data.keys().hasOnly(['cardNames', 'emailDailyEnabled', 'updatedAt'])
-        && request.resource.data.keys().hasAll(['cardNames', 'emailDailyEnabled', 'updatedAt'])
+      // Rules cannot iterate list entries within the 1,000-expression limit.
+      // Browser converters validate exact entries; digest parsing rejects the whole document
+      // when any nested seller entry is malformed.
+      return request.resource.data.keys().hasOnly([
+          'cardNames', 'sellerSubscriptions', 'emailDailyEnabled', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'cardNames', 'sellerSubscriptions', 'emailDailyEnabled', 'updatedAt'
+        ])
         && request.resource.data.cardNames is list
         && request.resource.data.cardNames.size() <= 100
         && request.resource.data.cardNames.toSet().size() == request.resource.data.cardNames.size()
+        && request.resource.data.sellerSubscriptions is list
+        && request.resource.data.sellerSubscriptions.size() <= 100
         && request.resource.data.emailDailyEnabled is bool
         && request.resource.data.updatedAt is timestamp;
     }
