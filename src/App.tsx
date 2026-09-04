@@ -4,10 +4,11 @@ import { SellPage } from './features/sell/SellPage';
 import { ListingPage } from './features/listings/ListingPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { ListingEditPage } from './features/listings/ListingEditPage';
-import { canonicalHomeHash, getAppRoute } from './route';
+import { canonicalHomeHash, getAppRoute, getReportListingId } from './route';
 import { MarketplacePage } from './features/marketplace/MarketplacePage';
 import { NotificationSettingsPage } from './features/notifications/NotificationSettingsPage';
 import { CardMasterAdminPage } from './features/admin/CardMasterAdminPage';
+import { ReportListingPage } from './features/reports/ReportListingPage';
 
 function App() {
   const [hash, setHash] = useState(() => canonicalHomeHash(window.location.hash));
@@ -26,6 +27,8 @@ function App() {
   }, []);
 
   const route = getAppRoute(hash);
+  const reportListingId = getReportListingId(hash);
+  if (reportListingId) return <ReportListingPage id={reportListingId} />;
   const listingEditMatch = hash.match(/^#\/listing\/([^/]+)\/edit$/);
   if (listingEditMatch) return <ListingEditPage id={listingEditMatch[1]} />;
   const listingMatch = hash.match(/^#\/listing\/([^/]+)$/);

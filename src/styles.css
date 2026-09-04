@@ -511,6 +511,19 @@ h1 {
   gap: 14px;
 }
 
+.report-listing-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: hsl(var(--destructive));
+  font-weight: 700;
+}
+
+.report-listing-link:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
 /* Private Card Master administration */
 .admin-card-page,
 .admin-card-content,

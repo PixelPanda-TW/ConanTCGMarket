@@ -119,6 +119,42 @@ describe('ListingPage card-name subscriptions', () => {
       .toHaveBeenCalledWith('buyer-1', 'seller-1'));
   });
 
+  it('offers report navigation to active non-owners and guests with Listing continuity', async () => {
+    const view = render(<ListingPage id="listing-1" />);
+    expect(await screen.findByRole('link', { name: '檢舉商品' })).toHaveProperty(
+      'href', expect.stringContaining('#/listing/listing-1/report'),
+    );
+
+    authState.current.user = { uid: 'buyer-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    view.rerender(<ListingPage id="listing-1" />);
+    expect(screen.getByRole('link', { name: '檢舉商品' })).toBeTruthy();
+  });
+
+  it('hides report navigation from owners, sold Listings, and unavailable accounts', async () => {
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    const view = render(<ListingPage id="listing-1" />);
+    await screen.findByText('Seller');
+    expect(screen.queryByRole('link', { name: '檢舉商品' })).toBeNull();
+
+    authState.current.user = { uid: 'buyer-1' };
+    authState.current.accountAccessState = { state: 'unavailable' };
+    authState.current.isActiveAccount = false;
+    view.rerender(<ListingPage id="listing-1" />);
+    expect(screen.queryByRole('link', { name: '檢舉商品' })).toBeNull();
+
+    repositories.getListing.mockResolvedValue({ ...listing, status: 'sold_out', remainingQuantity: 0 });
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    view.rerender(<ListingPage id="listing-sold" />);
+    await screen.findByText('已售罄');
+    expect(screen.queryByRole('link', { name: '檢舉商品' })).toBeNull();
+  });
+
   it('does not expose seller subscription mutation for owner or suspended buyer', async () => {
     authState.current.user = { uid: 'seller-1' };
     authState.current.accountAccessState = { state: 'active', access: null };

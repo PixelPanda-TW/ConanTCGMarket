@@ -200,6 +200,11 @@ export function ListingPage({ id }: { id: string }) {
               </>
             )}
             {listing.note && <p className="listing-note">{listing.note}</p>}
+            {!isSoldOut && !isOwner && (!user || isActiveAccount) && (
+              <a className="report-listing-link" href={`#/listing/${id}/report`}>
+                檢舉商品
+              </a>
+            )}
             {!isSoldOut && isActiveAccount && user?.uid === listing.sellerId && (
               <a className="edit-listing-link" href={`#/listing/${id}/edit`}>管理此商品</a>
             )}

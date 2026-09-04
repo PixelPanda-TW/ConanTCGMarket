@@ -13,6 +13,9 @@ vi.mock('./features/profile/SellerProfilePage', () => ({
 vi.mock('./features/listings/ListingPage', () => ({
   ListingPage: ({ id }: { id: string }) => <div>listing page {id}</div>,
 }));
+vi.mock('./features/reports/ReportListingPage', () => ({
+  ReportListingPage: ({ id }: { id: string }) => <div>report listing {id}</div>,
+}));
 vi.mock('./features/notifications/NotificationSettingsPage', () => ({
   NotificationSettingsPage: () => <h1>我的訂閱</h1>,
 }));
@@ -66,6 +69,13 @@ describe('App routes', () => {
     render(<App />);
 
     expect(screen.getByRole('heading', { name: '我的訂閱' })).toBeTruthy();
+  });
+
+  it('renders the dedicated report route before the generic Listing route', () => {
+    window.location.hash = '#/listing/listing-1/report';
+    render(<App />);
+    expect(screen.getByText('report listing listing-1')).toBeTruthy();
+    expect(screen.queryByText(/listing page/u)).toBeNull();
   });
 
   it('renders the protected Card Master console for #/admin/cards', () => {
