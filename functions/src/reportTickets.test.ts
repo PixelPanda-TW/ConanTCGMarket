@@ -8,8 +8,11 @@ import {
   parseSubmitReportRequest,
   projectReportListingSnapshot,
   readModerationReport,
+  submitReport,
   type CreateReportDraftDependencies,
   type CreateReportDraftTransaction,
+  type SubmitReportDependencies,
+  type SubmitReportTransaction,
 } from './reportTickets.js';
 
 const createdAt = Timestamp.fromDate(new Date('2026-09-04T00:00:00Z'));
@@ -246,6 +249,154 @@ describe('create report draft', () => {
     dependencies.runTransaction = async () => { throw new Error('secret database payload'); };
     await expect(createReportDraft(request, dependencies)).rejects.toMatchObject({
       code: 'unavailable', message: '目前無法建立檢舉，請稍後再試。',
+    });
+  });
+});
+
+function submitHarness(report: Record<string, unknown> = { ...draft }) {
+  const state = {
+    access: null as unknown | null,
+    report,
+    metadata: {
+      'reportEvidence/buyer-1/report-1/0': {
+        contentType: 'image/png', size: '100', generation: '123', md5Hash: 'abc=',
+        downloadTokens: 'must-not-persist',
+      },
+      'reportEvidence/buyer-1/report-1/2': {
+        contentType: 'image/webp', size: 200, generation: '456',
+      },
+    } as Record<string, unknown | null>,
+  };
+  const transaction: SubmitReportTransaction = {
+    getAccountAccess: vi.fn(async () => state.access),
+    getReport: vi.fn(async () => state.report),
+    setSubmittedReport: vi.fn((_id, value) => { state.report = value; }),
+  };
+  const dependencies: SubmitReportDependencies = {
+    now: () => new Date('2026-09-04T12:00:00.000Z'),
+    getEvidenceMetadata: vi.fn(async (path) => state.metadata[path] ?? null),
+    runTransaction: async (operation) => operation(transaction),
+  };
+  return { state, transaction, dependencies };
+}
+
+const submitRequest = {
+  authUid: 'buyer-1',
+  data: {
+    reportId: 'report-1', category: 'listing_mismatch', description: '稀有度不符',
+    evidencePaths: [
+      'reportEvidence/buyer-1/report-1/0',
+      'reportEvidence/buyer-1/report-1/2',
+    ],
+  },
+};
+
+describe('submit report', () => {
+  it('verifies actual evidence metadata and atomically finalizes immutable report data', async () => {
+    const { state, dependencies } = submitHarness();
+
+    await expect(submitReport(submitRequest, dependencies)).resolves.toEqual({ reportId: 'report-1' });
+
+    expect(state.report).toEqual({
+      ...draft, status: 'submitted', category: 'listing_mismatch', description: '稀有度不符',
+      evidence: [
+        {
+          path: 'reportEvidence/buyer-1/report-1/0', contentType: 'image/png',
+          size: 100, generation: '123', md5Hash: 'abc=',
+        },
+        {
+          path: 'reportEvidence/buyer-1/report-1/2', contentType: 'image/webp',
+          size: 200, generation: '456',
+        },
+      ],
+      submittedAt: Timestamp.fromDate(new Date('2026-09-04T12:00:00.000Z')),
+    });
+    expect(JSON.stringify(state.report)).not.toMatch(/downloadTokens|contact|email/iu);
+  });
+
+  it('submits without evidence and does not read Storage metadata', async () => {
+    const { state, dependencies } = submitHarness();
+    await expect(submitReport({
+      ...submitRequest, data: { ...submitRequest.data, evidencePaths: [] },
+    }, dependencies)).resolves.toEqual({ reportId: 'report-1' });
+    expect(dependencies.getEvidenceMetadata).not.toHaveBeenCalled();
+    expect(state.report.evidence).toEqual([]);
+  });
+
+  it('returns an identical submitted retry without rewriting or reading Storage', async () => {
+    const { state, transaction, dependencies } = submitHarness();
+    await submitReport(submitRequest, dependencies);
+    vi.mocked(transaction.setSubmittedReport).mockClear();
+    vi.mocked(dependencies.getEvidenceMetadata).mockClear();
+
+    await expect(submitReport(submitRequest, dependencies)).resolves.toEqual({ reportId: 'report-1' });
+    expect(transaction.setSubmittedReport).not.toHaveBeenCalled();
+    expect(dependencies.getEvidenceMetadata).not.toHaveBeenCalled();
+    expect(state.report.status).toBe('submitted');
+  });
+
+  it.each([
+    ['different user', {
+      authUid: 'other-user', data: { ...submitRequest.data, evidencePaths: [] },
+    }, 'permission-denied'],
+    ['expired draft', {}, 'failed-precondition'],
+  ])('rejects an invalid owner or expiry: %s', async (label, requestOverride, code) => {
+    const report = label === 'expired draft'
+      ? { ...draft, expiresAt: Timestamp.fromDate(new Date('2026-09-04T11:59:59Z')) }
+      : { ...draft };
+    const { dependencies } = submitHarness(report);
+    await expectCode(submitReport({ ...submitRequest, ...requestOverride }, dependencies), code);
+  });
+
+  it('rechecks canonical active account state during the final transaction', async () => {
+    const { state, dependencies } = submitHarness();
+    state.access = {
+      status: 'suspended', confirmedViolationCount: 1, updatedAt: createdAt,
+      suspensionReason: 'confirmed', suspendedAt: createdAt, suspendedBy: 'admin-1',
+    };
+    await expectCode(submitReport(submitRequest, dependencies), 'permission-denied');
+  });
+
+  it.each([
+    ['wrong reporter path', ['reportEvidence/other-user/report-1/0']],
+    ['wrong report path', ['reportEvidence/buyer-1/report-2/0']],
+    ['invalid slot', ['reportEvidence/buyer-1/report-1/3']],
+    ['noncanonical order', ['reportEvidence/buyer-1/report-1/2', 'reportEvidence/buyer-1/report-1/0']],
+  ])('rejects noncanonical evidence paths: %s', async (_label, evidencePaths) => {
+    const { dependencies } = submitHarness();
+    await expectCode(submitReport({
+      ...submitRequest, data: { ...submitRequest.data, evidencePaths },
+    }, dependencies), 'invalid-argument');
+  });
+
+  it.each([
+    ['missing object', null],
+    ['wrong MIME', { contentType: 'application/pdf', size: 100, generation: '1' }],
+    ['oversized', { contentType: 'image/png', size: 5 * 1024 * 1024 + 1, generation: '1' }],
+  ])('rejects invalid actual evidence metadata without leaking it: %s', async (_label, metadata) => {
+    const { state, dependencies } = submitHarness();
+    state.metadata['reportEvidence/buyer-1/report-1/0'] = metadata;
+    const rejection = submitReport({
+      ...submitRequest,
+      data: { ...submitRequest.data, evidencePaths: ['reportEvidence/buyer-1/report-1/0'] },
+    }, dependencies);
+    await expectCode(rejection, 'failed-precondition');
+    await expect(rejection).rejects.not.toThrow(/pdf|5242881|download/iu);
+  });
+
+  it('rejects a conflicting submitted retry', async () => {
+    const { dependencies } = submitHarness();
+    await submitReport(submitRequest, dependencies);
+    await expectCode(submitReport({
+      ...submitRequest, data: { ...submitRequest.data, description: '不同說明' },
+    }, dependencies), 'failed-precondition');
+  });
+
+  it('sanitizes unexpected metadata failures without description or path leakage', async () => {
+    const { dependencies } = submitHarness();
+    dependencies.getEvidenceMetadata = async () => { throw new Error('稀有度不符 secret/path'); };
+    await expect(submitReport(submitRequest, dependencies)).rejects.toMatchObject({
+      code: 'unavailable', message: '目前無法送出檢舉，請稍後再試。',
     });
   });
 });

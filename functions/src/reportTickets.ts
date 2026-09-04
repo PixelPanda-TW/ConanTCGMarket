@@ -96,6 +96,20 @@ export interface CreateReportDraftDependencies {
   ): Promise<T>;
 }
 
+export interface SubmitReportTransaction {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getReport(id: string): Promise<unknown | null>;
+  setSubmittedReport(id: string, data: Record<string, unknown>): void;
+}
+
+export interface SubmitReportDependencies {
+  now(): Date;
+  getEvidenceMetadata(path: string): Promise<unknown | null>;
+  runTransaction<T>(
+    operation: (transaction: SubmitReportTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
 interface CallableRequest {
   authUid: string | null;
   data: unknown;
@@ -416,5 +430,136 @@ export async function createReportDraft(
   } catch (error) {
     if (error instanceof ReportTicketError) throw error;
     throw new ReportTicketError('unavailable', '目前無法建立檢舉，請稍後再試。');
+  }
+}
+
+function requireCanonicalEvidencePaths(
+  paths: readonly string[], uid: string, reportId: string,
+): void {
+  const expectedPrefix = `reportEvidence/${uid}/${reportId}/`;
+  let previousSlot = -1;
+  for (const path of paths) {
+    if (!path.startsWith(expectedPrefix)) return invalid('證據路徑無效。');
+    const slotText = path.slice(expectedPrefix.length);
+    if (!/^[0-2]$/u.test(slotText)) return invalid('證據路徑無效。');
+    const slot = Number(slotText);
+    if (slot <= previousSlot) return invalid('證據路徑順序無效。');
+    previousSlot = slot;
+  }
+}
+
+function readActualEvidenceMetadata(path: string, value: unknown): ReportEvidenceMetadata {
+  if (!isObject(value)
+    || typeof value.contentType !== 'string' || !evidenceTypes.has(value.contentType)
+    || (typeof value.size !== 'number' && typeof value.size !== 'string')
+    || typeof value.generation !== 'string' || value.generation.length < 1) {
+    throw new ReportTicketError('failed-precondition', '無法確認上傳的證據圖片。');
+  }
+  const size = typeof value.size === 'string' && /^\d+$/u.test(value.size)
+    ? Number(value.size) : value.size;
+  if (typeof size !== 'number' || !Number.isSafeInteger(size)
+    || size < 1 || size > MAX_EVIDENCE_BYTES) {
+    throw new ReportTicketError('failed-precondition', '無法確認上傳的證據圖片。');
+  }
+  if (value.md5Hash !== undefined
+    && (typeof value.md5Hash !== 'string' || value.md5Hash.length < 1 || value.md5Hash.length > 200)) {
+    throw new ReportTicketError('failed-precondition', '無法確認上傳的證據圖片。');
+  }
+  return {
+    path,
+    contentType: value.contentType as ReportEvidenceMetadata['contentType'],
+    size,
+    generation: value.generation,
+    ...(value.md5Hash === undefined ? {} : { md5Hash: value.md5Hash }),
+  };
+}
+
+function assertActiveAccount(access: unknown | null): void {
+  if (access !== null && !isCanonicalActiveAccess(access)) {
+    throw new ReportTicketError('permission-denied', '此帳號目前無法送出檢舉。');
+  }
+}
+
+function readOwnedReport(
+  value: unknown, reportId: string, uid: string,
+): ModerationReport {
+  if (value === null) throw new ReportTicketError('not-found', '找不到這筆檢舉。');
+  const report = readModerationReport(value);
+  if (report.reporterId !== uid) {
+    throw new ReportTicketError('permission-denied', '無法存取這筆檢舉。');
+  }
+  if (report.listingSnapshot.listingId.length < 1 || reportId.length < 1) return invalid();
+  return report;
+}
+
+function isIdenticalSubmission(report: SubmittedModerationReport, input: SubmitReportRequest): boolean {
+  return report.category === input.category
+    && report.description === input.description
+    && report.evidence.length === input.evidencePaths.length
+    && report.evidence.every((evidence, index) => evidence.path === input.evidencePaths[index]);
+}
+
+function requireUnexpiredDraft(
+  report: ModerationReport,
+  input: SubmitReportRequest,
+  now: Timestamp,
+): DraftModerationReport | null {
+  if (report.status === 'submitted') {
+    if (isIdenticalSubmission(report, input)) return null;
+    throw new ReportTicketError('failed-precondition', '這筆檢舉已經送出。');
+  }
+  if (report.expiresAt.toMillis() <= now.toMillis()) {
+    throw new ReportTicketError('failed-precondition', '這筆檢舉草稿已過期。');
+  }
+  return report;
+}
+
+export async function submitReport(
+  request: CallableRequest,
+  dependencies: SubmitReportDependencies,
+): Promise<{ reportId: string }> {
+  const uid = requireAuthUid(request.authUid);
+  const input = parseSubmitReportRequest(request.data);
+  requireCanonicalEvidencePaths(input.evidencePaths, uid, input.reportId);
+  const nowDate = dependencies.now();
+  if (Number.isNaN(nowDate.valueOf())) {
+    throw new ReportTicketError('unavailable', '目前無法送出檢舉，請稍後再試。');
+  }
+  const now = Timestamp.fromDate(nowDate);
+
+  try {
+    const shouldVerifyEvidence = await dependencies.runTransaction(async (transaction) => {
+      assertActiveAccount(await transaction.getAccountAccess(uid));
+      const report = readOwnedReport(await transaction.getReport(input.reportId), input.reportId, uid);
+      return requireUnexpiredDraft(report, input, now) !== null;
+    });
+    if (!shouldVerifyEvidence) return { reportId: input.reportId };
+
+    const evidence: ReportEvidenceMetadata[] = [];
+    for (const path of input.evidencePaths) {
+      evidence.push(readActualEvidenceMetadata(
+        path, await dependencies.getEvidenceMetadata(path),
+      ));
+    }
+
+    return await dependencies.runTransaction(async (transaction) => {
+      assertActiveAccount(await transaction.getAccountAccess(uid));
+      const report = readOwnedReport(await transaction.getReport(input.reportId), input.reportId, uid);
+      const currentDraft = requireUnexpiredDraft(report, input, now);
+      if (currentDraft === null) return { reportId: input.reportId };
+      const submitted: SubmittedModerationReport = {
+        ...currentDraft,
+        status: 'submitted',
+        category: input.category,
+        description: input.description,
+        evidence,
+        submittedAt: now,
+      };
+      transaction.setSubmittedReport(input.reportId, { ...submitted });
+      return { reportId: input.reportId };
+    });
+  } catch (error) {
+    if (error instanceof ReportTicketError) throw error;
+    throw new ReportTicketError('unavailable', '目前無法送出檢舉，請稍後再試。');
   }
 }
