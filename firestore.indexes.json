@@ -16,6 +16,15 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "expiresAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "moderationCases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "openedAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

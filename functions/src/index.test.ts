@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { FieldPath, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { describe, expect, it, vi } from 'vitest';
 import * as deployedFunctions from './index.js';
@@ -14,14 +14,18 @@ const {
   dailyDigestOperator,
   disableCardMasterEntry,
   editCardMasterEntry,
+  getModerationCase,
+  getModerationEvidence,
   getOwnSellerProfile,
   getSellerContact,
   listCardMasterArchives,
+  listModerationCases,
   mergeCardMasterEntries,
   recordListingSale,
   saveSellerProfile,
   sendDailyDigest,
   submitModerationReport,
+  decideModerationCase,
   updateSellerListing,
   deleteUnsoldListing,
 } = deployedFunctions;
@@ -39,12 +43,16 @@ describe('notification Function deployment contract', () => {
       'cleanupExpiredReportDrafts',
       'createModerationReportDraft',
       'dailyDigestOperator',
+      'decideModerationCase',
       'deleteUnsoldListing',
       'disableCardMasterEntry',
       'editCardMasterEntry',
+      'getModerationCase',
+      'getModerationEvidence',
       'getOwnSellerProfile',
       'getSellerContact',
       'listCardMasterArchives',
+      'listModerationCases',
       'mergeCardMasterEntries',
       'recordListingSale',
       'saveSellerProfile',
@@ -52,6 +60,103 @@ describe('notification Function deployment contract', () => {
       'submitModerationReport',
       'updateSellerListing',
     ]);
+  });
+
+  it('exposes moderation review operations only as callable handlers', () => {
+    for (const callable of [
+      listModerationCases, getModerationCase, getModerationEvidence, decideModerationCase,
+    ]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+    }
+  });
+
+  it('passes only exact boolean admin claims into moderation handlers', async () => {
+    const calls = [
+      [listModerationCases, { status: 'all' }],
+      [getModerationCase, { reportId: 'report-1' }],
+      [getModerationEvidence, { reportId: 'report-1', slot: 0 }],
+      [decideModerationCase, {
+        reportId: 'report-1', decision: 'dismissed', rationale: '無法證實',
+      }],
+    ] as const;
+    for (const [callable, data] of calls) {
+      await expect(callable.run({
+        auth: { uid: 'admin-1', token: { admin: 'true' } }, data,
+      } as never)).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
+
+  it('uses bounded Admin moderation queries, transactions, and generation-pinned downloads', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+    expect(source).toContain("firestore.collection('moderationCases')");
+    expect(source).toContain("orderBy('openedAt', 'desc')");
+    expect(source).toContain("orderBy(FieldPath.documentId(), 'desc')");
+    expect(source).toContain("where('status', '==', input.status)");
+    expect(source).toContain('.limit(input.limit)');
+    expect(source).toContain('firestore.getAll(...references)');
+    expect(source).toContain('file(path, { generation }).download');
+    expect(source).toContain("memory: '256MiB'");
+    expect(source).toContain('maxInstances: 5');
+    expect(source).not.toMatch(
+      /log(?:Error|Info)\([^\n]*(description|rationale|reporterId|evidence|dataBase64|request\.data)/u,
+    );
+  });
+
+  it('adapts the moderation queue to a filtered bounded query and bulk report lookup', async () => {
+    const openedAt = Timestamp.fromDate(new Date('2026-09-04T00:00:00.000Z'));
+    const query = {
+      where: vi.fn(), orderBy: vi.fn(), limit: vi.fn(), startAfter: vi.fn(), get: vi.fn(),
+    };
+    query.where.mockReturnValue(query);
+    query.orderBy.mockReturnValue(query);
+    query.limit.mockReturnValue(query);
+    query.startAfter.mockReturnValue(query);
+    query.get.mockResolvedValue({ docs: [{
+      id: 'report-1', data: () => ({
+        status: 'open', reportId: 'report-1', targetSellerId: 'seller-1', openedAt,
+      }),
+    }] });
+    const collection = vi.spyOn(getFirestore(), 'collection').mockImplementation((name) => {
+      if (name === 'accountAccess') {
+        return { doc: () => ({ get: async () => ({ exists: false }) }) } as never;
+      }
+      if (name === 'moderationCases') return query as never;
+      if (name === 'moderationReports') {
+        return { doc: (id: string) => ({ id, path: `moderationReports/${id}` }) } as never;
+      }
+      throw new Error(`Unexpected collection ${name}`);
+    });
+    const getAll = vi.spyOn(getFirestore(), 'getAll').mockResolvedValue([{
+      id: 'report-1', exists: true, data: () => ({
+        status: 'submitted', requestKey: 'a'.repeat(64), reporterId: 'buyer-1',
+        targetSellerId: 'seller-1',
+        listingSnapshot: {
+          listingId: 'listing-1', cardType: 'character', cardName: '諸伏高明',
+          cardId: '0501', rarity: 'D', listingPrice: 500,
+          createdAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z')),
+        },
+        createdAt: Timestamp.fromDate(new Date('2026-09-03T00:00:00Z')),
+        expiresAt: Timestamp.fromDate(new Date('2026-09-05T00:00:00Z')),
+        category: 'other', description: 'private', evidence: [], submittedAt: openedAt,
+      }),
+    }] as never);
+
+    await expect(listModerationCases.run({
+      auth: { uid: 'admin-1', token: { admin: true } },
+      data: { status: 'open', limit: 10, cursor: null },
+    } as never)).resolves.toMatchObject({
+      cases: [{ reportId: 'report-1', status: 'open', category: 'other' }],
+      nextCursor: null,
+    });
+    expect(query.where).toHaveBeenCalledWith('status', '==', 'open');
+    expect(query.orderBy).toHaveBeenNthCalledWith(1, 'openedAt', 'desc');
+    expect(query.orderBy).toHaveBeenNthCalledWith(2, FieldPath.documentId(), 'desc');
+    expect(query.limit).toHaveBeenCalledWith(10);
+    expect(getAll).toHaveBeenCalledOnce();
+    getAll.mockRestore();
+    collection.mockRestore();
   });
 
   it('exposes all Card Master Admin operations only as callable handlers', () => {

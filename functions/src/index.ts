@@ -69,6 +69,18 @@ import {
   type ListingMutation,
 } from './listingLifecycle.js';
 import {
+  ModerationReviewError,
+  decideModerationCase as decideModerationCaseData,
+  getModerationCase as getModerationCaseData,
+  getModerationEvidence as getModerationEvidenceData,
+  listModerationCases as listModerationCasesData,
+  type ModerationCaseDetailDependencies,
+  type ModerationCaseListDependencies,
+  type ModerationDecisionDependencies,
+  type ModerationDecisionTransaction,
+  type ModerationEvidenceDependencies,
+} from './moderationReview.js';
+import {
   cleanupExpiredReportDrafts as cleanupExpiredReportDraftsData,
   type ReportCleanupDependencies,
   type ReportCleanupTransaction,
@@ -280,7 +292,8 @@ function throwCallableError(error: unknown, operation: string): never {
   if (error instanceof SecureSellerProfileError
     || error instanceof ListingLifecycleError
     || error instanceof AdminCardMasterError
-    || error instanceof ReportTicketError) {
+    || error instanceof ReportTicketError
+    || error instanceof ModerationReviewError) {
     throw new HttpsError(error.code, error.message);
   }
   logError(`${operation} failed.`, {
@@ -581,6 +594,153 @@ export const submitModerationReport = onCall(async (request) => {
     }, submitReportDependencies);
   } catch (error) {
     throwCallableError(error, 'Moderation report submission');
+  }
+});
+
+async function getModerationAccountAccess(uid: string) {
+  const snapshot = await firestore.collection('accountAccess').doc(uid).get();
+  return snapshot.exists ? snapshot.data() ?? null : null;
+}
+
+const moderationCaseListDependencies: ModerationCaseListDependencies = {
+  getAccountAccess: getModerationAccountAccess,
+  async listCases(input) {
+    let query: FirebaseFirestore.Query = firestore.collection('moderationCases');
+    if (input.status !== 'all') {
+      query = query.where('status', '==', input.status);
+    }
+    query = query
+      .orderBy('openedAt', 'desc')
+      .orderBy(FieldPath.documentId(), 'desc')
+      .limit(input.limit);
+    if (input.cursor) {
+      query = query.startAfter(Timestamp.fromMillis(input.cursor.openedAt), input.cursor.key);
+    }
+    const snapshot = await query.get();
+    return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }));
+  },
+  async getReports(ids) {
+    const references = ids.map((id) => firestore.collection('moderationReports').doc(id));
+    const snapshots = await firestore.getAll(...references);
+    return snapshots.map((snapshot) => ({
+      id: snapshot.id,
+      data: snapshot.exists ? snapshot.data() ?? null : null,
+    }));
+  },
+};
+
+const moderationCaseDetailDependencies: ModerationCaseDetailDependencies = {
+  getAccountAccess: getModerationAccountAccess,
+  async getCase(id) {
+    const snapshot = await firestore.collection('moderationCases').doc(id).get();
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  },
+  async getReport(id) {
+    const snapshot = await firestore.collection('moderationReports').doc(id).get();
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  },
+};
+
+const moderationEvidenceDependencies: ModerationEvidenceDependencies = {
+  ...moderationCaseDetailDependencies,
+  async getEvidenceMetadata(path) {
+    try {
+      const [metadata] = await getReportBucket().file(path).getMetadata();
+      return metadata;
+    } catch (error) {
+      if (isStorageObjectNotFound(error)) return null;
+      throw error;
+    }
+  },
+  async downloadEvidence(path, generation) {
+    const [bytes] = await getReportBucket().file(path, { generation }).download({ validation: 'md5' });
+    return bytes;
+  },
+};
+
+function moderationDecisionPort(
+  transaction: FirebaseFirestore.Transaction,
+): ModerationDecisionTransaction {
+  return {
+    async getCase(id) {
+      const snapshot = await transaction.get(firestore.collection('moderationCases').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getReport(id) {
+      const snapshot = await transaction.get(firestore.collection('moderationReports').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getAccountAccess(uid) {
+      const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    setCase(id, data) {
+      transaction.set(firestore.collection('moderationCases').doc(id), data);
+    },
+    setAccountAccess(uid, data) {
+      transaction.set(firestore.collection('accountAccess').doc(uid), data);
+    },
+  };
+}
+
+const moderationDecisionDependencies: ModerationDecisionDependencies = {
+  now: () => new Date(),
+  getAccountAccess: getModerationAccountAccess,
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => (
+      operation(moderationDecisionPort(transaction))
+    ));
+  },
+};
+
+export const listModerationCases = onCall(async (request) => {
+  try {
+    return await listModerationCasesData({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, moderationCaseListDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Moderation case list');
+  }
+});
+
+export const getModerationCase = onCall(async (request) => {
+  try {
+    return await getModerationCaseData({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, moderationCaseDetailDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Moderation case detail');
+  }
+});
+
+export const getModerationEvidence = onCall(
+  { memory: '256MiB', timeoutSeconds: 60, maxInstances: 5 },
+  async (request) => {
+    try {
+      return await getModerationEvidenceData({
+        authUid: request.auth?.uid ?? null,
+        adminClaim: request.auth?.token.admin,
+        data: request.data,
+      }, moderationEvidenceDependencies);
+    } catch (error) {
+      throwCallableError(error, 'Moderation evidence retrieval');
+    }
+  },
+);
+
+export const decideModerationCase = onCall(async (request) => {
+  try {
+    return await decideModerationCaseData({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, moderationDecisionDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Moderation case decision');
   }
 });
 

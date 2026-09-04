@@ -55,4 +55,19 @@ describe('Firestore deployment configuration', () => {
       ],
     });
   });
+
+  it('deploys the deterministic filtered moderation case queue index', async () => {
+    const indexes = await readJson('../../firestore.indexes.json') as {
+      indexes?: unknown[];
+    };
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: 'moderationCases',
+      queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'status', order: 'ASCENDING' },
+        { fieldPath: 'openedAt', order: 'DESCENDING' },
+        { fieldPath: '__name__', order: 'DESCENDING' },
+      ],
+    });
+  });
 });
