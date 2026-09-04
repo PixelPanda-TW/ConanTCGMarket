@@ -140,6 +140,10 @@ beforeAll(async () => {
       reporterId: 'active-user', utcDate: '2099-01-01', count: 1,
       createdAt: new Date(), updatedAt: new Date(),
     });
+    await setDoc(doc(context.firestore(), 'moderationCases', 'report-submitted'), {
+      status: 'open', reportId: 'report-submitted', targetSellerId: 'seller-a',
+      openedAt: new Date(),
+    });
     await uploadBytes(
       ref(context.storage(), 'listings/suspended-user/existing/card.jpg'),
       new Blob(['image'], { type: 'image/jpeg' }),
@@ -149,6 +153,30 @@ beforeAll(async () => {
 afterAll(async () => environment?.cleanup());
 
 describe('Firebase rules', () => {
+  it('declares moderation cases as an explicit server-only collection', async () => {
+    const rules = await readFile('firestore.rules', 'utf8');
+    expect(rules).toMatch(/match \/moderationCases\/\{id\} \{\s*allow read, write: if false;/u);
+  });
+
+  it('denies every browser identity every moderation case operation', async () => {
+    for (const db of [
+      environment.unauthenticatedContext().firestore(),
+      environment.authenticatedContext('active-user').firestore(),
+      environment.authenticatedContext('admin-user', { admin: true }).firestore(),
+      environment.authenticatedContext('suspended-user', { admin: true }).firestore(),
+      environment.authenticatedContext('malformed-active-user', { admin: true }).firestore(),
+    ]) {
+      const moderationCase = doc(db, 'moderationCases', 'report-submitted');
+      await assertFails(getDoc(moderationCase));
+      await assertFails(getDocs(collection(db, 'moderationCases')));
+      await assertFails(setDoc(doc(db, 'moderationCases', 'new-case'), {
+        status: 'open', reportId: 'new-case', targetSellerId: 'seller-a', createdAt: new Date(),
+      }));
+      await assertFails(updateDoc(moderationCase, { status: 'dismissed' }));
+      await assertFails(deleteDoc(moderationCase));
+    }
+  });
+
   it('allows only the owner to read account access and denies every browser write', async () => {
     const owner = environment.authenticatedContext('suspended-user').firestore();
     const other = environment.authenticatedContext('other-user').firestore();
@@ -194,6 +222,20 @@ describe('Firebase rules', () => {
       environment.unauthenticatedContext().storage(),
       'reportEvidence/active-user/report-draft/0',
     )));
+  });
+
+  it('keeps report evidence unreadable through the browser SDK even with an admin claim', async () => {
+    const objectPath = 'reportEvidence/active-user/report-draft/0';
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await uploadBytes(ref(context.storage(), objectPath), new Blob(['private'], { type: 'image/png' }));
+    });
+    for (const storage of [
+      environment.unauthenticatedContext().storage(),
+      environment.authenticatedContext('active-user').storage(),
+      environment.authenticatedContext('admin-user', { admin: true }).storage(),
+      environment.authenticatedContext('suspended-user', { admin: true }).storage(),
+      environment.authenticatedContext('malformed-active-user', { admin: true }).storage(),
+    ]) await assertFails(getBytes(ref(storage, objectPath)));
   });
 
   it.each([

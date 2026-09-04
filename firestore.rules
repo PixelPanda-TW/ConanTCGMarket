@@ -133,6 +133,9 @@ service cloud.firestore {
     match /moderationReports/{id} {
       allow read, write: if false;
     }
+    match /moderationCases/{id} {
+      allow read, write: if false;
+    }
     match /moderationReportRequestKeys/{id} {
       allow read, write: if false;
     }
