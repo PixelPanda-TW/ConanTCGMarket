@@ -19,7 +19,8 @@
     "test:e2e:webkit": "npm run build:functions && firebase emulators:exec --project demo-conan-tcg-e2e --only auth,firestore,storage,functions \"playwright test --config playwright.config.ts --project webkit-iphone\"",
     "test:smoke": "node scripts/run-smoke.mjs",
     "import:cards": "node scripts/import-card-master.mjs",
-    "sync:cards": "node scripts/sync-rugia-card-master.mjs"
+    "sync:cards": "node scripts/sync-rugia-card-master.mjs",
+    "migrate:seller-contacts": "node scripts/migrate-seller-contacts.mjs"
   },
   "dependencies": {
     "firebase": "^12.17.1",
