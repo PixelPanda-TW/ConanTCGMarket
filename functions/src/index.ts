@@ -45,6 +45,15 @@ import {
   type ListingEventStore,
 } from './listingEvents.js';
 import {
+  ListingLifecycleError,
+  handleDeleteUnsoldListing,
+  handleRecordListingSale,
+  handleUpdateSellerListing,
+  type ListingLifecycleDependencies,
+  type ListingLifecycleTransaction,
+  type ListingMutation,
+} from './listingLifecycle.js';
+import {
   SecureSellerProfileError,
   handleGetOwnSellerProfile,
   handleGetSellerContact,
@@ -153,7 +162,7 @@ const secureSellerProfileDependencies: SecureSellerProfileDependencies = {
 };
 
 function throwCallableError(error: unknown, operation: string): never {
-  if (error instanceof SecureSellerProfileError) {
+  if (error instanceof SecureSellerProfileError || error instanceof ListingLifecycleError) {
     throw new HttpsError(error.code, error.message);
   }
   logError(`${operation} failed.`, error);
@@ -190,6 +199,85 @@ export const getSellerContact = onCall(async (request) => {
     }, secureSellerProfileDependencies);
   } catch (error) {
     throwCallableError(error, 'Seller contact disclosure');
+  }
+});
+
+function storedListingMutation(patch: ListingMutation): DocumentData {
+  return Object.fromEntries(Object.entries(patch).map(([key, value]) => [
+    key,
+    value === null ? FieldValue.delete() : value instanceof Date ? Timestamp.fromDate(value) : value,
+  ]));
+}
+
+const listingLifecycleDependencies: ListingLifecycleDependencies = {
+  now: () => new Date(),
+  randomId: randomUUID,
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => {
+      const port: ListingLifecycleTransaction = {
+        async getAccountAccess(uid) {
+          const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getListing(id) {
+          const snapshot = await transaction.get(firestore.collection('listings').doc(id));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async hasSaleForListing(id) {
+          const saleQuery = firestore.collection('sales').where('listingId', '==', id).limit(1);
+          return !(await transaction.get(saleQuery)).empty;
+        },
+        createSale(id, sale) {
+          transaction.create(firestore.collection('sales').doc(id), {
+            ...sale,
+            soldAt: Timestamp.fromDate(sale.soldAt),
+          });
+        },
+        updateListing(id, patch) {
+          transaction.update(
+            firestore.collection('listings').doc(id),
+            storedListingMutation(patch),
+          );
+        },
+        deleteListing(id) {
+          transaction.delete(firestore.collection('listings').doc(id));
+        },
+      };
+      return operation(port);
+    });
+  },
+};
+
+export const recordListingSale = onCall(async (request) => {
+  try {
+    return await handleRecordListingSale({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, listingLifecycleDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Listing sale');
+  }
+});
+
+export const updateSellerListing = onCall(async (request) => {
+  try {
+    return await handleUpdateSellerListing({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, listingLifecycleDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Listing update');
+  }
+});
+
+export const deleteUnsoldListing = onCall(async (request) => {
+  try {
+    return await handleDeleteUnsoldListing({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, listingLifecycleDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Listing deletion');
   }
 });
 

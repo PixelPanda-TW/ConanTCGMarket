@@ -8,8 +8,11 @@ const {
   dailyDigestOperator,
   getOwnSellerProfile,
   getSellerContact,
+  recordListingSale,
   saveSellerProfile,
   sendDailyDigest,
+  updateSellerListing,
+  deleteUnsoldListing,
 } = deployedFunctions;
 
 const functionsPackage = JSON.parse(await readFile(
@@ -22,11 +25,32 @@ describe('notification Function deployment contract', () => {
     expect(Object.keys(deployedFunctions).sort()).toStrictEqual([
       'captureListingEvent',
       'dailyDigestOperator',
+      'deleteUnsoldListing',
       'getOwnSellerProfile',
       'getSellerContact',
+      'recordListingSale',
       'saveSellerProfile',
       'sendDailyDigest',
+      'updateSellerListing',
     ]);
+  });
+
+  it('exposes trusted listing lifecycle operations only as callable handlers', () => {
+    for (const callable of [recordListingSale, updateSellerListing, deleteUnsoldListing]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+    }
+  });
+
+  it('adapts lifecycle mutations to bounded Admin transactions without logging payloads', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain("firestore.collection('sales').where('listingId', '==', id).limit(1)");
+    expect(source).toContain('transaction.create');
+    expect(source).toContain('transaction.delete');
+    expect(source).toContain('FieldValue.delete()');
+    expect(source).not.toMatch(/logError\([^\n]*(request\.data|imageUrls|soldUnitPrice)/u);
   });
 
   it('exposes seller profile operations as callable handlers without public invoker overrides', () => {
