@@ -46,7 +46,7 @@ Expected: FAIL because the split models/converter/paths do not exist and the old
 
 Implement strict public/contact validators, retain the composite type for own application flows, replace `sellerProfileConverter` with `publicSellerProfileConverter`, and add the collection names. Keep private contact serialization out of browser code.
 
-Rerun the focused tests and `npm run build:e2e`.
+Rerun the focused tests. The full client type/build check is intentionally deferred to Task 4, where the repository switches from the removed composite Firestore converter to the callable boundary; Tasks 1–3 are a committed cross-layer schema transition and must not preserve a contact-bearing browser converter merely to make the intermediate tree type-check.
 
 ### Commit
 
