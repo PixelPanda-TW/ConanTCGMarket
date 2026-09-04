@@ -7,3 +7,4 @@ export * from './notificationSubscriptionRepository';
 export * from './accountAccessRepository';
 export * from './adminCardMasterRepository';
 export * from './moderationReportRepository';
+export * from './moderationReviewRepository';
