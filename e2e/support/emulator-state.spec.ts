@@ -174,6 +174,35 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
       capturedSequence: 7,
     });
     expect(await readDocument('listingEvents', 'legacy-listing-event')).not.toHaveProperty('sellerId');
+    await seedScenario({
+      moderationReports: [{
+        id: 'report-1', status: 'submitted', requestKey: 'a'.repeat(64),
+        reporterId: 'buyer-1', targetSellerId: 'e2e-seller',
+        listingSnapshot: {
+          listingId: 'e2e-listing', cardType: 'character', cardName: '諸伏高明',
+          cardId: '0501', rarity: 'D', listingPrice: 500, createdAt: fixedDate,
+        },
+        createdAt: fixedDate, expiresAt: new Date('2026-08-28T00:00:00Z'),
+        category: 'other', description: '說明', evidence: [], submittedAt: fixedDate,
+      }],
+      moderationReportLimits: [{
+        id: 'buyer-1_2026-08-27', reporterId: 'buyer-1', utcDate: '2026-08-27',
+        count: 1, createdAt: fixedDate, updatedAt: fixedDate,
+      }],
+    });
+    expect(await readDocument('moderationReports', 'report-1')).toEqual({
+      status: 'submitted', requestKey: 'a'.repeat(64), reporterId: 'buyer-1',
+      targetSellerId: 'e2e-seller',
+      listingSnapshot: {
+        listingId: 'e2e-listing', cardType: 'character', cardName: '諸伏高明',
+        cardId: '0501', rarity: 'D', listingPrice: 500, createdAt: Timestamp.fromDate(fixedDate),
+      },
+      createdAt: Timestamp.fromDate(fixedDate),
+      expiresAt: Timestamp.fromDate(new Date('2026-08-28T00:00:00Z')),
+      category: 'other', description: '說明', evidence: [], submittedAt: Timestamp.fromDate(fixedDate),
+    });
+    expect(await readDocument('moderationReportLimits', 'buyer-1_2026-08-27'))
+      .toMatchObject({ reporterId: 'buyer-1', utcDate: '2026-08-27', count: 1 });
   } finally {
     await resetEmulators();
   }

@@ -58,6 +58,7 @@ afterEach(cleanup);
 describe('ReportListingPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     authState.current.user = { uid: 'buyer-1' };
     authState.current.isLoading = false;
     authState.current.isActiveAccount = true;
@@ -210,5 +211,16 @@ describe('ReportListingPage', () => {
     const status = await screen.findByRole('status');
     expect(status.textContent).toContain('report-1');
     expect(status.textContent).not.toMatch(/seller-1|buyer-1|稀有度不符/iu);
+  });
+
+  it('restores a successful reference after reload within the same browser session', async () => {
+    const first = render(<ReportListingPage id="listing-1" />);
+    const user = await fillValidForm();
+    await user.click(screen.getByRole('button', { name: '送出檢舉' }));
+    await screen.findByText(/檢舉編號：/u);
+    first.unmount();
+    render(<ReportListingPage id="listing-1" />);
+    expect((await screen.findByRole('status')).textContent).toBe('檢舉編號：report-1');
+    expect(repositories.createModerationReportDraft).toHaveBeenCalledOnce();
   });
 });

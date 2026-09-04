@@ -12,6 +12,7 @@ import type {
   NotificationSubscription,
   Sale,
   SellerProfile,
+  ModerationReportCategory,
 } from '../../src/domain/models';
 
 type NotificationSubscriptionSeed = Omit<NotificationSubscription, 'sellerSubscriptions'> & {
@@ -46,6 +47,40 @@ export interface ScenarioSeed {
   sales?: readonly Sale[];
   notificationSubscriptions?: readonly NotificationSubscriptionSeed[];
   listingEvents?: readonly ListingEventSeed[];
+  moderationReports?: readonly ModerationReportSeed[];
+  moderationReportLimits?: readonly ModerationReportLimitSeed[];
+}
+
+export interface ModerationReportSeed {
+  id: string;
+  status: 'draft' | 'submitted';
+  requestKey: string;
+  reporterId: string;
+  targetSellerId: string;
+  listingSnapshot: {
+    listingId: string;
+    cardType: 'character' | 'event' | 'case' | 'partner';
+    cardName: string;
+    cardId: string;
+    rarity: string;
+    listingPrice: number;
+    createdAt: Date;
+  };
+  createdAt: Date;
+  expiresAt: Date;
+  category?: ModerationReportCategory;
+  description?: string;
+  evidence?: readonly Record<string, unknown>[];
+  submittedAt?: Date;
+}
+
+export interface ModerationReportLimitSeed {
+  id: string;
+  reporterId: string;
+  utcDate: string;
+  count: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -272,6 +307,35 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
       attempts: event.attempts,
     });
   }
+  for (const report of seed.moderationReports ?? []) {
+    batch.set(firestore.doc(`moderationReports/${report.id}`), {
+      status: report.status,
+      requestKey: report.requestKey,
+      reporterId: report.reporterId,
+      targetSellerId: report.targetSellerId,
+      listingSnapshot: {
+        ...report.listingSnapshot,
+        createdAt: Timestamp.fromDate(report.listingSnapshot.createdAt),
+      },
+      createdAt: Timestamp.fromDate(report.createdAt),
+      expiresAt: Timestamp.fromDate(report.expiresAt),
+      ...(report.status === 'submitted' ? {
+        category: report.category,
+        description: report.description,
+        evidence: report.evidence ?? [],
+        submittedAt: Timestamp.fromDate(report.submittedAt!),
+      } : {}),
+    });
+  }
+  for (const limit of seed.moderationReportLimits ?? []) {
+    batch.set(firestore.doc(`moderationReportLimits/${limit.id}`), {
+      reporterId: limit.reporterId,
+      utcDate: limit.utcDate,
+      count: limit.count,
+      createdAt: Timestamp.fromDate(limit.createdAt),
+      updatedAt: Timestamp.fromDate(limit.updatedAt),
+    });
+  }
 
   await batch.commit();
 }
@@ -315,6 +379,39 @@ export async function listStorageObjects(prefix: string): Promise<string[]> {
   assertSafeEmulatorEnvironment();
   const [files] = await adminBucket().getFiles({ prefix });
   return files.map((file) => file.name);
+}
+
+export async function readStorageObjectMetadata(path: string): Promise<Record<string, unknown> | null> {
+  assertSafeEmulatorEnvironment();
+  try {
+    const [metadata] = await adminBucket().file(path).getMetadata();
+    return metadata as unknown as Record<string, unknown>;
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error
+      && (error.code === 404 || error.code === '404')) return null;
+    throw error;
+  }
+}
+
+export async function uploadStorageObjectAsUser(
+  idToken: string,
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!path.startsWith('reportEvidence/') || path.includes('..')) {
+    throw new Error('Unsafe report evidence path.');
+  }
+  const response = await fetch(
+    `http://${process.env.FIREBASE_STORAGE_EMULATOR_HOST}/v0/b/${encodeURIComponent(E2E_BUCKET)}/o?uploadType=media&name=${encodeURIComponent(path)}`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${idToken}`, 'content-type': contentType },
+      body: bytes,
+    },
+  );
+  return responseResult(response);
 }
 
 export interface EmulatorHttpResult {

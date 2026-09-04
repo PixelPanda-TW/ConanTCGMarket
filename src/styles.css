@@ -493,6 +493,18 @@ h1 {
   resize: vertical;
 }
 
+.report-form input,
+.report-form select,
+.report-form textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.report-form input[type="file"] {
+  padding: 6px;
+}
+
 .report-error-summary {
   border: 1px solid hsl(var(--destructive));
   background: hsl(var(--destructive) / .08);

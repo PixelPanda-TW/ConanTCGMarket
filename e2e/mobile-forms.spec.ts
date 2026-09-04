@@ -153,6 +153,24 @@ test('mobile welcome, filters, result navigation, and footer remain interactive'
 
 });
 
+test('mobile report form keeps all controls reachable without horizontal scrolling', async ({ page }) => {
+  const identity = await signInMobile(page, 'report');
+  await seedScenario({
+    cards: testCards,
+    listings: [activeListing('mobile-report-seller', 'data:image/png;base64,iVBORw0KGgo=', {
+      id: 'mobile-report-listing',
+    })],
+  });
+  await page.goto('#/listing/mobile-report-listing/report');
+  await expect(page.getByRole('heading', { name: '檢舉商品' })).toBeVisible();
+  await expectEditable(page.getByLabel('檢舉原因'));
+  await expectEditable(page.getByLabel('說明'));
+  await expect(page.getByLabel('證據圖片（選填）')).toBeVisible();
+  await expect(page.getByRole('button', { name: '送出檢舉' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  expect(identity.uid).not.toBe('mobile-report-seller');
+});
+
 test('mobile Profile form', async ({ page }) => {
   const identity = await signInMobile(page, 'profile');
   await page.goto('#/profile');

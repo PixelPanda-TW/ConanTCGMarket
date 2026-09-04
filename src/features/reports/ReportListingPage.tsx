@@ -21,6 +21,15 @@ import {
 
 const emptyForm: ReportFormState = { category: '', description: '', files: [] };
 
+function submittedStorageKey(uid: string, listingId: string) {
+  return `moderation-report-submitted:${uid}:${listingId}`;
+}
+
+function readSubmittedId(uid: string, listingId: string): string | null {
+  const value = sessionStorage.getItem(submittedStorageKey(uid, listingId));
+  return value && /^[A-Za-z0-9_-]{1,200}$/u.test(value) ? value : null;
+}
+
 export function ReportListingPage({ id }: { id: string }) {
   const { accountAccessState, isActiveAccount, isLoading, signIn, user } = useAuth();
   const [listing, setListing] = useState<Listing | null>();
@@ -46,7 +55,7 @@ export function ReportListingPage({ id }: { id: string }) {
     setError(null);
     setIsPending(false);
     setProgress(null);
-    setSubmittedId(null);
+    setSubmittedId(user && isActiveAccount ? readSubmittedId(user.uid, id) : null);
     requestIdRef.current = null;
     draftRef.current = null;
     uploadedSlotCountRef.current = 0;
@@ -120,6 +129,7 @@ export function ReportListingPage({ id }: { id: string }) {
         evidencePaths,
       });
       if (currentScopeRef.current !== operationScope) return;
+      sessionStorage.setItem(submittedStorageKey(uid, id), result.reportId);
       setSubmittedId(result.reportId);
       setProgress(null);
     } catch {
