@@ -87,6 +87,18 @@ describe('ListingEditPage', () => {
     expect(storage.deleteListingImages).not.toHaveBeenCalled();
   });
 
+  it('shows signed-out guidance without loading private edit data', () => {
+    authState.current.user = null;
+    authState.current.accountAccessState = { state: 'signed-out' };
+    authState.current.isActiveAccount = false;
+
+    render(<ListingEditPage id="listing-event" />);
+
+    expect(screen.getByRole('heading', { name: '無法編輯商品' })).toBeTruthy();
+    expect(screen.getByText('請先使用 Google 登入。')).toBeTruthy();
+    expect(repositories.getListing).not.toHaveBeenCalled();
+  });
+
   it('shows immutable metadata read-only and preserves it in the update', async () => {
     render(<ListingEditPage id="listing-event" />);
 

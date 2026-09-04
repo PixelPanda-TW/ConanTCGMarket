@@ -27,6 +27,7 @@ export function ListingEditPage({ id }: { id: string }) {
     return () => { isCurrent = false; };
   }, [id, isActiveAccount, user]);
   if (isLoading) return <PageShell><p>載入中</p></PageShell>;
+  if (!user) return <PageShell><section className="profile-state"><h1>無法編輯商品</h1><p>請先使用 Google 登入。</p><a href={`#/listing/${id}`}>返回商品</a></section></PageShell>;
   if (user && !isActiveAccount) return <PageShell><section className="profile-state"><h1>無法編輯商品</h1><AccountAccessNotice state={accountAccessState} /><a href={`#/listing/${id}`}>返回商品</a></section></PageShell>;
   if (listing === undefined) return <PageShell><p>載入中</p></PageShell>;
   if (!listing || user?.uid !== listing.sellerId) return <PageShell><h1>無法編輯商品</h1><a href={`#/listing/${id}`}>返回商品</a></PageShell>;
