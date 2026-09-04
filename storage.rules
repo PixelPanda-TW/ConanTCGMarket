@@ -24,5 +24,41 @@ service firebase.storage {
       allow read: if true;
       allow write: if isActiveAccount() && request.auth.uid == uid;
     }
+
+    function reportPath(reportId) {
+      return /databases/(default)/documents/moderationReports/$(reportId);
+    }
+
+    function isOwnedActiveDraft(uid, reportId) {
+      return firestore.exists(reportPath(reportId))
+        && firestore.get(reportPath(reportId)).data.keys().hasOnly([
+          'status', 'requestKey', 'reporterId', 'targetSellerId',
+          'listingSnapshot', 'createdAt', 'expiresAt'
+        ])
+        && firestore.get(reportPath(reportId)).data.keys().hasAll([
+          'status', 'requestKey', 'reporterId', 'targetSellerId',
+          'listingSnapshot', 'createdAt', 'expiresAt'
+        ])
+        && firestore.get(reportPath(reportId)).data.status == 'draft'
+        && firestore.get(reportPath(reportId)).data.reporterId == uid
+        && firestore.get(reportPath(reportId)).data.expiresAt is timestamp
+        && firestore.get(reportPath(reportId)).data.expiresAt > request.time;
+    }
+
+    function canWriteReportEvidence(uid, reportId, slot) {
+      return isActiveAccount()
+        && request.auth.uid == uid
+        && slot.matches('^[0-2]$')
+        && isOwnedActiveDraft(uid, reportId);
+    }
+
+    match /reportEvidence/{uid}/{reportId}/{slot} {
+      allow read: if false;
+      allow create, update: if canWriteReportEvidence(uid, reportId, slot)
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+      allow delete: if canWriteReportEvidence(uid, reportId, slot);
+    }
   }
 }

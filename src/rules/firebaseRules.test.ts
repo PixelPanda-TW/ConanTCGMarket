@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { deleteObject, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getBytes, ref, uploadBytes } from 'firebase/storage';
 
 let environment: RulesTestEnvironment;
 const activeListing = { sellerId: 'seller-a', cardId: 'CP-001', imageUrls: ['https://example.test/card.jpg'], listingPrice: 500, originalQuantity: 5, remainingQuantity: 5, hasSleeve: true, supportsMyShip: true, status: 'active', createdAt: new Date(), updatedAt: new Date() };
@@ -109,6 +109,37 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'sales', 'immutable-owner-sale'), saleData);
     await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'suspended-user'), legacySubscriptionData);
     await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'legacy-owner'), legacySubscriptionData);
+    const reportSnapshot = {
+      listingId: 'active', cardType: 'event', cardName: '事件測試卡', cardId: '0123',
+      rarity: 'SR', listingPrice: 500, createdAt: new Date(),
+    };
+    const draftReport = {
+      status: 'draft', requestKey: 'a'.repeat(64), reporterId: 'active-user',
+      targetSellerId: 'seller-a', listingSnapshot: reportSnapshot,
+      createdAt: new Date(), expiresAt: new Date('2099-01-01T00:00:00Z'),
+    };
+    await setDoc(doc(context.firestore(), 'moderationReports', 'report-draft'), draftReport);
+    await setDoc(doc(context.firestore(), 'moderationReports', 'report-expired'), {
+      ...draftReport, requestKey: 'b'.repeat(64), expiresAt: new Date('2020-01-01T00:00:00Z'),
+    });
+    await setDoc(doc(context.firestore(), 'moderationReports', 'report-submitted'), {
+      ...draftReport, status: 'submitted', requestKey: 'c'.repeat(64), category: 'other',
+      description: '說明', evidence: [], submittedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'moderationReports', 'report-suspended'), {
+      ...draftReport, requestKey: 'd'.repeat(64), reporterId: 'suspended-user',
+    });
+    await setDoc(doc(context.firestore(), 'moderationReports', 'report-malformed-account'), {
+      ...draftReport, requestKey: 'e'.repeat(64), reporterId: 'malformed-active-user',
+    });
+    await setDoc(doc(context.firestore(), 'moderationReportRequestKeys', 'a'.repeat(64)), {
+      reportId: 'report-draft', reporterId: 'active-user', requestIdHash: 'f'.repeat(64),
+      createdAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'moderationReportLimits', 'active-user_2099-01-01'), {
+      reporterId: 'active-user', utcDate: '2099-01-01', count: 1,
+      createdAt: new Date(), updatedAt: new Date(),
+    });
     await uploadBytes(
       ref(context.storage(), 'listings/suspended-user/existing/card.jpg'),
       new Blob(['image'], { type: 'image/jpeg' }),
@@ -130,6 +161,89 @@ describe('Firebase rules', () => {
     await assertFails(setDoc(doc(owner, 'accountAccess', 'new-owner-state'), activeAccountAccess));
     await assertFails(updateDoc(ownerAccess, { status: 'active' }));
     await assertFails(deleteDoc(ownerAccess));
+  });
+
+  it.each([
+    ['moderationReports', 'report-draft'],
+    ['moderationReportRequestKeys', 'a'.repeat(64)],
+    ['moderationReportLimits', 'active-user_2099-01-01'],
+  ])('denies all browser identities every report Firestore operation on %s', async (collectionName, id) => {
+    for (const db of [
+      environment.unauthenticatedContext().firestore(),
+      environment.authenticatedContext('active-user').firestore(),
+      environment.authenticatedContext('admin-user', { admin: true }).firestore(),
+    ]) {
+      await assertFails(getDoc(doc(db, collectionName, id)));
+      await assertFails(getDocs(collection(db, collectionName)));
+      await assertFails(setDoc(doc(db, collectionName, `${id}-new`), { value: 'blocked' }));
+      await assertFails(updateDoc(doc(db, collectionName, id), { value: 'blocked' }));
+      await assertFails(deleteDoc(doc(db, collectionName, id)));
+    }
+  });
+
+  it('allows an active draft owner to create, replace, and delete slots 0–2 but never read them', async () => {
+    const owner = environment.authenticatedContext('active-user').storage();
+    for (const slot of [0, 1, 2]) {
+      const object = ref(owner, `reportEvidence/active-user/report-draft/${slot}`);
+      await assertSucceeds(uploadBytes(object, new Blob(['image'], { type: 'image/png' })));
+      await assertFails(getBytes(object));
+      await assertSucceeds(uploadBytes(object, new Blob(['replacement'], { type: 'image/webp' })));
+      await assertSucceeds(deleteObject(object));
+    }
+    await assertFails(getBytes(ref(
+      environment.unauthenticatedContext().storage(),
+      'reportEvidence/active-user/report-draft/0',
+    )));
+  });
+
+  it.each([
+    ['unauthenticated', null, 'active-user', 'report-draft', '0', 'image/png', 1],
+    ['owner mismatch', 'other-user', 'active-user', 'report-draft', '0', 'image/png', 1],
+    ['suspended', 'suspended-user', 'suspended-user', 'report-suspended', '0', 'image/png', 1],
+    ['malformed access', 'malformed-active-user', 'malformed-active-user', 'report-malformed-account', '0', 'image/png', 1],
+    ['expired draft', 'active-user', 'active-user', 'report-expired', '0', 'image/png', 1],
+    ['submitted report', 'active-user', 'active-user', 'report-submitted', '0', 'image/png', 1],
+    ['invalid slot', 'active-user', 'active-user', 'report-draft', '3', 'image/png', 1],
+    ['nested slot', 'active-user', 'active-user', 'report-draft', '0/extra', 'image/png', 1],
+    ['wrong MIME', 'active-user', 'active-user', 'report-draft', '0', 'application/pdf', 1],
+    ['empty object', 'active-user', 'active-user', 'report-draft', '0', 'image/png', 0],
+    ['oversized object', 'active-user', 'active-user', 'report-draft', '0', 'image/png', 5 * 1024 * 1024 + 1],
+  ])('denies invalid report evidence write: %s', async (
+    _label, authUid, pathUid, reportId, slot, contentType, size,
+  ) => {
+    const storage = authUid
+      ? environment.authenticatedContext(authUid).storage()
+      : environment.unauthenticatedContext().storage();
+    await assertFails(uploadBytes(
+      ref(storage, `reportEvidence/${pathUid}/${reportId}/${slot}`),
+      new Blob([new Uint8Array(size)], { type: contentType }),
+    ));
+  });
+
+  it('denies replacement and delete after the draft becomes submitted', async () => {
+    const owner = environment.authenticatedContext('active-user').storage();
+    const object = ref(owner, 'reportEvidence/active-user/report-post-submit/0');
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'moderationReports', 'report-post-submit'), {
+        status: 'draft', requestKey: 'f'.repeat(64), reporterId: 'active-user',
+        targetSellerId: 'seller-a',
+        listingSnapshot: {
+          listingId: 'active', cardType: 'event', cardName: '事件測試卡',
+          cardId: '0123', rarity: 'SR', listingPrice: 500, createdAt: new Date(),
+        },
+        createdAt: new Date(), expiresAt: new Date('2099-01-01T00:00:00Z'),
+      });
+    });
+    await assertSucceeds(uploadBytes(object, new Blob(['image'], { type: 'image/png' })));
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await updateDoc(doc(context.firestore(), 'moderationReports', 'report-post-submit'), {
+        status: 'submitted', category: 'other', description: '說明', evidence: [],
+        submittedAt: new Date(),
+      });
+    });
+    await assertFails(uploadBytes(object, new Blob(['replacement'], { type: 'image/png' })));
+    await assertFails(deleteObject(object));
+    await assertFails(getBytes(object));
   });
 
   it.each(['missing-user', 'active-user'])(
