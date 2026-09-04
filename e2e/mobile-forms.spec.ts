@@ -187,6 +187,7 @@ test('mobile Profile form', async ({ page }) => {
   await expect(page.getByRole('alert').filter({ hasText: '請填寫顯示名稱。' })).toBeVisible();
   await expect(page.getByRole('alert').filter({ hasText: '請填寫聯絡方式。' })).toBeVisible();
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toBeNull();
+  await expect.poll(() => readDocument('sellerContacts', identity.uid)).toBeNull();
 
   await displayName.fill('行動版賣家');
   await contactType.selectOption('discord');
@@ -194,6 +195,8 @@ test('mobile Profile form', async ({ page }) => {
   await page.getByRole('button', { name: '儲存個人檔案' }).tap();
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: '行動版賣家',
+  });
+  await expect.poll(() => readDocument('sellerContacts', identity.uid)).toMatchObject({
     contactType: 'discord',
     contactValue: 'mobile-profile',
   });
@@ -204,6 +207,8 @@ test('mobile Profile form', async ({ page }) => {
   await page.getByRole('button', { name: '儲存個人檔案' }).tap();
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: '行動版更新賣家',
+  });
+  await expect.poll(() => readDocument('sellerContacts', identity.uid)).toMatchObject({
     contactType: 'threads',
     contactValue: 'https://www.threads.net/@mobile-updated',
   });

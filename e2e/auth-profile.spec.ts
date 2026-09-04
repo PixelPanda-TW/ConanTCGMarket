@@ -43,6 +43,8 @@ test('signs in, creates and edits a Profile, reloads, then signs out', async ({ 
   await createSellerProfile(page);
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: 'E2E 賣家',
+  });
+  await expect.poll(() => readDocument('sellerContacts', identity.uid)).toMatchObject({
     contactType: 'discord',
     contactValue: 'e2e-seller',
   });
@@ -54,6 +56,8 @@ test('signs in, creates and edits a Profile, reloads, then signs out', async ({ 
   await expect(page.getByRole('status')).toContainText('已儲存個人檔案');
   await expect.poll(() => readDocument('sellerProfiles', identity.uid)).toMatchObject({
     displayName: '更新後賣家',
+  });
+  await expect.poll(() => readDocument('sellerContacts', identity.uid)).toMatchObject({
     contactType: 'threads',
     contactValue: 'https://www.threads.net/@updated',
   });

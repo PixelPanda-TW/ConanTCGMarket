@@ -97,12 +97,16 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
       id: 'e2e-seller',
       data: {
         displayName: 'E2E 賣家',
-        contactType: 'line',
-        contactValue: 'e2e-line',
         createdAt: Timestamp.fromDate(fixedDate),
         updatedAt: Timestamp.fromDate(fixedDate),
       },
     }]);
+    expect(await readDocument('sellerContacts', 'e2e-seller')).toEqual({
+      contactType: 'line',
+      contactValue: 'e2e-line',
+      createdAt: Timestamp.fromDate(fixedDate),
+      updatedAt: Timestamp.fromDate(fixedDate),
+    });
     expect(await readDocument('accountAccess', 'e2e-seller')).toEqual({
       status: 'suspended',
       confirmedViolationCount: 2,

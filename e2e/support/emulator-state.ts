@@ -172,6 +172,10 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
   for (const profile of seed.sellerProfiles ?? []) {
     batch.set(firestore.doc(`sellerProfiles/${profile.uid}`), {
       displayName: profile.displayName,
+      createdAt: Timestamp.fromDate(profile.createdAt),
+      updatedAt: Timestamp.fromDate(profile.updatedAt),
+    });
+    batch.set(firestore.doc(`sellerContacts/${profile.uid}`), {
       contactType: profile.contactType,
       contactValue: profile.contactValue,
       createdAt: Timestamp.fromDate(profile.createdAt),

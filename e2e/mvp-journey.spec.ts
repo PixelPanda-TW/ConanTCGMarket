@@ -48,6 +48,8 @@ test('composes login, Profile, Listing, search, subscription, sales, and public 
   await createSellerProfile(page);
   await expect.poll(() => readDocument('sellerProfiles', owner.uid)).toMatchObject({
     displayName: 'E2E 賣家',
+  });
+  await expect.poll(() => readDocument('sellerContacts', owner.uid)).toMatchObject({
     contactType: 'discord',
     contactValue: 'e2e-seller',
   });

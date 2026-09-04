@@ -66,8 +66,8 @@ test('acknowledges the notice and filters an active public listing', async ({ pa
   await expect(page.getByRole('heading', { name: '商品詳情' })).toBeVisible();
   await expect(page.getByRole('img', { name: '諸伏高明 實卡照片' })).toBeVisible();
   await expect(page.getByText('公開賣家', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'LINE ID：e2e-line' }))
-    .toHaveAttribute('href', 'https://line.me/ti/p/~e2e-line');
+  await expect(page.getByText('e2e-line')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '登入後查看聯絡方式' })).toBeVisible();
   await expect(page.getByText('包手（包材費 NT$20）')).toBeVisible();
   await expect(page.getByText('支援賣貨便（加價 NT$10）')).toBeVisible();
 });

@@ -36,6 +36,7 @@ export async function signInWithMockGoogle(
   page: Page,
   identity: MockGoogleIdentity,
   trigger?: Locator,
+  signedInIndicator?: Locator,
 ): Promise<{ uid: string; email: string; displayName: string }> {
   const existingUid = await lookupAuthEmulatorUid(identity.email, false);
   const popupPromise = page.waitForEvent('popup');
@@ -59,7 +60,8 @@ export async function signInWithMockGoogle(
   }
 
   await closePromise;
-  await expect(page.getByText(`Google 帳號：${identity.displayName}`)).toBeVisible();
+  await expect(signedInIndicator ?? page.getByText(`Google 帳號：${identity.displayName}`))
+    .toBeVisible();
   const uid = await lookupAuthEmulatorUid(identity.email, true);
   return { uid, ...identity };
 }
