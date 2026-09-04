@@ -739,6 +739,112 @@ h1 {
   }
 }
 
+/* Private moderation queue */
+.moderation-queue,
+.moderation-queue-list,
+.moderation-queue-item,
+.moderation-queue-meta {
+  display: grid;
+  gap: 14px;
+}
+
+.moderation-queue {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+
+.moderation-queue-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid hsl(var(--border));
+  padding-bottom: 12px;
+}
+
+.moderation-queue-filters button {
+  min-height: 44px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: none;
+}
+
+.moderation-queue-filters button.is-active {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.moderation-queue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.moderation-queue-item {
+  border: 1px solid hsl(var(--border) / .82);
+  border-radius: calc(var(--radius) + .375rem);
+  background: hsl(var(--card) / .88);
+  padding: 20px;
+  box-shadow: 0 14px 34px hsl(220 30% 15% / .08);
+}
+
+.moderation-queue-item__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 1.1rem;
+}
+
+.moderation-status {
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  padding: 5px 10px;
+  font-size: .875rem;
+  font-weight: 700;
+}
+
+.moderation-status--open { background: hsl(var(--accent)); }
+.moderation-status--confirmed { background: hsl(var(--destructive) / .12); color: hsl(var(--destructive)); }
+
+.moderation-queue-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.moderation-queue-meta div { min-width: 0; }
+.moderation-queue-meta dt { color: hsl(var(--muted-foreground)); font-size: .8rem; font-weight: 700; }
+.moderation-queue-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+
+.moderation-queue-link {
+  justify-self: start;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+}
+
+.moderation-queue button:focus-visible,
+.moderation-queue a:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .moderation-queue-filters,
+  .moderation-queue-filters button,
+  .moderation-queue > button,
+  .moderation-queue-link {
+    width: 100%;
+  }
+
+  .moderation-queue-item { padding: 16px; }
+  .moderation-queue-meta { grid-template-columns: 1fr; }
+  .moderation-queue-link { justify-content: center; }
+}
+
 .profile-form input,
 .profile-form select {
   min-height: 42px;
