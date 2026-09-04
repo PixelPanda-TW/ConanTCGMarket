@@ -1,4 +1,9 @@
 import { Timestamp } from 'firebase-admin/firestore';
+import {
+  readModerationReport,
+  type ReportListingSnapshot,
+  type SubmittedModerationReport,
+} from './reportTickets.js';
 
 export const MODERATION_CASE_STATUSES = ['open', 'dismissed', 'confirmed'] as const;
 export const MODERATION_DECISIONS = ['dismissed', 'confirmed'] as const;
@@ -65,6 +70,23 @@ export interface DecideModerationCaseRequest {
   reportId: string;
   decision: ModerationDecision;
   rationale: string;
+}
+
+export interface ModerationAdminCallableRequest {
+  authUid: string | null;
+  adminClaim: unknown;
+  data: unknown;
+}
+
+export interface ModerationCaseListRecord {
+  id: string;
+  data: unknown;
+}
+
+export interface ModerationCaseListDependencies {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  listCases(input: ListModerationCasesRequest): Promise<ModerationCaseListRecord[]>;
+  getReports(ids: string[]): Promise<Array<{ id: string; data: unknown | null }>>;
 }
 
 const idPattern = /^[A-Za-z0-9_-]{1,200}$/u;
@@ -176,4 +198,134 @@ export function readModerationCase(value: unknown): ModerationCase {
     status: 'confirmed', ...decision,
     resultingConfirmedViolationCount: value.resultingConfirmedViolationCount as number,
   };
+}
+
+function isTimestampLike(value: unknown): boolean {
+  return value instanceof Timestamp
+    || (value instanceof Date && !Number.isNaN(value.valueOf()));
+}
+
+function isCanonicalActiveAccess(value: unknown): boolean {
+  if (!isRecord(value) || !exact(value, ['status', 'confirmedViolationCount', 'updatedAt'])) {
+    return false;
+  }
+  return value.status === 'active'
+    && Number.isInteger(value.confirmedViolationCount)
+    && (value.confirmedViolationCount as number) >= 0
+    && isTimestampLike(value.updatedAt);
+}
+
+export async function requireActiveAdmin(
+  request: Pick<ModerationAdminCallableRequest, 'authUid' | 'adminClaim'>,
+  getAccountAccess: (uid: string) => Promise<unknown | null>,
+): Promise<string> {
+  if (typeof request.authUid !== 'string' || request.authUid.length < 1
+    || request.authUid.length > 128 || request.authUid !== request.authUid.trim()) {
+    throw new ModerationReviewError('unauthenticated', '請先使用 Google 登入。');
+  }
+  if (request.adminClaim !== true) {
+    throw new ModerationReviewError('permission-denied', '無權限使用審查工具。');
+  }
+  const access = await getAccountAccess(request.authUid);
+  if (access !== null && !isCanonicalActiveAccess(access)) {
+    throw new ModerationReviewError('permission-denied', '無權限使用審查工具。');
+  }
+  return request.authUid;
+}
+
+function readSubmittedPair(
+  caseRecord: ModerationCaseListRecord,
+  reportRecord: { id: string; data: unknown | null },
+): { moderationCase: ModerationCase; report: SubmittedModerationReport } {
+  try {
+    if (caseRecord.id !== reportRecord.id || caseRecord.data === null || reportRecord.data === null) {
+      return malformed();
+    }
+    const moderationCase = readModerationCase(caseRecord.data);
+    const report = readModerationReport(reportRecord.data);
+    if (moderationCase.reportId !== caseRecord.id || report.status !== 'submitted'
+      || report.targetSellerId !== moderationCase.targetSellerId
+      || report.submittedAt.toMillis() !== moderationCase.openedAt.toMillis()) {
+      return malformed();
+    }
+    return { moderationCase, report };
+  } catch {
+    return malformed();
+  }
+}
+
+function listingSnapshotWire(snapshot: ReportListingSnapshot) {
+  return {
+    listingId: snapshot.listingId,
+    cardType: snapshot.cardType,
+    cardName: snapshot.cardName,
+    cardId: snapshot.cardId,
+    rarity: snapshot.rarity,
+    listingPrice: snapshot.listingPrice,
+    createdAt: snapshot.createdAt.toMillis(),
+  };
+}
+
+function summaryWire(moderationCase: ModerationCase, report: SubmittedModerationReport) {
+  const common = {
+    reportId: moderationCase.reportId,
+    status: moderationCase.status,
+    category: report.category,
+    targetSellerId: moderationCase.targetSellerId,
+    listingSnapshot: listingSnapshotWire(report.listingSnapshot),
+    openedAt: moderationCase.openedAt.toMillis(),
+  };
+  if (moderationCase.status === 'open') return common;
+  if (moderationCase.status === 'dismissed') {
+    return { ...common, decidedAt: moderationCase.decidedAt.toMillis() };
+  }
+  return {
+    ...common,
+    decidedAt: moderationCase.decidedAt.toMillis(),
+    resultingConfirmedViolationCount: moderationCase.resultingConfirmedViolationCount,
+  };
+}
+
+function assertCaseOrder(records: readonly ModerationCaseListRecord[], limit: number): void {
+  if (records.length > limit) return malformed();
+  let previous: { openedAt: number; id: string } | null = null;
+  for (const record of records) {
+    const moderationCase = readModerationCase(record.data);
+    if (record.id !== moderationCase.reportId) return malformed();
+    const current = { openedAt: moderationCase.openedAt.toMillis(), id: record.id };
+    if (previous && (previous.openedAt < current.openedAt
+      || (previous.openedAt === current.openedAt
+        && previous.id.localeCompare(current.id) <= 0))) return malformed();
+    previous = current;
+  }
+}
+
+export async function listModerationCases(
+  request: ModerationAdminCallableRequest,
+  dependencies: ModerationCaseListDependencies,
+) {
+  const input = parseListModerationCasesRequest(request.data);
+  try {
+    await requireActiveAdmin(request, dependencies.getAccountAccess);
+    const caseRecords = await dependencies.listCases(input);
+    assertCaseOrder(caseRecords, input.limit);
+    if (caseRecords.length === 0) return { cases: [], nextCursor: null };
+    const reportRecords = await dependencies.getReports(caseRecords.map(({ id }) => id));
+    if (reportRecords.length !== caseRecords.length) return malformed();
+    const cases = caseRecords.map((caseRecord, index) => {
+      const pair = readSubmittedPair(caseRecord, reportRecords[index]);
+      return summaryWire(pair.moderationCase, pair.report);
+    });
+    const last = caseRecords.at(-1);
+    const lastCase = last ? readModerationCase(last.data) : null;
+    return {
+      cases,
+      nextCursor: caseRecords.length === input.limit && last && lastCase
+        ? { openedAt: lastCase.openedAt.toMillis(), key: last.id }
+        : null,
+    };
+  } catch (error) {
+    if (error instanceof ModerationReviewError) throw error;
+    throw new ModerationReviewError('unavailable', '目前無法載入審查案件。');
+  }
 }
