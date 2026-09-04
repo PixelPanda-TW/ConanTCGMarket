@@ -11,9 +11,12 @@ import {
   listModerationCases,
   getModerationCase,
   getModerationEvidence,
+  decideModerationCase,
   type ModerationCaseListDependencies,
   type ModerationCaseDetailDependencies,
   type ModerationEvidenceDependencies,
+  type ModerationDecisionDependencies,
+  type ModerationDecisionTransaction,
 } from './moderationReview.js';
 
 const OPENED_AT = Timestamp.fromDate(new Date('2026-09-04T00:00:00.000Z'));
@@ -432,5 +435,155 @@ describe('get moderation evidence', () => {
     await expect(getModerationEvidence(adminEvidenceRequest, dependencies)).rejects.toMatchObject({
       code: 'unavailable', message: '目前無法載入證據圖片。',
     });
+  });
+});
+
+function decisionHarness(options: {
+  moderationCase?: Record<string, unknown>;
+  report?: Record<string, unknown>;
+  targetAccess?: Record<string, unknown> | null;
+} = {}) {
+  const state = {
+    moderationCase: options.moderationCase ?? {
+      status: 'open', reportId: 'report-1', targetSellerId: 'seller-1', openedAt: OPENED_AT,
+    },
+    report: options.report ?? submittedReport(),
+    targetAccess: options.targetAccess === undefined ? null : options.targetAccess,
+  };
+  const transaction: ModerationDecisionTransaction = {
+    getCase: vi.fn(async () => state.moderationCase),
+    getReport: vi.fn(async () => state.report),
+    getAccountAccess: vi.fn(async () => state.targetAccess),
+    setCase: vi.fn((_id, data) => { state.moderationCase = data; }),
+    setAccountAccess: vi.fn((_uid, data) => { state.targetAccess = data; }),
+  };
+  const dependencies: ModerationDecisionDependencies = {
+    now: () => LATER_AT.toDate(),
+    getAccountAccess: vi.fn(async () => null),
+    runTransaction: async (operation) => operation(transaction),
+  };
+  return { state, transaction, dependencies };
+}
+
+const dismissalRequest = {
+  authUid: 'admin-1', adminClaim: true,
+  data: { reportId: 'report-1', decision: 'dismissed', rationale: '無法證實' },
+};
+const confirmationRequest = {
+  ...dismissalRequest,
+  data: { reportId: 'report-1', decision: 'confirmed', rationale: '確認違規' },
+};
+
+describe('decide moderation case', () => {
+  it('dismisses once without creating or changing target account access', async () => {
+    const { state, transaction, dependencies } = decisionHarness();
+    await expect(decideModerationCase(dismissalRequest, dependencies)).resolves.toEqual({
+      reportId: 'report-1', status: 'dismissed',
+      resultingConfirmedViolationCount: 0, suspensionEligible: false,
+    });
+    expect(state.moderationCase).toEqual({
+      status: 'dismissed', reportId: 'report-1', targetSellerId: 'seller-1',
+      openedAt: OPENED_AT, rationale: '無法證實', decidedBy: 'admin-1',
+      decidedAt: LATER_AT,
+    });
+    expect(transaction.setAccountAccess).not.toHaveBeenCalled();
+  });
+
+  it('confirms a missing target access record and atomically creates count one', async () => {
+    const { state, transaction, dependencies } = decisionHarness();
+    await expect(decideModerationCase(confirmationRequest, dependencies)).resolves.toEqual({
+      reportId: 'report-1', status: 'confirmed',
+      resultingConfirmedViolationCount: 1, suspensionEligible: false,
+    });
+    expect(state.moderationCase).toMatchObject({
+      status: 'confirmed', rationale: '確認違規', decidedBy: 'admin-1',
+      decidedAt: LATER_AT, resultingConfirmedViolationCount: 1,
+    });
+    expect(transaction.setAccountAccess).toHaveBeenCalledWith('seller-1', {
+      status: 'active', confirmedViolationCount: 1, updatedAt: LATER_AT,
+    });
+  });
+
+  it('increments an active account to the threshold without suspending or changing Auth/Listings', async () => {
+    const access = { status: 'active', confirmedViolationCount: 1, updatedAt: OPENED_AT };
+    const { state, transaction, dependencies } = decisionHarness({ targetAccess: access });
+    await expect(decideModerationCase(confirmationRequest, dependencies)).resolves.toEqual({
+      reportId: 'report-1', status: 'confirmed',
+      resultingConfirmedViolationCount: 2, suspensionEligible: true,
+    });
+    expect(state.targetAccess).toEqual({
+      status: 'active', confirmedViolationCount: 2, updatedAt: LATER_AT,
+    });
+    expect(Object.keys(transaction).sort()).toEqual([
+      'getAccountAccess', 'getCase', 'getReport', 'setAccountAccess', 'setCase',
+    ]);
+  });
+
+  it('increments a suspended account while preserving every suspension field', async () => {
+    const access = {
+      status: 'suspended', confirmedViolationCount: 2, suspensionReason: '重複違規',
+      suspendedAt: OPENED_AT, suspendedBy: 'admin-2', updatedAt: OPENED_AT,
+    };
+    const { state, dependencies } = decisionHarness({ targetAccess: access });
+    await expect(decideModerationCase(confirmationRequest, dependencies)).resolves.toMatchObject({
+      resultingConfirmedViolationCount: 3, suspensionEligible: true,
+    });
+    expect(state.targetAccess).toEqual({
+      ...access, confirmedViolationCount: 3, updatedAt: LATER_AT,
+    });
+  });
+
+  it('makes an identical retry write-free and never double-counts', async () => {
+    const { state, transaction, dependencies } = decisionHarness({ targetAccess: {
+      status: 'active', confirmedViolationCount: 1, updatedAt: OPENED_AT,
+    } });
+    const first = await decideModerationCase(confirmationRequest, dependencies);
+    vi.mocked(transaction.setCase).mockClear();
+    vi.mocked(transaction.setAccountAccess).mockClear();
+    const retry = await decideModerationCase(confirmationRequest, dependencies);
+    expect(retry).toEqual(first);
+    expect(state.targetAccess?.confirmedViolationCount).toBe(2);
+    expect(transaction.setCase).not.toHaveBeenCalled();
+    expect(transaction.setAccountAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['different decision', dismissalRequest],
+    ['different rationale', {
+      ...confirmationRequest,
+      data: { ...confirmationRequest.data, rationale: '另一個理由' },
+    }],
+    ['different admin', { ...confirmationRequest, authUid: 'admin-2' }],
+  ])('rejects a terminal retry from a %s', async (_label, retryRequest) => {
+    const { transaction, dependencies } = decisionHarness({ targetAccess: {
+      status: 'active', confirmedViolationCount: 1, updatedAt: OPENED_AT,
+    } });
+    await decideModerationCase(confirmationRequest, dependencies);
+    vi.mocked(transaction.setCase).mockClear();
+    vi.mocked(transaction.setAccountAccess).mockClear();
+    await expect(decideModerationCase(retryRequest, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(transaction.setCase).not.toHaveBeenCalled();
+    expect(transaction.setAccountAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['malformed target', { status: 'active', confirmedViolationCount: 0, updatedAt: OPENED_AT, extra: true }],
+    ['negative count', { status: 'active', confirmedViolationCount: -1, updatedAt: OPENED_AT }],
+  ])('fails closed without writes for %s', async (_label, targetAccess) => {
+    const { transaction, dependencies } = decisionHarness({ targetAccess });
+    await expect(decideModerationCase(confirmationRequest, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(transaction.setCase).not.toHaveBeenCalled();
+    expect(transaction.setAccountAccess).not.toHaveBeenCalled();
+  });
+
+  it('denies a non-admin before entering the transaction', async () => {
+    const { dependencies } = decisionHarness();
+    dependencies.runTransaction = vi.fn(dependencies.runTransaction);
+    await expect(decideModerationCase({
+      ...confirmationRequest, adminClaim: false,
+    }, dependencies)).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(dependencies.runTransaction).not.toHaveBeenCalled();
   });
 });

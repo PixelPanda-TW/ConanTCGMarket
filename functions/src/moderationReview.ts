@@ -100,6 +100,22 @@ export interface ModerationEvidenceDependencies extends ModerationCaseDetailDepe
   downloadEvidence(path: string, generation: string): Promise<Buffer>;
 }
 
+export interface ModerationDecisionTransaction {
+  getCase(id: string): Promise<unknown | null>;
+  getReport(id: string): Promise<unknown | null>;
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  setCase(id: string, data: Record<string, unknown>): void;
+  setAccountAccess(uid: string, data: Record<string, unknown>): void;
+}
+
+export interface ModerationDecisionDependencies {
+  now(): Date;
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  runTransaction<T>(
+    operation: (transaction: ModerationDecisionTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
 const idPattern = /^[A-Za-z0-9_-]{1,200}$/u;
 const statuses = new Set<string>(['all', ...MODERATION_CASE_STATUSES]);
 const decisions = new Set<string>(MODERATION_DECISIONS);
@@ -221,7 +237,7 @@ function isCanonicalActiveAccess(value: unknown): boolean {
     return false;
   }
   return value.status === 'active'
-    && Number.isInteger(value.confirmedViolationCount)
+    && Number.isSafeInteger(value.confirmedViolationCount)
     && (value.confirmedViolationCount as number) >= 0
     && isTimestampLike(value.updatedAt);
 }
@@ -242,7 +258,7 @@ function accountSummary(value: unknown | null): {
   const expected = value.status === 'active' ? activeFields
     : value.status === 'suspended' ? suspendedFields : [];
   if (expected.length === 0 || !exact(value, expected)
-    || !Number.isInteger(value.confirmedViolationCount)
+    || !Number.isSafeInteger(value.confirmedViolationCount)
     || (value.confirmedViolationCount as number) < 0 || !isTimestampLike(value.updatedAt)) {
     return malformed();
   }
@@ -499,5 +515,97 @@ export async function getModerationEvidence(
   } catch (error) {
     if (error instanceof ModerationReviewError) throw error;
     throw new ModerationReviewError('unavailable', '目前無法載入證據圖片。');
+  }
+}
+
+function decisionResult(
+  reportId: string,
+  status: ModerationDecision,
+  count: number,
+) {
+  return {
+    reportId,
+    status,
+    resultingConfirmedViolationCount: count,
+    suspensionEligible: count >= 2,
+  };
+}
+
+function assertIdenticalDecision(
+  moderationCase: DismissedModerationCase | ConfirmedModerationCase,
+  input: DecideModerationCaseRequest,
+  adminUid: string,
+): void {
+  if (moderationCase.status !== input.decision
+    || moderationCase.rationale !== input.rationale
+    || moderationCase.decidedBy !== adminUid) {
+    throw new ModerationReviewError('failed-precondition', '這筆案件已完成審查。');
+  }
+}
+
+export async function decideModerationCase(
+  request: ModerationAdminCallableRequest,
+  dependencies: ModerationDecisionDependencies,
+) {
+  const input = parseDecideModerationCaseRequest(request.data);
+  try {
+    const adminUid = await requireActiveAdmin(request, dependencies.getAccountAccess);
+    const nowDate = dependencies.now();
+    if (Number.isNaN(nowDate.valueOf())) {
+      throw new ModerationReviewError('unavailable', '目前無法完成審查。');
+    }
+    const decidedAt = Timestamp.fromDate(nowDate);
+    return await dependencies.runTransaction(async (transaction) => {
+      const [caseData, reportData] = await Promise.all([
+        transaction.getCase(input.reportId),
+        transaction.getReport(input.reportId),
+      ]);
+      const pair = readSubmittedPair(
+        { id: input.reportId, data: caseData },
+        { id: input.reportId, data: reportData },
+      );
+      const targetAccess = await transaction.getAccountAccess(pair.report.targetSellerId);
+      const targetSummary = accountSummary(targetAccess);
+
+      if (pair.moderationCase.status !== 'open') {
+        assertIdenticalDecision(pair.moderationCase, input, adminUid);
+        if (pair.moderationCase.status === 'confirmed'
+          && pair.moderationCase.resultingConfirmedViolationCount
+            > targetSummary.confirmedViolationCount) return malformed();
+        return decisionResult(
+          input.reportId,
+          pair.moderationCase.status,
+          targetSummary.confirmedViolationCount,
+        );
+      }
+
+      const terminalBase = {
+        reportId: pair.moderationCase.reportId,
+        targetSellerId: pair.moderationCase.targetSellerId,
+        openedAt: pair.moderationCase.openedAt,
+        rationale: input.rationale,
+        decidedBy: adminUid,
+        decidedAt,
+      };
+      if (input.decision === 'dismissed') {
+        transaction.setCase(input.reportId, { status: 'dismissed', ...terminalBase });
+        return decisionResult(
+          input.reportId, 'dismissed', targetSummary.confirmedViolationCount,
+        );
+      }
+
+      if (targetSummary.confirmedViolationCount >= Number.MAX_SAFE_INTEGER) return malformed();
+      const count = targetSummary.confirmedViolationCount + 1;
+      transaction.setCase(input.reportId, {
+        status: 'confirmed', ...terminalBase, resultingConfirmedViolationCount: count,
+      });
+      transaction.setAccountAccess(pair.report.targetSellerId, targetAccess === null
+        ? { status: 'active', confirmedViolationCount: count, updatedAt: decidedAt }
+        : { ...targetAccess, confirmedViolationCount: count, updatedAt: decidedAt });
+      return decisionResult(input.reportId, 'confirmed', count);
+    });
+  } catch (error) {
+    if (error instanceof ModerationReviewError) throw error;
+    throw new ModerationReviewError('unavailable', '目前無法完成審查。');
   }
 }
