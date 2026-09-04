@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Card, Listing, Sale } from '../../domain/models';
 import {
   listCards,
@@ -11,6 +11,13 @@ import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 import { useAuth } from '../auth/AuthProvider';
 import { ListingMetadata } from '../listings/ListingMetadata';
 import { summarizeDashboard } from './dashboardSummary';
+import { cardTypeLabel } from '../../domain/cardType';
+import {
+  formatTaipeiSaleDate,
+  resolveSaleHistoryMetadata,
+  saleLineTotal,
+  sortSalesNewestFirst,
+} from './salesHistory';
 
 export function DashboardPage() {
   const { accountAccessState, isActiveAccount, isLoading: isAuthLoading, user } = useAuth();
@@ -23,6 +30,8 @@ export function DashboardPage() {
   const [quantity, setQuantity] = useState('1');
   const [price, setPrice] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isSalePending, setIsSalePending] = useState(false);
+  const salePending = useRef(false);
   const canReadHistory = accountAccessState.state === 'active'
     || accountAccessState.state === 'suspended';
   const currentUid = user?.uid ?? null;
@@ -35,6 +44,8 @@ export function DashboardPage() {
     setLoadedUid(null);
     setSelected(null);
     setError(null);
+    setIsSalePending(false);
+    salePending.current = false;
 
     if (!currentUid || !canReadHistory) {
       return () => { isCurrent = false; };
@@ -83,9 +94,10 @@ export function DashboardPage() {
 
   const isDataLoading = loadedUid !== currentUid;
   const summary = summarizeDashboard(listings, sales);
+  const salesHistory = sortSalesNewestFirst(sales);
 
   async function submitSale() {
-    if (!selected || !isActiveAccount) return;
+    if (!selected || !isActiveAccount || salePending.current) return;
     const count = Number(quantity);
     const unit = Number(price);
     if (!Number.isInteger(count)
@@ -96,6 +108,8 @@ export function DashboardPage() {
       setError('成交數量或價格不正確。');
       return;
     }
+    salePending.current = true;
+    setIsSalePending(true);
     try {
       await recordSale(selected.id, count, unit);
       setSelected(null);
@@ -103,6 +117,9 @@ export function DashboardPage() {
       setReloadAttempt((attempt) => attempt + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '無法登記成交。');
+    } finally {
+      salePending.current = false;
+      setIsSalePending(false);
     }
   }
 
@@ -143,6 +160,8 @@ export function DashboardPage() {
                             setSelected(listing);
                             setQuantity('1');
                             setPrice(String(listing.listingPrice));
+                            salePending.current = false;
+                            setIsSalePending(false);
                           }}
                         >
                           登記成交
@@ -165,6 +184,49 @@ export function DashboardPage() {
                 </a>
               ))}
             </section>
+            <section className="dashboard-section sales-history-section">
+              <h2>完整銷售紀錄</h2>
+              {salesHistory.length === 0 ? (
+                <p>目前沒有成交紀錄。</p>
+              ) : (
+                <div className="sales-history-list">
+                  {salesHistory.map((sale) => {
+                    const metadata = resolveSaleHistoryMetadata(sale, listings, cards);
+                    return (
+                      <article
+                        className="sales-history-item"
+                        data-testid="sale-history-item"
+                        data-sale-id={sale.id}
+                        key={sale.id}
+                      >
+                        <div>
+                          <p className="sales-history-date">{formatTaipeiSaleDate(sale.soldAt)}</p>
+                          <h3>{metadata.cardName}</h3>
+                          <p>
+                            {metadata.cardType ? cardTypeLabel(metadata.cardType) : '卡片類型不明'}
+                            {' · '}{metadata.rarity} · ID {metadata.cardId}
+                          </p>
+                          {metadata.listingExists && (
+                            <a href={`#/listing/${sale.listingId}`}>查看商品</a>
+                          )}
+                        </div>
+                        <dl className="sales-history-values">
+                          <div><dt>數量</dt><dd>{sale.quantity}</dd></div>
+                          <div><dt>刊登單價</dt><dd>NT${sale.listingUnitPrice.toLocaleString('zh-TW')}</dd></div>
+                          <div><dt>成交單價</dt><dd>NT${sale.soldUnitPrice.toLocaleString('zh-TW')}</dd></div>
+                          <div><dt>小計</dt><dd>NT${saleLineTotal(sale).toLocaleString('zh-TW')}</dd></div>
+                        </dl>
+                        <span className="sales-history-readable-values">
+                          數量：{sale.quantity} / 刊登單價：NT${sale.listingUnitPrice.toLocaleString('zh-TW')}
+                          {' / '}成交單價：NT${sale.soldUnitPrice.toLocaleString('zh-TW')}
+                          {' / '}小計：NT${saleLineTotal(sale).toLocaleString('zh-TW')}
+                        </span>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </>
         )}
         {isActiveAccount && selected && (
@@ -178,8 +240,10 @@ export function DashboardPage() {
               實際單價
               <input value={price} onChange={(event) => setPrice(event.target.value)} />
             </label>
-            <button type="button" onClick={submitSale}>確認成交</button>
-            <button type="button" onClick={() => setSelected(null)}>取消</button>
+            <button type="button" onClick={submitSale} disabled={isSalePending}>
+              {isSalePending ? '成交登記中' : '確認成交'}
+            </button>
+            <button type="button" onClick={() => setSelected(null)} disabled={isSalePending}>取消</button>
           </div>
         )}
       </section>

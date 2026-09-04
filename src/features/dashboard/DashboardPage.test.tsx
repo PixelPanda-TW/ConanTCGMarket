@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Listing } from '../../domain/models';
 import { DashboardPage } from './DashboardPage';
@@ -137,5 +137,58 @@ describe('DashboardPage', () => {
     expect(await screen.findAllByRole('heading', { name: '卡片資料不明確' })).toHaveLength(2);
     expect(screen.queryByRole('heading', { name: '諸伏高明' })).toBeNull();
     expect(screen.queryByRole('heading', { name: '事件 0501' })).toBeNull();
+  });
+
+  it('renders every Sale newest-first with immutable prices, totals, and Listing links', async () => {
+    const soldListing = { ...listing, id: 'sold-listing', status: 'sold_out' as const, remainingQuantity: 0 };
+    repositories.listSellerListings.mockResolvedValue([listing, soldListing]);
+    repositories.listSellerSales.mockResolvedValue([
+      {
+        id: 'sale-old', listingId: 'sold-listing', sellerId: 'seller-1', cardId: '2200',
+        cardType: 'case', cardName: '舊價格封鎖現場', rarity: 'SR', quantity: 1,
+        listingUnitPrice: 500, soldUnitPrice: 450,
+        soldAt: new Date('2026-09-03T08:30:00.000Z'),
+      },
+      {
+        id: 'sale-new', listingId: 'listing-case', sellerId: 'seller-1', cardId: '2200',
+        cardType: 'case', cardName: '封鎖現場', rarity: 'SR', quantity: 2,
+        listingUnitPrice: 600, soldUnitPrice: 550,
+        soldAt: new Date('2026-09-04T08:30:00.000Z'),
+      },
+    ]);
+
+    render(<DashboardPage />);
+
+    expect(await screen.findByRole('heading', { name: '完整銷售紀錄' })).toBeTruthy();
+    const rows = screen.getAllByTestId('sale-history-item');
+    expect(rows.map((row) => row.getAttribute('data-sale-id'))).toEqual(['sale-new', 'sale-old']);
+    expect(rows[0].textContent).toContain('2026/09/04 16:30');
+    expect(rows[0].textContent).toContain('刊登單價：NT$600');
+    expect(rows[0].textContent).toContain('成交單價：NT$550');
+    expect(rows[0].textContent).toContain('數量：2');
+    expect(rows[0].textContent).toContain('小計：NT$1,100');
+    expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('#/listing/listing-case');
+    expect(screen.getByText('成交金額：NT$1,550')).toBeTruthy();
+  });
+
+  it('shows a complete-history empty state instead of omitting the section', async () => {
+    render(<DashboardPage />);
+    expect(await screen.findByText('目前沒有成交紀錄。')).toBeTruthy();
+  });
+
+  it('disables duplicate Sale submissions while the trusted callable is pending', async () => {
+    repositories.listSellerListings.mockResolvedValue([listing]);
+    let resolveSale!: (value: unknown) => void;
+    repositories.recordSale.mockReturnValue(new Promise((resolve) => { resolveSale = resolve; }));
+    render(<DashboardPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '登記成交' }));
+    const submit = screen.getByRole('button', { name: '確認成交' });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+
+    expect(repositories.recordSale).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole('button', { name: '成交登記中' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    resolveSale({});
   });
 });

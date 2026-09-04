@@ -96,6 +96,27 @@ describe('ListingPage card-name subscriptions', () => {
     expect(screen.queryByRole('link', { name: '管理此商品' })).toBeNull();
   });
 
+  it('keeps a sold-out Listing visible only to its owner and removes every action', async () => {
+    repositories.getListing.mockResolvedValue({
+      ...listing, status: 'sold_out', remainingQuantity: 0,
+    });
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+
+    const view = render(<ListingPage id="listing-1" />);
+    expect(await screen.findByRole('heading', { name: '商品詳情' })).toBeTruthy();
+    expect(screen.getByText('已售罄')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '管理此商品' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /訂閱|查看聯絡方式/ })).toBeNull();
+
+    authState.current.user = null;
+    authState.current.accountAccessState = { state: 'signed-out' };
+    authState.current.isActiveAccount = false;
+    view.rerender(<ListingPage id="listing-1" />);
+    expect(screen.getByRole('heading', { name: '找不到商品' })).toBeTruthy();
+  });
+
   it.each([
     ['character', '諸伏景光', '0338', 'R'],
     ['event', '追跡開始', '1100', 'C'],

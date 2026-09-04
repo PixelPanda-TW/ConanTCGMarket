@@ -81,13 +81,15 @@ export function ListingPage({ id }: { id: string }) {
   if (listing === undefined) {
     return <PageShell width="listing" backToMarketplace><p>商品載入中</p></PageShell>;
   }
-  if (!listing || listing.status !== 'active') {
+  const isOwner = Boolean(listing && user?.uid === listing.sellerId);
+  if (!listing || (listing.status !== 'active' && !isOwner)) {
     return (
       <PageShell width="listing" backToMarketplace>
         <section className="listing-state"><h1>找不到商品</h1></section>
       </PageShell>
     );
   }
+  const isSoldOut = listing.status === 'sold_out';
   const metadata = resolveListingMetadata(listing, cards ?? []);
   const hasResolvedCardName = metadata.resolution !== 'ambiguous'
     && metadata.resolution !== 'missing';
@@ -107,7 +109,7 @@ export function ListingPage({ id }: { id: string }) {
           <p className="eyebrow">商品詳情</p>
           <h1>商品詳情</h1>
           <ListingMetadata listing={listing} cards={cards} />
-          {hasResolvedCardName && (
+          {!isSoldOut && hasResolvedCardName && (
             <CardNameSubscriptionControl
               cardName={metadata.cardName}
               isKnownCardName={isKnownCardName}
@@ -125,7 +127,9 @@ export function ListingPage({ id }: { id: string }) {
             <p className="listing-price">
               NT${listing.listingPrice.toLocaleString('zh-TW')}<span>／張</span>
             </p>
-            <p className="listing-stock">剩餘 {listing.remainingQuantity} 張</p>
+            <p className="listing-stock">
+              {isSoldOut ? '已售罄' : `剩餘 ${listing.remainingQuantity} 張`}
+            </p>
             <div className="listing-tags">
               {listing.hasSleeve && (
                 <span>
@@ -141,7 +145,9 @@ export function ListingPage({ id }: { id: string }) {
             <hr />
             <p className="seller-label">賣家</p>
             <p className="seller-name">{seller?.displayName ?? '賣家'}</p>
-            {contact ? (
+            {isSoldOut ? (
+              <p className="contact-access-state" role="status">此商品已售罄，僅供賣家查看。</p>
+            ) : contact ? (
               contact.href ? (
                 <a
                   className="contact-link"
@@ -187,7 +193,7 @@ export function ListingPage({ id }: { id: string }) {
               </>
             )}
             {listing.note && <p className="listing-note">{listing.note}</p>}
-            {isActiveAccount && user?.uid === listing.sellerId && (
+            {!isSoldOut && isActiveAccount && user?.uid === listing.sellerId && (
               <a className="edit-listing-link" href={`#/listing/${id}/edit`}>管理此商品</a>
             )}
           </aside>

@@ -4,6 +4,7 @@ import {
   resolveSaleHistoryMetadata,
   saleLineTotal,
   sortSalesNewestFirst,
+  formatTaipeiSaleDate,
 } from './salesHistory';
 
 const current = (overrides: Partial<Sale> = {}): Sale => ({
@@ -76,5 +77,10 @@ describe('sales history', () => {
       cardType: undefined, cardName: '未提供卡片名稱', rarity: '未提供稀有度',
       cardId: '9999', resolution: 'missing', listingExists: false,
     });
+  });
+
+  it('formats the sale timestamp explicitly in Asia/Taipei', () => {
+    expect(formatTaipeiSaleDate(new Date('2026-09-04T08:30:00.000Z')))
+      .toBe('2026/09/04 16:30');
   });
 });
