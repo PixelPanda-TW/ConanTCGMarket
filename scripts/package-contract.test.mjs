@@ -95,6 +95,32 @@ test('documents the seller subscription compatibility and production safety cont
   assert.match(milestones, /Seller subscriptions are repository-ready, not production-live/iu);
 });
 
+test('documents the private moderation report lifecycle and production safety contract', async () => {
+  const [setupGuide, integrationGuide, milestones] = await Promise.all([
+    readFile(new URL('docs/firebase-setup.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/integration-testing.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/milestones.md', rootUrl), 'utf8'),
+  ]);
+
+  assert.match(setupGuide, /10 reports per reporter per UTC day/iu);
+  assert.match(setupGuide, /24-hour draft expiry/iu);
+  assert.match(setupGuide, /0–3 evidence images/iu);
+  assert.match(setupGuide, /5 MiB per image/iu);
+  assert.match(setupGuide, /moderationReports[\s\S]+server-only/iu);
+  assert.match(setupGuide, /reportEvidence\/\{reporterId\}\/\{reportId\}\/\{slot\}/u);
+  assert.match(setupGuide, /idempotent/iu);
+  assert.match(setupGuide, /no reporter email/iu);
+  assert.match(setupGuide, /no migration/iu);
+  assert.match(setupGuide, /Functions → Rules → frontend/u);
+  assert.match(setupGuide, /must not create a production report/iu);
+  assert.match(setupGuide, /must not upload production evidence/iu);
+  assert.match(setupGuide, /monitor/iu);
+  assert.match(setupGuide, /rollback/iu);
+  assert.match(integrationGuide, /ten moderation-report acceptance criteria/iu);
+  assert.match(integrationGuide, /no production report, evidence, email, cleanup, or data mutation/iu);
+  assert.match(milestones, /Moderation reports are repository-ready, not production-live/iu);
+});
+
 function expectNoImplicitApply(source) {
   assert.doesNotMatch(root.scripts['migrate:sale-snapshots'], /--apply/u);
   assert.doesNotMatch(source, /apply:\s*true/u);

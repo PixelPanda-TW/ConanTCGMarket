@@ -344,11 +344,9 @@ test('mobile Listing edit form', async ({ page }) => {
   await replacement.setInputFiles(back);
   await expect(page.getByText('已選擇 1 張新圖片。')).toBeVisible();
   const price = page.getByLabel('價格');
-  const remaining = page.getByLabel('剩餘數量');
   await expectEditable(price);
   await price.fill('475');
-  await expectEditable(remaining);
-  await remaining.fill('4');
+  await expect(page.getByLabel('剩餘數量')).toHaveCount(0);
 
   const sleeve = page.getByLabel('包手');
   await sleeve.tap();
@@ -380,7 +378,7 @@ test('mobile Listing edit form', async ({ page }) => {
   }).toMatchObject({
     listingPrice: 475,
     originalQuantity: 5,
-    remainingQuantity: 4,
+    remainingQuantity: 5,
     hasSleeve: false,
     supportsMyShip: false,
     note: 'iPhone 編輯後備註',

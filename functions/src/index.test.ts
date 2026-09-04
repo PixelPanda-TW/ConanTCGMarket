@@ -572,4 +572,37 @@ describe('notification Function deployment contract', () => {
     expect(importGuide).toContain('archive suppression');
     expect(milestones).toContain('Card Master admin workflow is repository-ready, not production-live');
   });
+
+  it('documents moderation report limits, privacy, cleanup, and release operations', async () => {
+    const [setupGuide, integrationGuide, milestones] = await Promise.all([
+      readFile(new URL('../../docs/firebase-setup.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/integration-testing.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/milestones.md', import.meta.url), 'utf8'),
+    ]);
+
+    for (const phrase of [
+      '10 reports per reporter per UTC day',
+      '24-hour draft expiry',
+      '0–3 evidence images',
+      '5 MiB per image',
+      'reportEvidence/{reporterId}/{reportId}/{slot}',
+      'idempotent',
+      'no reporter email',
+      'no migration',
+      'Functions → Rules → frontend',
+      'must not create a production report',
+      'must not upload production evidence',
+      'rollback',
+      'monitor',
+    ]) {
+      expect(setupGuide).toContain(phrase);
+    }
+    expect(integrationGuide).toContain('ten moderation-report acceptance criteria');
+    expect(integrationGuide).toContain(
+      'no production report, evidence, email, cleanup, or data mutation',
+    );
+    expect(milestones).toContain(
+      'Moderation reports are repository-ready, not production-live',
+    );
+  });
 });

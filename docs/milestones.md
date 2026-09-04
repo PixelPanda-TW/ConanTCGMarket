@@ -302,6 +302,22 @@ Create a repeatable card master import flow using only permitted text fields.
 - The repository does not store official card images.
 - The repository does not store official card effect text.
 
+## Recovery Batch 8: Report Tickets
+
+Status: **Moderation reports are repository-ready, not production-live**. An
+active Google buyer can report another seller's active Listing with a validated
+category, description, and zero to three private evidence images. Trusted
+callables own the idempotent draft and submission lifecycle, Rules isolate every
+report document and evidence object, and bounded daily cleanup removes only
+expired drafts. Emulator coverage includes the complete success path, reload,
+privacy, rate limit, and principal denial cases.
+
+The admin review queue, evidence-review access, moderation decisions, violation
+counts, suspension/restoration, Listing hide/republish, appeals, and report email
+remain deferred to later recovery batches. No production report, evidence upload,
+email, cleanup invocation, migration, deployment, or data mutation is authorized
+by this milestone.
+
 ## Milestone 11: MVP Acceptance and Launch Cleanup
 
 Status: Seller subscriptions are repository-ready, not production-live. Active

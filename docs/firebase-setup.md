@@ -265,6 +265,56 @@ monitor `failed-precondition`, `aborted`, and `unavailable` rates after release;
 unexpected inventory or snapshot conflicts stop the rollout and trigger the
 rollback procedure above.
 
+## Private moderation report lifecycle and release
+
+An active Google-authenticated buyer may report another seller's active Listing;
+a Seller Profile is not required. Owners, suspended or malformed account states,
+and inactive Listings are rejected by the callable boundary. The form accepts one
+approved category, a trimmed 1–100-character plain-text description, and **0–3 evidence images**.
+Evidence is limited to JPEG, PNG, or WebP and **5 MiB per image**. Draft creation
+is capped at **10 reports per reporter per UTC day** and uses a **24-hour draft expiry**.
+
+`createModerationReportDraft` and `submitModerationReport` are authenticated
+callables. The first operation derives a private request key and creates the safe
+Listing snapshot; the second verifies the actual Storage metadata before changing
+the draft to `submitted`. Both retry boundaries are idempotent: repeating a
+compatible request returns the same draft or ticket, while a conflicting retry
+fails closed. The daily `cleanupExpiredReportDrafts` schedule runs at 03:30
+Asia/Taipei in bounded pages, deletes only expired draft slots and request-key
+pointers, and never deletes submitted reports or their evidence.
+
+The Firestore collections `moderationReports`,
+`moderationReportRequestKeys`, and `moderationReportLimits` are **server-only**:
+browsers cannot read or write them. Draft evidence uses exactly
+`reportEvidence/{reporterId}/{reportId}/{slot}`, where the slot is 0, 1, or 2.
+Storage Rules permit only the active draft owner to create, replace, or remove a
+valid slot before expiry; all browser reads and all post-submission writes are
+denied. Reports contain a safe Listing snapshot and never copy seller contact,
+reporter email, Google identity presentation, arbitrary client fields, signed
+URLs, or image bytes. Submission sends **no reporter email**, seller message,
+admin email, push message, or Discord notification.
+
+This additive workflow requires **no migration** of existing Firestore documents
+or Storage objects. A separately authorized production release must use
+**Functions → Rules → frontend**: trusted handlers first, private Firestore and
+Storage boundaries second, then the report route and entry point. Approval of
+repository code or this guide does not authorize any stage. Production
+verification is non-invasive and **must not create a production report**, **must not upload production evidence**,
+invoke cleanup, send email, or mutate user data.
+Inspect only the deployed Function manifest and schedule, Rules release, frontend
+asset version, aggregate callable outcomes, cleanup outcome counts, and sanitized
+Cloud Logging error codes.
+
+After an authorized release, monitor callable error and latency rates, daily draft
+counter rejections, expired-draft backlog, cleanup failures, Storage denial rates,
+and unexpected report-volume changes. Never inspect descriptions or evidence as a
+health probe. Stop the rollout on unexplained authorization, metadata, or cleanup
+errors. For rollback, remove or disable the frontend entry point first, retain the
+tightened Rules, and roll back Functions only after confirming the retained Rules
+remain compatible. Preserve submitted reports and evidence; deletion, manual
+cleanup, data restoration, or a Rules relaxation requires separate explicit
+approval.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

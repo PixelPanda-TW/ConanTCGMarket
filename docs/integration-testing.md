@@ -157,6 +157,7 @@ matrix where a denied action has no user-visible UI.
 | `e2e/account-access.spec.ts` | Missing-document active compatibility, live suspension, public Marketplace browsing, blocked private/action routes, and read-only seller history. |
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
 | `e2e/subscriptions.spec.ts` | Exact-name and seller subscriptions, consent/cancel, persistence/removal, owner/sold/suspended gates, pre-follow exclusion, dual card-and-seller match deduplication, substring coverage, and daily-email preference. |
+| `e2e/report-tickets.spec.ts` | Guest guidance; active reporter draft/submission; zero and three evidence images; reload receipt; ownership, account, Listing, MIME, size, read, count, rate-limit, conflicting-retry, and post-submit denial paths. |
 | `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
 | `e2e/mvp-journey.spec.ts` | Login → Profile → Listing → public search → subscription → sale → public sold-out removal. |
 | `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
@@ -179,6 +180,35 @@ journey asserts UID-based persistence, Timestamp-backed `followedAt`, reload,
 selective removal, pre-follow exclusion, and dual card-and-seller match
 deduplication. The suite performs no production follow, Listing, email, or data mutation.
 It cannot invoke the production Gmail adapter.
+
+Moderation-report E2E maps the **ten moderation-report acceptance criteria** to
+observable boundaries:
+
+1. An active Google buyer without a Seller Profile can enter from another
+   seller's active Listing; a guest receives sign-in guidance.
+2. Owner, suspended, malformed-account, inactive, and missing-Listing attempts
+   are denied.
+3. Category and trimmed 1–100-character description validation agree across UI
+   and Functions.
+4. Zero or three JPEG/PNG/WebP images succeed while wrong MIME, oversized,
+   fourth-slot, cross-user, browser-read, and post-submit operations fail.
+5. Draft retry returns one draft and the UTC daily limit permits only ten new
+   drafts.
+6. Finalization reads real object metadata, accepts an exact retry, and rejects a
+   conflicting retry.
+7. The submitted Firestore document contains the immutable safe Listing snapshot
+   and no seller contact, email, or arbitrary field.
+8. Report collections remain server-only and evidence remains browser-unreadable.
+9. Bounded cleanup removes expired drafts and their slots without touching a
+   submitted report or evidence.
+10. The browser journey reaches an opaque, reload-stable ticket while all of the
+    preceding checks run against the fixed demo project.
+
+The suite and its support adapters perform **no production report, evidence, email, cleanup, or data mutation**.
+Do not source a production `.env`, ADC
+project, or Firebase project into an Emulator run. These tests prove repository
+behavior only; Scheduler delivery, deployed indexes, IAM, quotas, and production
+observability require a separately approved non-invasive release verification.
 
 ## Reliability and evidence
 
