@@ -3,6 +3,7 @@ import { readDocument, seedScenario } from './support/emulator-state';
 import { activeListing, sellerProfile, testCards } from './support/fixtures';
 import { expect, test } from './support/test';
 import { acknowledgeWelcome } from './support/ui';
+import { runFakeDailyDigest } from '../functions/src/fakes';
 
 const seededAt = new Date('2026-08-27T00:00:00.000Z');
 
@@ -98,6 +99,113 @@ test('subscribes from Listing details', async ({ page }) => {
     cardNames: ['諸伏高明'],
     emailDailyEnabled: true,
   });
+});
+
+test('follows a Listing seller, survives reload, and removes only that seller in settings', async ({ page }) => {
+  const listingId = 'seller-follow-listing';
+  await seedScenario({
+    cards: testCards,
+    sellerProfiles: [sellerProfile('followed-seller', '追蹤賣家')],
+    listings: [activeListing('followed-seller', 'data:image/png;base64,iVBORw0KGgo=', { id: listingId })],
+  });
+  await page.goto('./');
+  await acknowledgeWelcome(page);
+  const buyer = await signInWithMockGoogle(page, {
+    email: 'seller-follow-buyer@example.test', displayName: 'Seller Follow Buyer',
+  });
+  await seedScenario({ notificationSubscriptions: [{
+    uid: buyer.uid,
+    cardNames: ['諸伏景光'],
+    sellerSubscriptions: [],
+    emailDailyEnabled: true,
+    updatedAt: seededAt,
+  }] });
+
+  await page.goto(`#/listing/${listingId}`);
+  await page.getByRole('button', { name: '訂閱賣家 追蹤賣家' }).click();
+  await page.getByLabel('以 Google 登入信箱接收每日摘要').check();
+  await page.getByRole('button', { name: '確認訂閱' }).click();
+  await expect(page.getByRole('button', { name: '取消訂閱賣家 追蹤賣家' })).toBeVisible();
+
+  await expect.poll(() => readDocument('notificationSubscriptions', buyer.uid)).toMatchObject({
+    cardNames: ['諸伏景光'], emailDailyEnabled: true,
+    sellerSubscriptions: [{ sellerId: 'followed-seller' }],
+  });
+  const persisted = await readDocument('notificationSubscriptions', buyer.uid);
+  const followedAt = (persisted?.sellerSubscriptions as Array<Record<string, unknown>>)[0]
+    ?.followedAt as { toDate?: unknown } | undefined;
+  expect(typeof followedAt?.toDate).toBe('function');
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: '取消訂閱賣家 追蹤賣家' })).toBeVisible();
+  await page.goto('#/notifications');
+  await page.getByRole('button', { name: '移除賣家 追蹤賣家（followed-seller）訂閱' }).click();
+  await expect(page.getByText('尚未訂閱任何賣家。')).toBeVisible();
+  await expect.poll(() => readDocument('notificationSubscriptions', buyer.uid)).toMatchObject({
+    cardNames: ['諸伏景光'], sellerSubscriptions: [], emailDailyEnabled: true,
+  });
+});
+
+test('never offers seller mutation to the owner, a sold-out view, or a suspended buyer', async ({ page }) => {
+  await page.goto('./');
+  await acknowledgeWelcome(page);
+  const identity = await signInWithMockGoogle(page, {
+    email: 'seller-follow-gates@example.test', displayName: 'Seller Follow Gates',
+  });
+  await seedScenario({
+    cards: testCards,
+    sellerProfiles: [sellerProfile(identity.uid, 'Owner'), sellerProfile('other-seller', 'Other Seller')],
+    listings: [
+      activeListing(identity.uid, 'data:image/png;base64,iVBORw0KGgo=', { id: 'owner-active' }),
+      activeListing(identity.uid, 'data:image/png;base64,iVBORw0KGgo=', {
+        id: 'owner-sold', status: 'sold_out', remainingQuantity: 0,
+      }),
+      activeListing('other-seller', 'data:image/png;base64,iVBORw0KGgo=', { id: 'suspended-view' }),
+    ],
+  });
+
+  await page.goto('#/listing/owner-active');
+  await expect(page.getByRole('button', { name: /訂閱賣家/u })).toHaveCount(0);
+  await page.goto('#/listing/owner-sold');
+  await expect(page.getByText('已售罄', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /訂閱賣家/u })).toHaveCount(0);
+
+  await seedScenario({ accountAccess: [{
+    uid: identity.uid, status: 'suspended', confirmedViolationCount: 1,
+    suspensionReason: 'E2E suspension', suspendedAt: seededAt,
+    suspendedBy: 'admin-1', updatedAt: seededAt,
+  }] });
+  await page.goto('#/listing/suspended-view');
+  await expect(page.getByText('帳號停權期間無法管理賣家通知。')).toBeVisible();
+  await expect(page.getByRole('button', { name: /訂閱賣家/u })).toHaveCount(0);
+  await expect.poll(() => readDocument('notificationSubscriptions', identity.uid)).toBeNull();
+});
+
+test('local fake digest excludes pre-follow, includes post-follow, and deduplicates dual matches', async () => {
+  const followedAt = new Date('2026-08-27T01:00:00.000Z');
+  const result = await runFakeDailyDigest({
+    subscription: {
+      uid: 'buyer-1', cardNames: ['諸伏高明'],
+      sellerSubscriptions: [{ sellerId: 'seller-1', followedAt }],
+      emailDailyEnabled: true, updatedAt: new Date(),
+    },
+    events: [
+      {
+        id: 'pre-follow', sellerId: 'seller-1', cardName: '灰原哀',
+        capturedAt: new Date(followedAt.getTime() - 1),
+      },
+      {
+        id: 'post-follow', sellerId: 'seller-1', cardName: '灰原哀',
+        capturedAt: new Date(followedAt.getTime() + 1),
+      },
+      { id: 'dual-match', sellerId: 'seller-1', cardName: '諸伏高明', capturedAt: followedAt },
+    ],
+  });
+
+  expect(result.listingIds).toEqual(['dual-match', 'post-follow']);
+  expect(new Set(result.listingIds).size).toBe(2);
+  expect(JSON.stringify(result)).not.toContain('private-contact');
+  expect(JSON.stringify(result)).not.toMatch(/contactValue|seller@example/u);
 });
 
 test('shows raw-substring coverage', async ({ page }) => {

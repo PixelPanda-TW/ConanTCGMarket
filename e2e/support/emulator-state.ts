@@ -14,6 +14,27 @@ import type {
   SellerProfile,
 } from '../../src/domain/models';
 
+type NotificationSubscriptionSeed = Omit<NotificationSubscription, 'sellerSubscriptions'> & {
+  sellerSubscriptions?: NotificationSubscription['sellerSubscriptions'];
+};
+
+export interface ListingEventSeed {
+  id: string;
+  listingId: string;
+  sellerId?: string;
+  cardType: 'character' | 'event' | 'case' | 'partner';
+  cardName: string;
+  cardId: string;
+  rarity: string;
+  listingPrice: number;
+  remainingQuantity: number;
+  createdAt: Date;
+  capturedAt: Date;
+  capturedSequence: number;
+  discordStatus: 'disabled' | 'pending' | 'sent' | 'failed';
+  attempts: number;
+}
+
 export const E2E_PROJECT_ID = 'demo-conan-tcg-e2e';
 export const E2E_BUCKET = `${E2E_PROJECT_ID}.appspot.com`;
 
@@ -23,7 +44,8 @@ export interface ScenarioSeed {
   sellerProfiles?: readonly SellerProfile[];
   listings?: readonly Listing[];
   sales?: readonly Sale[];
-  notificationSubscriptions?: readonly NotificationSubscription[];
+  notificationSubscriptions?: readonly NotificationSubscriptionSeed[];
+  listingEvents?: readonly ListingEventSeed[];
 }
 
 const allowedHosts = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -222,8 +244,32 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
   for (const subscription of seed.notificationSubscriptions ?? []) {
     batch.set(firestore.doc(`notificationSubscriptions/${subscription.uid}`), {
       cardNames: subscription.cardNames,
+      ...(subscription.sellerSubscriptions === undefined ? {} : {
+        sellerSubscriptions: subscription.sellerSubscriptions.map((entry) => ({
+          sellerId: entry.sellerId,
+          followedAt: Timestamp.fromDate(entry.followedAt),
+        })),
+      }),
       emailDailyEnabled: subscription.emailDailyEnabled,
       updatedAt: Timestamp.fromDate(subscription.updatedAt),
+    });
+  }
+  for (const event of seed.listingEvents ?? []) {
+    batch.set(firestore.doc(`listingEvents/${event.id}`), {
+      id: event.id,
+      listingId: event.listingId,
+      ...(event.sellerId === undefined ? {} : { sellerId: event.sellerId }),
+      cardType: event.cardType,
+      cardName: event.cardName,
+      cardId: event.cardId,
+      rarity: event.rarity,
+      listingPrice: event.listingPrice,
+      remainingQuantity: event.remainingQuantity,
+      createdAt: Timestamp.fromDate(event.createdAt),
+      capturedAt: Timestamp.fromDate(event.capturedAt),
+      capturedSequence: event.capturedSequence,
+      discordStatus: event.discordStatus,
+      attempts: event.attempts,
     });
   }
 

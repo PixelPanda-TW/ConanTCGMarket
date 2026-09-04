@@ -90,8 +90,25 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
       notificationSubscriptions: [{
         uid: 'e2e-seller',
         cardNames: ['諸伏高明'],
+        sellerSubscriptions: [{ sellerId: 'followed-seller', followedAt: fixedDate }],
         emailDailyEnabled: true,
         updatedAt: fixedDate,
+      }, {
+        uid: 'legacy-buyer',
+        cardNames: ['諸伏景光'],
+        emailDailyEnabled: true,
+        updatedAt: fixedDate,
+      }],
+      listingEvents: [{
+        id: 'new-listing-event', listingId: 'new-listing-event', sellerId: 'followed-seller',
+        cardType: 'character', cardName: '諸伏高明', cardId: '0501', rarity: 'D',
+        listingPrice: 500, remainingQuantity: 3, createdAt: fixedDate,
+        capturedAt: fixedDate, capturedSequence: 7, discordStatus: 'disabled', attempts: 0,
+      }, {
+        id: 'legacy-listing-event', listingId: 'legacy-listing-event',
+        cardType: 'character', cardName: '諸伏景光', cardId: '1096', rarity: 'R',
+        listingPrice: 400, remainingQuantity: 1, createdAt: fixedDate,
+        capturedAt: fixedDate, capturedSequence: 6, discordStatus: 'disabled', attempts: 0,
       }],
     });
 
@@ -139,9 +156,24 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
     });
     expect(await readDocument('notificationSubscriptions', 'e2e-seller')).toEqual({
       cardNames: ['諸伏高明'],
+      sellerSubscriptions: [{
+        sellerId: 'followed-seller',
+        followedAt: Timestamp.fromDate(fixedDate),
+      }],
       emailDailyEnabled: true,
       updatedAt: Timestamp.fromDate(fixedDate),
     });
+    expect(await readDocument('notificationSubscriptions', 'legacy-buyer')).toEqual({
+      cardNames: ['諸伏景光'],
+      emailDailyEnabled: true,
+      updatedAt: Timestamp.fromDate(fixedDate),
+    });
+    expect(await readDocument('listingEvents', 'new-listing-event')).toMatchObject({
+      sellerId: 'followed-seller',
+      capturedAt: Timestamp.fromDate(fixedDate),
+      capturedSequence: 7,
+    });
+    expect(await readDocument('listingEvents', 'legacy-listing-event')).not.toHaveProperty('sellerId');
   } finally {
     await resetEmulators();
   }
