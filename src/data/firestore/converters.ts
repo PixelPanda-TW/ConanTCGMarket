@@ -241,15 +241,30 @@ export const publicSellerProfileConverter: FirestoreDataConverter<PublicSellerPr
 };
 
 
+const legacySaleFields = [
+  'cardId', 'listingId', 'listingUnitPrice', 'quantity', 'sellerId', 'soldAt', 'soldUnitPrice',
+] as const;
+const currentSaleFields = [
+  'cardId', 'cardName', 'cardType', 'listingId', 'listingUnitPrice', 'quantity', 'rarity',
+  'sellerId', 'soldAt', 'soldUnitPrice',
+] as const;
+const currentSaleValueFields = ['id', ...currentSaleFields] as const;
+
 export const saleConverter: FirestoreDataConverter<Sale> = {
   toFirestore(sale) {
     const saleData = sale as Sale;
+    if (!hasExactFields(saleData as unknown as FirestoreData, currentSaleValueFields)) {
+      throw new Error('Current Sale value has invalid fields.');
+    }
     validateSale(saleData);
 
     return {
       listingId: saleData.listingId,
       sellerId: saleData.sellerId,
       cardId: saleData.cardId,
+      cardType: saleData.cardType,
+      cardName: saleData.cardName,
+      rarity: saleData.rarity,
       quantity: saleData.quantity,
       listingUnitPrice: saleData.listingUnitPrice,
       soldUnitPrice: saleData.soldUnitPrice,
@@ -258,18 +273,27 @@ export const saleConverter: FirestoreDataConverter<Sale> = {
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
+    const legacy = hasExactFields(data, legacySaleFields);
+    if (!legacy && !hasExactFields(data, currentSaleFields)) {
+      throw new Error('Sale document has invalid fields.');
+    }
     const sale: Sale = {
       id: snapshot.id,
       listingId: data.listingId as string,
       sellerId: data.sellerId as string,
       cardId: data.cardId as string,
+      ...(legacy ? {} : {
+        cardType: data.cardType as Sale['cardType'],
+        cardName: data.cardName as string,
+        rarity: data.rarity as string,
+      }),
       quantity: data.quantity as number,
       listingUnitPrice: data.listingUnitPrice as number,
       soldUnitPrice: data.soldUnitPrice as number,
       soldAt: timestampToDate(data.soldAt, 'soldAt'),
     };
 
-    validateSale(sale);
+    validateSale(sale, legacy);
     return sale;
   },
 };

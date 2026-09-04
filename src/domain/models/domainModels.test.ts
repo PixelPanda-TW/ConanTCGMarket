@@ -420,6 +420,9 @@ describe('domain model validation', () => {
       listingId: 'listing-1',
       sellerId: 'seller-1',
       cardId: '0001',
+      cardType: 'character',
+      cardName: '江戶川柯南',
+      rarity: 'R',
       quantity: 0,
       listingUnitPrice: 500,
       soldUnitPrice: 450,
@@ -427,6 +430,32 @@ describe('domain model validation', () => {
     };
 
     expect(() => validateSale(sale)).toThrow('Sale quantity must be greater than 0.');
+  });
+
+  it('accepts only a complete canonical card snapshot for a current sale', () => {
+    const sale: Sale = {
+      id: 'sale-1', listingId: 'listing-1', sellerId: 'seller-1', cardId: '2200',
+      cardType: 'case', cardName: '封鎖現場', rarity: 'SR', quantity: 2,
+      listingUnitPrice: 500, soldUnitPrice: 450,
+      soldAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateSale(sale)).not.toThrow();
+    expect(() => validateSale({ ...sale, cardName: ' 封鎖現場' })).toThrow('trimmed');
+    expect(() => validateSale({ ...sale, rarity: '' })).toThrow('snapshot');
+    expect(() => validateSale({ ...sale, cardType: undefined })).toThrow('snapshot');
+    expect(() => validateSale({ ...sale, cardType: 'unknown' as never })).toThrow('snapshot');
+  });
+
+  it('allows snapshot omission only when explicitly validating a recognized legacy sale', () => {
+    const legacy: Sale = {
+      id: 'sale-legacy', listingId: 'listing-1', sellerId: 'seller-1', cardId: '2200',
+      quantity: 1, listingUnitPrice: 500, soldUnitPrice: 450,
+      soldAt: new Date('2026-08-17T00:00:00.000Z'),
+    };
+
+    expect(() => validateSale(legacy)).toThrow('snapshot');
+    expect(() => validateSale(legacy, true)).not.toThrow();
   });
 
   it('rejects non-finite listing prices and non-integer quantities', () => {

@@ -305,8 +305,6 @@ describe('Firestore converters', () => {
         listingId: 'listing-1',
         sellerId: 'seller-1',
         cardId: '1096',
-        characterName: '鈴木園子',
-        rarity: 'SR',
         quantity: 2,
         listingUnitPrice: 500,
         soldUnitPrice: 450,
@@ -320,29 +318,55 @@ describe('Firestore converters', () => {
     });
   });
 
-  it('writes only allowlisted sale fields', () => {
+  it('writes the exact current sale snapshot fields', () => {
     expect(
       saleConverter.toFirestore({
         id: 'sale-1',
         listingId: 'listing-1',
         sellerId: 'seller-1',
         cardId: 'CT-P01-001',
+        cardType: 'event',
+        cardName: '追跡開始',
+        rarity: 'C',
         quantity: 2,
         listingUnitPrice: 500,
         soldUnitPrice: 450,
         soldAt: new Date('2026-08-17T00:00:00.000Z'),
-        email: 'seller@example.com',
-        unknown: 'unknown',
-      } as never),
+      }),
     ).toEqual({
       listingId: 'listing-1',
       sellerId: 'seller-1',
       cardId: 'CT-P01-001',
+      cardType: 'event',
+      cardName: '追跡開始',
+      rarity: 'C',
       quantity: 2,
       listingUnitPrice: 500,
       soldUnitPrice: 450,
       soldAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
     });
+  });
+
+  it('rejects partial, unknown-field, and malformed persisted sale shapes', () => {
+
+    const current = {
+      listingId: 'listing-1', sellerId: 'seller-1', cardId: '2200',
+      cardType: 'case', cardName: '封鎖現場', rarity: 'SR', quantity: 2,
+      listingUnitPrice: 500, soldUnitPrice: 450,
+      soldAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
+    };
+
+    expect(() => saleConverter.fromFirestore({
+      id: 'sale-1', data: () => ({ ...current, rarity: undefined }),
+    } as never)).toThrow();
+    expect(() => saleConverter.fromFirestore({
+      id: 'sale-1', data: () => ({ ...current, contactValue: 'private' }),
+    } as never)).toThrow('fields');
+    expect(() => saleConverter.fromFirestore({
+      id: 'sale-1', data: () => ({ ...current, soldAt: new Date() }),
+    } as never)).toThrow();
+    expect(() => saleConverter.toFirestore({ ...current, id: 'sale-1', unknown: true } as never))
+      .toThrow('fields');
   });
 
   it('writes only card-name subscription fields with an updatedAt Timestamp', () => {

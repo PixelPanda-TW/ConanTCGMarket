@@ -1,15 +1,20 @@
+import { isCardType, type CardType } from '../cardType';
+
 export interface Sale {
   id: string;
   listingId: string;
   sellerId: string;
   cardId: string;
+  cardType?: CardType;
+  cardName?: string;
+  rarity?: string;
   quantity: number;
   listingUnitPrice: number;
   soldUnitPrice: number;
   soldAt: Date;
 }
 
-export function validateSale(sale: Sale) {
+export function validateSale(sale: Sale, allowLegacySnapshot = false) {
   if (typeof sale.id !== 'string' || sale.id.length === 0) {
     throw new Error('Sale requires id.');
   }
@@ -24,6 +29,22 @@ export function validateSale(sale: Sale) {
 
   if (typeof sale.cardId !== 'string' || sale.cardId.length === 0) {
     throw new Error('Sale requires cardId.');
+  }
+
+  const snapshotValues = [sale.cardType, sale.cardName, sale.rarity];
+  const hasAnySnapshot = snapshotValues.some((value) => value !== undefined);
+  const hasCanonicalSnapshot = isCardType(sale.cardType)
+    && typeof sale.cardName === 'string'
+    && sale.cardName.length > 0
+    && sale.cardName === sale.cardName.trim()
+    && typeof sale.rarity === 'string'
+    && sale.rarity.length > 0
+    && sale.rarity === sale.rarity.trim();
+  if (!hasCanonicalSnapshot && (hasAnySnapshot || !allowLegacySnapshot)) {
+    if (typeof sale.cardName === 'string' && sale.cardName !== sale.cardName.trim()) {
+      throw new Error('Sale card snapshot values must be trimmed.');
+    }
+    throw new Error('Sale requires a complete canonical card snapshot.');
   }
 
   if (!Number.isInteger(sale.quantity) || sale.quantity <= 0) {
