@@ -81,6 +81,14 @@ beforeAll(async () => {
     });
     await setDoc(doc(context.firestore(), 'sellerContactRequesterLimits', 'active-user:2026090403'), { count: 1 });
     await setDoc(doc(context.firestore(), 'sellerContactSellerLimits', 'seller-a:2026090403'), { count: 1 });
+    await setDoc(doc(context.firestore(), 'cardMasterArchives', 'card_retired'), {
+      ...partnerCardMaster, disposition: 'disabled', rationale: '錯誤卡片',
+      actedBy: 'admin-user', actedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'cardMasterAuditLogs', 'audit-card-1'), {
+      action: 'disable', sourceCardKey: 'card_retired', before: partnerCardMaster,
+      rationale: '錯誤卡片', actedBy: 'admin-user', actedAt: new Date(),
+    });
     for (const uid of ['missing-user', 'active-user', 'suspended-user', 'malformed-active-user']) {
       await setDoc(doc(context.firestore(), 'listings', `${uid}-listing`), {
         ...activeListing,
@@ -264,6 +272,31 @@ describe('Firebase rules', () => {
     await assertFails(setDoc(doc(sellerA, 'cards', 'card_authenticated_create'), partnerCardMaster));
     await assertFails(updateDoc(authenticatedCard, { cardName: '認證篡改' }));
     await assertFails(deleteDoc(authenticatedCard));
+  });
+  it.each([
+    ['cardMasterArchives', 'card_retired'],
+    ['cardMasterAuditLogs', 'audit-card-1'],
+  ])('explicitly isolates Card Master Admin collection %s from every browser identity', async (collectionName, id) => {
+    const identities = [
+      environment.unauthenticatedContext().firestore(),
+      environment.authenticatedContext('buyer-user').firestore(),
+      environment.authenticatedContext('admin-user', { admin: true }).firestore(),
+    ];
+    for (const db of identities) {
+      const existing = doc(db, collectionName, id);
+      await assertFails(getDoc(existing));
+      await assertFails(getDocs(collection(db, collectionName)));
+      await assertFails(setDoc(doc(db, collectionName, `${id}-create`), { value: 'blocked' }));
+      await assertFails(updateDoc(existing, { rationale: 'tampered' }));
+      await assertFails(deleteDoc(existing));
+    }
+  });
+
+  it('uses explicit unconditional deny matches without a browser admin-claim shortcut', async () => {
+    const rules = await readFile('firestore.rules', 'utf8');
+    expect(rules).toMatch(/match \/cardMasterArchives\/\{id\}[\s\S]*?allow read, write: if false;/u);
+    expect(rules).toMatch(/match \/cardMasterAuditLogs\/\{id\}[\s\S]*?allow read, write: if false;/u);
+    expect(rules).not.toMatch(/request\.auth\.token\.admin/u);
   });
   it('allows only strict public profile reads and denies every browser profile write', async () => {
     const sellerA = environment.authenticatedContext('seller-a').firestore();

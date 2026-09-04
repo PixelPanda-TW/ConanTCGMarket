@@ -93,6 +93,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /cardMasterArchives/{id} {
+      allow read, write: if false;
+    }
+
+    match /cardMasterAuditLogs/{id} {
+      allow read, write: if false;
+    }
+
     match /accountAccess/{uid} {
       allow read: if isAuthenticated() && request.auth.uid == uid;
       allow write: if false;
