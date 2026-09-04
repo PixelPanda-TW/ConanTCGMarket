@@ -21,6 +21,12 @@ The mocked Google sign-in popup is served by the Auth Emulator; no real Google
 OAuth username, password, consent screen, or MFA is used. Digest coverage stops
 at a fake Gmail adapter, so no real Gmail is sent.
 
+Account-access scenarios are also Emulator-only. Tests seed server-owned
+`accountAccess/{uid}` documents through the Admin harness; the browser can read
+only its own document and cannot create, update, or delete access state. A
+missing document intentionally resolves active so existing Google accounts need
+no migration.
+
 Public Card Master and active-Listing reads remain server-first. If Firestore is
 temporarily unavailable, the app may use a non-empty local cache; an empty or
 failed cache preserves the original server error so error-state coverage cannot
@@ -148,6 +154,7 @@ matrix where a denied action has no user-visible UI.
 | --- | --- |
 | `e2e/public-marketplace.spec.ts` | Notice acknowledgement; public active-listing browsing, filters, ID search, loading, empty, sold-out exclusion, and error state. |
 | `e2e/auth-profile.spec.ts` | Signed-out guidance, Profile validation, mock sign-in, create/edit/reload persistence, and sign-out. |
+| `e2e/account-access.spec.ts` | Missing-document active compatibility, live suspension, public Marketplace browsing, blocked private/action routes, and read-only seller history. |
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
 | `e2e/subscriptions.spec.ts` | Exact-name and detail-page subscriptions, consent/cancel, substring coverage, list/removal, and daily-email preference. |
 | `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
@@ -155,7 +162,15 @@ matrix where a denied action has no user-visible UI.
 | `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
 | `e2e/support/*.spec.ts` | Admin harness reset/seed/Auth behavior and fixed loopback project/port safety checks; included only in Chromium. |
 | `e2e/smoke.spec.ts` | Public deployed entry/assets/routes, uncaught runtime errors, and configuration-error checks, with no authentication or mutation. |
-| `src/rules/firebaseRules.test.ts` | Listing and seller ownership, active/sold-out reads, Card Master write denial, Profiles, subscriptions/events/delivery state, Sales immutability, and per-seller Storage paths. |
+| `src/rules/firebaseRules.test.ts` | Listing and seller ownership, active/sold-out reads, Card Master write denial, own-read/server-write-only account access, active/suspended/malformed mutation matrix, Profiles, subscriptions/events/delivery state, Sales immutability, and account-gated per-seller Storage paths. |
+
+Suspended sessions remain authenticated: the UI shows the suspension reason,
+removes Profile/Sell/edit/subscription/Sale actions, and preserves a read-only
+Dashboard. Firestore and Storage Rules independently deny those mutations, so
+the UI is not the security boundary. The admin suspend/restore transaction,
+automatic Listing hide/republish behavior, appeal workflow, and protected
+contact disclosure are deliberately outside this batch and must not be inferred
+from these passing tests.
 
 ## Reliability and evidence
 

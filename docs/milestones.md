@@ -20,6 +20,8 @@ Status: complete.
 
 ## Milestone 1: Firebase Project Integration
 
+Status: account access foundation implemented. Google sign-in establishes buyer capability; a complete Seller Profile adds seller capability to the same UID. `AuthProvider` combines Firebase Auth with a live, own-account `accountAccess/{uid}` listener. Missing access documents remain active for compatibility, while suspended or unavailable states fail closed for privileged actions.
+
 ### Goal
 
 Connect the app to Firebase and support Google sign-in state.
@@ -31,14 +33,17 @@ Connect the app to Firebase and support Google sign-in state.
 - Firebase app initialization.
 - Google sign-in and sign-out.
 - Auth state provider.
+- Live account-access state with loading, active, suspended, and unavailable outcomes.
+- Neutral Google-account navigation; buyer and seller capabilities are not mutually exclusive roles.
 - Current user UID available to seller-only flows.
 - Guest users can still browse the marketplace.
 
 ### Acceptance Criteria
 
 - Visitors can open the marketplace without signing in.
-- Sellers can sign in with Google.
-- Signed-in UI can identify the seller by UID.
+- Anyone who signs in with Google is an active buyer unless suspended.
+- A signed-in buyer becomes a seller by completing a valid Seller Profile.
+- Suspended accounts remain signed in for status/history access but cannot use privileged actions.
 - Google email is not publicly displayed.
 
 ## Milestone 2: Firestore Schema and Repository Layer
@@ -131,7 +136,7 @@ Allow sellers to publish real listings with uploaded physical-card photos.
 
 ### Acceptance Criteria
 
-- Only signed-in sellers can create listings.
+- Only active signed-in sellers can create listings.
 - Sellers must have a profile before creating listings.
 - Each listing has at least 1 photo and at most 3 photos.
 - New listings set `originalQuantity` and `remainingQuantity` to the entered quantity.
@@ -180,8 +185,9 @@ Allow buyers to inspect a listing and allow sellers to edit only their own listi
 
 - Guests can view active listing details.
 - The detail page shows card name, rarity, photos, unit price, remaining quantity, seller, contact method, sleeve support, MyShip support, and note.
-- Only `listing.sellerId === currentUser.uid` can edit a listing.
+- Only an active account where `listing.sellerId === currentUser.uid` can edit a listing.
 - Non-owners cannot edit through UI or direct route access.
+- Suspended owners may still view approved Listing data, but management links and direct edit actions are blocked.
 
 ## Milestone 8: Dashboard and Sale Records
 
@@ -208,6 +214,7 @@ Allow sellers to manage inventory, record external sales, and track cumulative s
 - When `remainingQuantity === 0`, the listing becomes `sold_out`.
 - Sold-out listings disappear from the public marketplace.
 - Seller dashboard still shows sold-out listings and sale history.
+- A suspended seller retains a read-only Dashboard with active/sold-out Listings and Sale totals, with every edit and sale control removed.
 - Cumulative sold amount is computed from `SUM(Sale.quantity * Sale.soldUnitPrice)`.
 
 ## Milestone 9: Firebase Security Rules
@@ -231,6 +238,11 @@ Enforce ownership and public-read rules at the Firebase layer, not only in the f
 - Sellers cannot modify listings owned by other sellers.
 - Sellers can read and write only their own sale records.
 - Storage writes require auth and enforce seller UID in the path.
+- Browser clients can read only their own `accountAccess` document and can never write it.
+- Missing or canonical active account state permits existing owner mutations; suspended or malformed state denies Profile, Listing, Sale, subscription, and Listing-image mutations.
+- Suspended owners retain the approved reads needed for their Listing, Sale, and subscription history.
+
+The trusted admin suspension/restore transaction, automatic Listing hiding, selective republishing, and appeals remain pending. Until that workflow exists, this foundation does not mark any production account suspended. Authenticated-only contact disclosure also remains for a later batch.
 
 ## Milestone 10: Card Master Sync Script
 
