@@ -37,8 +37,8 @@ function harness(items = [draft('report-1')]) {
   };
   const dependencies: ReportCleanupDependencies = {
     now: () => now,
-    listExpiredDrafts: vi.fn(async ({ afterId }) => ({
-      items: afterId === null ? items : [], nextAfterId: null,
+    listExpiredDrafts: vi.fn(async ({ after }) => ({
+      items: after === null ? items : [], nextAfter: null,
     })),
     deleteEvidence: vi.fn(async (path) => { deletedObjects.push(path); }),
     isObjectNotFound: (error) => error instanceof Error && error.message === 'not-found',
@@ -98,9 +98,9 @@ describe('expired report draft cleanup', () => {
 
   it('uses bounded page size and stops after ten pages even if a source claims more', async () => {
     const { dependencies } = harness([]);
-    dependencies.listExpiredDrafts = vi.fn(async ({ afterId }) => {
-      const index = afterId === null ? 0 : Number(afterId.slice(1)) + 1;
-      return { items: [], nextAfterId: `p${index}` };
+    dependencies.listExpiredDrafts = vi.fn(async ({ after }) => {
+      const index = after === null ? 0 : Number(after.id.slice(1)) + 1;
+      return { items: [], nextAfter: { expiresAt: expiredAt, id: `p${index}` } };
     });
     await expect(cleanupExpiredReportDrafts(dependencies)).resolves.toMatchObject({ pages: 10 });
     expect(dependencies.listExpiredDrafts).toHaveBeenCalledTimes(10);

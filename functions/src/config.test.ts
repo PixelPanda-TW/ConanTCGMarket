@@ -41,4 +41,18 @@ describe('Firestore deployment configuration', () => {
       ],
     });
   });
+
+  it('deploys the bounded expired report draft cleanup index', async () => {
+    const indexes = await readJson('../../firestore.indexes.json') as {
+      indexes?: unknown[];
+    };
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: 'moderationReports',
+      queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'status', order: 'ASCENDING' },
+        { fieldPath: 'expiresAt', order: 'ASCENDING' },
+      ],
+    });
+  });
 });

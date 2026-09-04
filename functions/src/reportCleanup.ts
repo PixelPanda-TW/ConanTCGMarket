@@ -19,9 +19,12 @@ export interface ReportCleanupDependencies {
   now(): Date;
   listExpiredDrafts(input: {
     before: Timestamp;
-    afterId: string | null;
+    after: { expiresAt: Timestamp; id: string } | null;
     limit: number;
-  }): Promise<{ items: ExpiredReportCandidate[]; nextAfterId: string | null }>;
+  }): Promise<{
+    items: ExpiredReportCandidate[];
+    nextAfter: { expiresAt: Timestamp; id: string } | null;
+  }>;
   deleteEvidence(path: string): Promise<void>;
   isObjectNotFound(error: unknown): boolean;
   runTransaction<T>(
@@ -57,10 +60,10 @@ export async function cleanupExpiredReportDrafts(
   }
   const before = Timestamp.fromDate(nowDate);
   const result: ReportCleanupResult = { scanned: 0, deleted: 0, failed: 0, pages: 0 };
-  let afterId: string | null = null;
+  let after: { expiresAt: Timestamp; id: string } | null = null;
 
   for (let pageNumber = 0; pageNumber < MAX_PAGES; pageNumber += 1) {
-    const page = await dependencies.listExpiredDrafts({ before, afterId, limit: PAGE_SIZE });
+    const page = await dependencies.listExpiredDrafts({ before, after, limit: PAGE_SIZE });
     result.pages += 1;
     for (const candidate of page.items.slice(0, PAGE_SIZE)) {
       result.scanned += 1;
@@ -111,9 +114,10 @@ export async function cleanupExpiredReportDrafts(
       }
     }
 
-    if (page.nextAfterId === null) break;
-    if (page.nextAfterId === afterId) break;
-    afterId = page.nextAfterId;
+    if (page.nextAfter === null) break;
+    if (after && page.nextAfter.id === after.id
+      && page.nextAfter.expiresAt.isEqual(after.expiresAt)) break;
+    after = page.nextAfter;
   }
   return result;
 }

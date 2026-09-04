@@ -6,8 +6,9 @@ import {
   getFirestore,
   type DocumentData,
 } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { randomUUID } from 'node:crypto';
-import { error as logError } from 'firebase-functions/logger';
+import { error as logError, info as logInfo } from 'firebase-functions/logger';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -67,6 +68,20 @@ import {
   type ListingLifecycleTransaction,
   type ListingMutation,
 } from './listingLifecycle.js';
+import {
+  cleanupExpiredReportDrafts as cleanupExpiredReportDraftsData,
+  type ReportCleanupDependencies,
+  type ReportCleanupTransaction,
+} from './reportCleanup.js';
+import {
+  ReportTicketError,
+  createReportDraft,
+  submitReport,
+  type CreateReportDraftDependencies,
+  type CreateReportDraftTransaction,
+  type SubmitReportDependencies,
+  type SubmitReportTransaction,
+} from './reportTickets.js';
 import {
   SecureSellerProfileError,
   handleGetOwnSellerProfile,
@@ -264,7 +279,8 @@ const secureSellerProfileDependencies: SecureSellerProfileDependencies = {
 function throwCallableError(error: unknown, operation: string): never {
   if (error instanceof SecureSellerProfileError
     || error instanceof ListingLifecycleError
-    || error instanceof AdminCardMasterError) {
+    || error instanceof AdminCardMasterError
+    || error instanceof ReportTicketError) {
     throw new HttpsError(error.code, error.message);
   }
   logError(`${operation} failed.`, {
@@ -444,6 +460,171 @@ export const deleteUnsoldListing = onCall(async (request) => {
     throwCallableError(error, 'Listing deletion');
   }
 });
+
+const createReportDraftDependencies: CreateReportDraftDependencies = {
+  now: () => new Date(),
+  randomId: randomUUID,
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => {
+      const port: CreateReportDraftTransaction = {
+        async getAccountAccess(uid) {
+          const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+          return snapshot.exists ? snapshot.data() ?? null : null;
+        },
+        async getListing(id) {
+          const snapshot = await transaction.get(firestore.collection('listings').doc(id));
+          return snapshot.exists ? snapshot.data() ?? null : null;
+        },
+        async getRequestPointer(key) {
+          const snapshot = await transaction.get(
+            firestore.collection('moderationReportRequestKeys').doc(key),
+          );
+          return snapshot.exists ? snapshot.data() ?? null : null;
+        },
+        async getReport(id) {
+          const snapshot = await transaction.get(
+            firestore.collection('moderationReports').doc(id),
+          );
+          return snapshot.exists ? snapshot.data() ?? null : null;
+        },
+        async getDailyLimit(key) {
+          const snapshot = await transaction.get(
+            firestore.collection('moderationReportLimits').doc(key),
+          );
+          return snapshot.exists ? snapshot.data() ?? null : null;
+        },
+        createReport(id, data) {
+          transaction.create(firestore.collection('moderationReports').doc(id), data);
+        },
+        createRequestPointer(key, data) {
+          transaction.create(firestore.collection('moderationReportRequestKeys').doc(key), data);
+        },
+        setDailyLimit(key, data) {
+          transaction.set(firestore.collection('moderationReportLimits').doc(key), data);
+        },
+      };
+      return operation(port);
+    });
+  },
+};
+
+function getReportBucket() {
+  return getStorage().bucket();
+}
+
+function isStorageObjectNotFound(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 404 || code === '404' || code === 'storage/object-not-found';
+}
+
+function reportTransactionPort(
+  transaction: FirebaseFirestore.Transaction,
+): SubmitReportTransaction {
+  return {
+    async getAccountAccess(uid) {
+      const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getReport(id) {
+      const snapshot = await transaction.get(firestore.collection('moderationReports').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    setSubmittedReport(id, data) {
+      transaction.set(firestore.collection('moderationReports').doc(id), data);
+    },
+  };
+}
+
+const submitReportDependencies: SubmitReportDependencies = {
+  now: () => new Date(),
+  async getEvidenceMetadata(path) {
+    try {
+      const [metadata] = await getReportBucket().file(path).getMetadata();
+      return metadata;
+    } catch (error) {
+      if (isStorageObjectNotFound(error)) return null;
+      throw error;
+    }
+  },
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => (
+      operation(reportTransactionPort(transaction))
+    ));
+  },
+};
+
+export const createModerationReportDraft = onCall(async (request) => {
+  try {
+    const result = await createReportDraft({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, createReportDraftDependencies);
+    return { reportId: result.reportId, expiresAt: result.expiresAt.toDate().toISOString() };
+  } catch (error) {
+    throwCallableError(error, 'Moderation report draft creation');
+  }
+});
+
+export const submitModerationReport = onCall(async (request) => {
+  try {
+    return await submitReport({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, submitReportDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Moderation report submission');
+  }
+});
+
+const reportCleanupDependencies: ReportCleanupDependencies = {
+  now: () => new Date(),
+  async listExpiredDrafts({ before, after, limit }) {
+    let query = firestore.collection('moderationReports')
+      .where('status', '==', 'draft')
+      .where('expiresAt', '<=', before)
+      .orderBy('expiresAt', 'asc')
+      .orderBy(FieldPath.documentId())
+      .limit(limit);
+    if (after) query = query.startAfter(after.expiresAt, after.id);
+    const snapshot = await query.get();
+    const last = snapshot.docs.at(-1);
+    const lastExpiresAt = last?.data().expiresAt;
+    return {
+      items: snapshot.docs.map((document) => ({ id: document.id, data: document.data() })),
+      nextAfter: snapshot.docs.length === limit && last && lastExpiresAt instanceof Timestamp
+        ? { expiresAt: lastExpiresAt, id: last.id }
+        : null,
+    };
+  },
+  async deleteEvidence(path) {
+    await getReportBucket().file(path).delete();
+  },
+  isObjectNotFound: isStorageObjectNotFound,
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => {
+      const port: ReportCleanupTransaction = {
+        async getReport(id) {
+          const snapshot = await transaction.get(
+            firestore.collection('moderationReports').doc(id),
+          );
+          return snapshot.exists ? snapshot.data() ?? null : null;
+        },
+        deleteReport(id) {
+          transaction.delete(firestore.collection('moderationReports').doc(id));
+        },
+        deleteRequestPointer(key) {
+          transaction.delete(firestore.collection('moderationReportRequestKeys').doc(key));
+        },
+      };
+      return operation(port);
+    });
+  },
+  log(entry) {
+    if (entry.event === 'report_cleanup_failed') logError(entry.event, entry);
+    else logInfo(entry.event, entry);
+  },
+};
 
 function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDeliveryRecord {
   const cursorSequence = data?.emailDailyCursorSequence;
@@ -828,4 +1009,19 @@ export const sendDailyDigest = onSchedule(
     new Date(event.scheduleTime),
     dailyDigestDependencies,
   ),
+);
+
+export const cleanupExpiredReportDrafts = onSchedule(
+  {
+    schedule: '30 3 * * *',
+    timeZone: 'Asia/Taipei',
+    retryCount: 3,
+    minBackoffSeconds: 60,
+    maxBackoffSeconds: 300,
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const result = await cleanupExpiredReportDraftsData(reportCleanupDependencies);
+    logInfo('Expired moderation report cleanup completed.', result);
+  },
 );

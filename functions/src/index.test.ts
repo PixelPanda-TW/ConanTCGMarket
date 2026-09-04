@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { describe, expect, it, vi } from 'vitest';
 import * as deployedFunctions from './index.js';
 import { cardMasterKey, normalizeAdminCard } from './adminCardMaster.js';
@@ -8,6 +9,8 @@ import { DEFAULT_DAILY_RECIPIENT_CAP } from './dailyDigest.js';
 const {
   addCardMasterEntry,
   captureListingEvent,
+  cleanupExpiredReportDrafts,
+  createModerationReportDraft,
   dailyDigestOperator,
   disableCardMasterEntry,
   editCardMasterEntry,
@@ -18,6 +21,7 @@ const {
   recordListingSale,
   saveSellerProfile,
   sendDailyDigest,
+  submitModerationReport,
   updateSellerListing,
   deleteUnsoldListing,
 } = deployedFunctions;
@@ -32,6 +36,8 @@ describe('notification Function deployment contract', () => {
     expect(Object.keys(deployedFunctions).sort()).toStrictEqual([
       'addCardMasterEntry',
       'captureListingEvent',
+      'cleanupExpiredReportDrafts',
+      'createModerationReportDraft',
       'dailyDigestOperator',
       'deleteUnsoldListing',
       'disableCardMasterEntry',
@@ -43,6 +49,7 @@ describe('notification Function deployment contract', () => {
       'recordListingSale',
       'saveSellerProfile',
       'sendDailyDigest',
+      'submitModerationReport',
       'updateSellerListing',
     ]);
   });
@@ -170,6 +177,135 @@ describe('notification Function deployment contract', () => {
       expect(callable.__endpoint.invoker).toBeUndefined();
       expect(callable.__endpoint.httpsTrigger).toBeUndefined();
     }
+  });
+
+  it('exposes report creation/submission only as callables and cleanup only as a schedule', () => {
+    for (const callable of [createModerationReportDraft, submitModerationReport]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+    }
+    expect(cleanupExpiredReportDrafts.__endpoint.callableTrigger).toBeUndefined();
+    expect(cleanupExpiredReportDrafts.__endpoint.httpsTrigger).toBeUndefined();
+    expect(cleanupExpiredReportDrafts.__endpoint.scheduleTrigger?.schedule).toBe('30 3 * * *');
+    expect(cleanupExpiredReportDrafts.__endpoint.scheduleTrigger?.timeZone).toBe('Asia/Taipei');
+    expect(cleanupExpiredReportDrafts.__endpoint.scheduleTrigger?.retryConfig?.retryCount).toBe(3);
+  });
+
+  it('preserves sanitized report domain errors at callable boundaries', async () => {
+    await expect(createModerationReportDraft.run({
+      auth: undefined,
+      data: { requestId: '550e8400-e29b-41d4-a716-446655440000', listingId: 'listing-1' },
+    } as never)).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(submitModerationReport.run({
+      auth: undefined,
+      data: { reportId: 'report-1', category: 'other', description: '說明', evidencePaths: [] },
+    } as never)).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  it('keeps report data in bounded Admin transactions and server-side Storage operations', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+    expect(source).toContain("firestore.collection('moderationReports')");
+    expect(source).toContain("firestore.collection('moderationReportRequestKeys')");
+    expect(source).toContain("firestore.collection('moderationReportLimits')");
+    expect(source).toContain("firestore.collection('accountAccess')");
+    expect(source).toContain("firestore.collection('listings')");
+    expect(source).toContain('.getMetadata()');
+    expect(source).toContain('.delete()');
+    expect(source).toContain("where('status', '==', 'draft')");
+    expect(source).toContain("where('expiresAt', '<=', before)");
+    expect(source).toContain('.limit(limit)');
+    expect(source).not.toMatch(/log(?:Error|Info)\([^\n]*(description|evidencePaths|request\.data|metadata)/u);
+  });
+
+  it('adapts report draft creation to exact private documents and an ISO receipt', async () => {
+    const writes: Array<{ operation: string; path: string; data: Record<string, unknown> }> = [];
+    const fakeTransaction = {
+      async get(reference: { path: string }) {
+        if (reference.path === 'listings/listing-1') {
+          return { exists: true, data: () => ({
+            status: 'active', sellerId: 'seller-1', cardType: 'character',
+            cardName: '諸伏高明', cardId: '0501', rarity: 'D', listingPrice: 500,
+            createdAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z')),
+            contactValue: 'must-not-copy', imageUrls: ['https://example.test/card.jpg'],
+          }) };
+        }
+        return { exists: false, data: () => undefined };
+      },
+      create(reference: { path: string }, data: Record<string, unknown>) {
+        writes.push({ operation: 'create', path: reference.path, data });
+      },
+      set(reference: { path: string }, data: Record<string, unknown>) {
+        writes.push({ operation: 'set', path: reference.path, data });
+      },
+    };
+    const transaction = vi.spyOn(getFirestore(), 'runTransaction')
+      .mockImplementationOnce(async (operation) => operation(fakeTransaction as never));
+
+    const result = await createModerationReportDraft.run({
+      auth: { uid: 'buyer-1', token: {} },
+      data: { requestId: '550e8400-e29b-41d4-a716-446655440000', listingId: 'listing-1' },
+    } as never);
+
+    expect(result.reportId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(new Date(result.expiresAt).toISOString()).toBe(result.expiresAt);
+    expect(writes).toHaveLength(3);
+    expect(writes[0].path).toBe(`moderationReports/${result.reportId}`);
+    expect(writes[1].path).toMatch(/^moderationReportRequestKeys\/[0-9a-f]{64}$/u);
+    expect(writes[2].path).toMatch(/^moderationReportLimits\/buyer-1_\d{4}-\d{2}-\d{2}$/u);
+    expect(JSON.stringify(writes)).not.toMatch(/must-not-copy|contactValue|imageUrls/iu);
+    transaction.mockRestore();
+  });
+
+  it('reads Storage metadata server-side and persists only its safe projection', async () => {
+    const current = new Date();
+    const report = {
+      status: 'draft', requestKey: 'a'.repeat(64), reporterId: 'buyer-1',
+      targetSellerId: 'seller-1',
+      listingSnapshot: {
+        listingId: 'listing-1', cardType: 'character', cardName: '諸伏高明',
+        cardId: '0501', rarity: 'D', listingPrice: 500,
+        createdAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z')),
+      },
+      createdAt: Timestamp.fromDate(new Date(current.valueOf() - 60_000)),
+      expiresAt: Timestamp.fromDate(new Date(current.valueOf() + 60_000)),
+    };
+    const writes: Record<string, unknown>[] = [];
+    const fakeTransaction = {
+      async get(reference: { path: string }) {
+        if (reference.path === 'moderationReports/report-1') {
+          return { exists: true, data: () => report };
+        }
+        return { exists: false, data: () => undefined };
+      },
+      set(_reference: unknown, data: Record<string, unknown>) { writes.push(data); },
+    };
+    const transaction = vi.spyOn(getFirestore(), 'runTransaction')
+      .mockImplementation(async (operation) => operation(fakeTransaction as never));
+    const getMetadata = vi.fn(async () => [{
+      contentType: 'image/png', size: '100', generation: '123', md5Hash: 'abc=',
+      downloadTokens: 'must-not-copy',
+    }]);
+    const bucket = vi.spyOn(getStorage(), 'bucket').mockReturnValue({
+      file: () => ({ getMetadata }),
+    } as never);
+
+    await expect(submitModerationReport.run({
+      auth: { uid: 'buyer-1', token: {} },
+      data: {
+        reportId: 'report-1', category: 'other', description: '說明',
+        evidencePaths: ['reportEvidence/buyer-1/report-1/0'],
+      },
+    } as never)).resolves.toEqual({ reportId: 'report-1' });
+    expect(getMetadata).toHaveBeenCalledOnce();
+    expect(writes).toHaveLength(1);
+    expect(writes[0].evidence).toEqual([{
+      path: 'reportEvidence/buyer-1/report-1/0', contentType: 'image/png',
+      size: 100, generation: '123', md5Hash: 'abc=',
+    }]);
+    expect(JSON.stringify(writes)).not.toMatch(/must-not-copy|downloadTokens/iu);
+    bucket.mockRestore();
+    transaction.mockRestore();
   });
 
   it('adapts lifecycle mutations to bounded Admin transactions without logging payloads', async () => {
