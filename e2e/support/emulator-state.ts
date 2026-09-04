@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 
@@ -209,6 +210,9 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
       listingId: record.listingId,
       sellerId: record.sellerId,
       cardId: record.cardId,
+      ...(record.cardType === undefined ? {} : { cardType: record.cardType }),
+      ...(record.cardName === undefined ? {} : { cardName: record.cardName }),
+      ...(record.rarity === undefined ? {} : { rarity: record.rarity }),
       quantity: record.quantity,
       listingUnitPrice: record.listingUnitPrice,
       soldUnitPrice: record.soldUnitPrice,
@@ -265,4 +269,103 @@ export async function listStorageObjects(prefix: string): Promise<string[]> {
   assertSafeEmulatorEnvironment();
   const [files] = await adminBucket().getFiles({ prefix });
   return files.map((file) => file.name);
+}
+
+export interface EmulatorHttpResult {
+  status: number;
+  body: unknown;
+}
+
+async function responseResult(response: Response): Promise<EmulatorHttpResult> {
+  const text = await response.text();
+  let body: unknown = null;
+  if (text) {
+    try { body = JSON.parse(text); } catch { body = text; }
+  }
+  return { status: response.status, body };
+}
+
+export async function getEmulatorUserIdToken(uid: string): Promise<string> {
+  assertSafeEmulatorEnvironment();
+  const auth = getAuth(getEmulatorAdminApp());
+  const user = await auth.getUser(uid);
+  if (!user.email) throw new Error('E2E user requires an email.');
+  const password = 'E2E-only-password-09';
+  await auth.updateUser(uid, { password });
+  const response = await fetch(
+    `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=e2e-only`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: user.email, password, returnSecureToken: true }),
+    },
+  );
+  const result = await responseResult(response);
+  const idToken = typeof result.body === 'object' && result.body !== null && 'idToken' in result.body
+    ? result.body.idToken : null;
+  if (!response.ok || typeof idToken !== 'string') {
+    throw new Error(`Auth Emulator token request failed: ${result.status}`);
+  }
+  return idToken;
+}
+
+export async function callEmulatorFunctionWithToken(
+  idToken: string,
+  functionName: string,
+  data: Record<string, unknown>,
+): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!/^[A-Za-z][A-Za-z0-9]+$/u.test(functionName)) throw new Error('Unsafe function name.');
+  const response = await fetch(
+    `http://127.0.0.1:5001/${E2E_PROJECT_ID}/us-central1/${functionName}`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${idToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ data }),
+    },
+  );
+  return responseResult(response);
+}
+
+function firestoreValue(value: unknown): Record<string, unknown> {
+  if (value === null) return { nullValue: null };
+  if (typeof value === 'string') return { stringValue: value };
+  if (typeof value === 'boolean') return { booleanValue: value };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error('Unsupported Firestore number.');
+    return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
+  }
+  if (value instanceof Date) return { timestampValue: value.toISOString() };
+  if (value instanceof Timestamp) return { timestampValue: value.toDate().toISOString() };
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(firestoreValue) } };
+  if (typeof value === 'object' && value !== null) {
+    return { mapValue: { fields: firestoreFields(value as Record<string, unknown>) } };
+  }
+  throw new Error('Unsupported Firestore REST value.');
+}
+
+function firestoreFields(data: Record<string, unknown>): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, firestoreValue(value)]));
+}
+
+export async function firestoreDocumentRequestAsUser(
+  idToken: string,
+  method: 'PATCH' | 'DELETE',
+  collectionName: string,
+  documentId: string,
+  data?: Record<string, unknown>,
+): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!/^[A-Za-z][A-Za-z0-9]*$/u.test(collectionName)
+    || !/^[A-Za-z0-9_-]+$/u.test(documentId)) throw new Error('Unsafe Firestore path.');
+  if (method === 'PATCH' && !data) throw new Error('PATCH requires document data.');
+  const response = await fetch(
+    `http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/projects/${E2E_PROJECT_ID}/databases/(default)/documents/${collectionName}/${documentId}`,
+    {
+      method,
+      headers: { authorization: `Bearer ${idToken}`, 'content-type': 'application/json' },
+      ...(method === 'PATCH' ? { body: JSON.stringify({ fields: firestoreFields(data!) }) } : {}),
+    },
+  );
+  return responseResult(response);
 }

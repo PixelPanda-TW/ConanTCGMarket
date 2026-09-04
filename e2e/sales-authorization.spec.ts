@@ -4,6 +4,9 @@ import type { Page } from '@playwright/test';
 
 import { signInWithMockGoogle } from './support/auth';
 import {
+  callEmulatorFunctionWithToken,
+  firestoreDocumentRequestAsUser,
+  getEmulatorUserIdToken,
   listDocuments,
   readDocument,
   seedListingImage,
@@ -24,6 +27,9 @@ function projectSales(sales: Awaited<ReturnType<typeof listDocuments>>) {
       listingId: data.listingId,
       sellerId: data.sellerId,
       cardId: data.cardId,
+      cardType: data.cardType,
+      cardName: data.cardName,
+      rarity: data.rarity,
       quantity: data.quantity,
       listingUnitPrice: data.listingUnitPrice,
       soldUnitPrice: data.soldUnitPrice,
@@ -145,10 +151,13 @@ test('records partial and sold-out sales atomically and updates exact Dashboard 
   }).toEqual({
     listing: { remainingQuantity: 3, status: 'active', updatedAtIsTimestamp: true },
     sales: [{
-      saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+      saleId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       listingId,
       sellerId: owner.uid,
       cardId: '0501',
+      cardType: 'character',
+      cardName: '諸伏高明',
+      rarity: 'D',
       quantity: 2,
       listingUnitPrice: 500,
       soldUnitPrice: 450,
@@ -185,20 +194,26 @@ test('records partial and sold-out sales atomically and updates exact Dashboard 
     uniqueSaleIds: 2,
     sales: [
       {
-        saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+        saleId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         listingId,
         sellerId: owner.uid,
         cardId: '0501',
+        cardType: 'character',
+        cardName: '諸伏高明',
+        rarity: 'D',
         quantity: 2,
         listingUnitPrice: 500,
         soldUnitPrice: 450,
         soldAt: expect.any(Timestamp),
       },
       {
-        saleId: expect.stringMatching(/^[A-Za-z0-9]{20}$/),
+        saleId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         listingId,
         sellerId: owner.uid,
         cardId: '0501',
+        cardType: 'character',
+        cardName: '諸伏高明',
+        rarity: 'D',
         quantity: 3,
         listingUnitPrice: 500,
         soldUnitPrice: 500,
@@ -207,6 +222,22 @@ test('records partial and sold-out sales atomically and updates exact Dashboard 
     ],
   });
 
+  await page.reload();
+  const historyItems = page.getByTestId('sale-history-item');
+  await expect(historyItems).toHaveCount(2);
+  await expect(historyItems.nth(0)).toContainText('諸伏高明');
+  await expect(historyItems.nth(0)).toContainText('角色卡 · D · ID 0501');
+  await expect(historyItems.nth(0)).toContainText('數量：3 / 刊登單價：NT$500 / 成交單價：NT$500 / 小計：NT$1,500');
+  await expect(historyItems.nth(0).locator('.sales-history-date')).toHaveText(/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/);
+  await expect(historyItems.nth(0).getByRole('link', { name: '查看商品' }))
+    .toHaveAttribute('href', `#/listing/${listingId}`);
+  await expect(historyItems.nth(1)).toContainText('數量：2 / 刊登單價：NT$500 / 成交單價：NT$450 / 小計：NT$900');
+
+  await page.goto(`#/listing/${listingId}`);
+  await expect(page.getByText('此商品已售罄，僅供賣家查看。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '管理此商品' })).toHaveCount(0);
+  await page.goto('#/dashboard');
+
   await page.goto('./');
   await expect(page.getByText('目前沒有符合條件的商品。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toHaveCount(0);
@@ -214,6 +245,61 @@ test('records partial and sold-out sales atomically and updates exact Dashboard 
   await page.goto('./');
   await expect(page.getByText('目前沒有符合條件的商品。', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toHaveCount(0);
+});
+
+test('denies direct owner writes and non-owner or suspended lifecycle calls', async ({ page }) => {
+  const listingId = 'e2e-lifecycle-boundary';
+  const owner = await seedOwnerListing(page, 'boundary-owner@example.test', listingId);
+  const token = await getEmulatorUserIdToken(owner.uid);
+  const original = await readDocument('listings', listingId);
+  expect(original).not.toBeNull();
+
+  const directSale = await firestoreDocumentRequestAsUser(token, 'PATCH', 'sales', 'direct-sale', {
+    listingId, sellerId: owner.uid, cardId: '0501', cardType: 'character',
+    cardName: '諸伏高明', rarity: 'D', quantity: 1, listingUnitPrice: 500,
+    soldUnitPrice: 500, soldAt: new Date(),
+  });
+  const directUpdate = await firestoreDocumentRequestAsUser(token, 'PATCH', 'listings', listingId, {
+    ...original, remainingQuantity: 4,
+  });
+  const directDelete = await firestoreDocumentRequestAsUser(token, 'DELETE', 'listings', listingId);
+  expect([directSale.status, directUpdate.status, directDelete.status]).toEqual([403, 403, 403]);
+
+  await page.getByRole('button', { name: '登出' }).click();
+  const other = await signInWithMockGoogle(page, {
+    email: 'boundary-other@example.test', displayName: 'Boundary Other',
+  });
+  const otherToken = await getEmulatorUserIdToken(other.uid);
+  const nonOwner = await callEmulatorFunctionWithToken(otherToken, 'recordListingSale', {
+    listingId, quantity: 1, soldUnitPrice: 500,
+  });
+  expect(nonOwner.status).toBe(403);
+
+  await seedScenario({ accountAccess: [{
+    uid: owner.uid, status: 'suspended', confirmedViolationCount: 1,
+    suspensionReason: 'E2E confirmed violation', suspendedAt: new Date(),
+    suspendedBy: 'admin-e2e', updatedAt: new Date(),
+  }] });
+  const suspended = await callEmulatorFunctionWithToken(token, 'recordListingSale', {
+    listingId, quantity: 1, soldUnitPrice: 500,
+  });
+  expect(suspended.status).toBe(403);
+  await expectUnchangedListingWithoutSales(listingId, { id: listingId, data: original! });
+});
+
+test('serializes simultaneous trusted sales so inventory cannot be oversold', async ({ page }) => {
+  const listingId = 'e2e-concurrent-sales';
+  const owner = await seedOwnerListing(page, 'concurrent-owner@example.test', listingId);
+  const token = await getEmulatorUserIdToken(owner.uid);
+  const results = await Promise.all([
+    callEmulatorFunctionWithToken(token, 'recordListingSale', { listingId, quantity: 4, soldUnitPrice: 450 }),
+    callEmulatorFunctionWithToken(token, 'recordListingSale', { listingId, quantity: 4, soldUnitPrice: 425 }),
+  ]);
+  expect(results.map(({ status }) => status).toSorted()).toEqual([200, 400]);
+  await expect.poll(async () => ({
+    remainingQuantity: (await readDocument('listings', listingId))?.remainingQuantity,
+    sales: (await listDocuments('sales')).map(({ data }) => data.quantity),
+  })).toEqual({ remainingQuantity: 1, sales: [4] });
 });
 
 test('cancels a sale modal with defaults without changing inventory', async ({ page }) => {
@@ -305,6 +391,8 @@ test('hides owner controls and data from another signed-in seller', async ({ pag
     sales: [sale(owner.uid, soldOutListingId, {
       id: 'e2e-authorization-sale',
       cardId: '1096',
+      cardName: '諸伏景光',
+      rarity: 'R',
       quantity: 2,
     })],
   });

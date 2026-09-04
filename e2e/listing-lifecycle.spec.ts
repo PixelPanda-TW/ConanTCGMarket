@@ -3,14 +3,16 @@ import { Timestamp } from 'firebase-admin/firestore';
 
 import { signInWithMockGoogle } from './support/auth';
 import {
+  callEmulatorFunctionWithToken,
   E2E_BUCKET,
+  getEmulatorUserIdToken,
   listDocuments,
   listStorageObjects,
   readDocument,
   seedListingImage,
   seedScenario,
 } from './support/emulator-state';
-import { activeListing, sale, sellerProfile, testCards } from './support/fixtures';
+import { activeListing, sellerProfile, testCards } from './support/fixtures';
 import { expect, test } from './support/test';
 import {
   acknowledgeWelcome,
@@ -258,7 +260,7 @@ test('creates a complete Listing, uploads images, and captures its event', async
   await expect(page.getByRole('link', { name: /諸伏高明/ })).toBeVisible();
 });
 
-test('rejects sold inventory and replaces images after a successful owner edit', async ({ page }) => {
+test('keeps inventory server-owned, rejects stale edits, and replaces images after reload', async ({ page }) => {
   await page.goto('./');
   await acknowledgeWelcome(page);
   const owner = await signInWithMockGoogle(page, {
@@ -271,12 +273,7 @@ test('rejects sold inventory and replaces images after a successful owner edit',
   await seedScenario({
     cards: testCards,
     sellerProfiles: [sellerProfile(owner.uid)],
-    listings: [activeListing(owner.uid, oldUrl, {
-      id: listingId,
-      originalQuantity: 5,
-      remainingQuantity: 3,
-    })],
-    sales: [sale(owner.uid, listingId)],
+    listings: [activeListing(owner.uid, oldUrl, { id: listingId })],
   });
   await page.goto(`#/listing/${listingId}/edit`);
 
@@ -291,29 +288,49 @@ test('rejects sold inventory and replaces images after a successful owner edit',
   const existingImages = page.locator('[aria-label="目前商品圖片"]');
   await expect(existingImages).toBeVisible();
   await expect(existingImages.getByRole('img', { name: '目前商品圖片' })).toHaveCount(1);
+  await expect(page.getByLabel('剩餘數量')).toHaveCount(0);
+  await expect(page.getByLabel('數量')).toHaveCount(0);
+
+  const token = await getEmulatorUserIdToken(owner.uid);
+  const saleResult = await callEmulatorFunctionWithToken(token, 'recordListingSale', {
+    listingId, quantity: 2, soldUnitPrice: 450,
+  });
+  expect(saleResult.status).toBe(200);
+  const changedBySale = await readDocument('listings', listingId);
+  const deleteResult = await callEmulatorFunctionWithToken(token, 'deleteUnsoldListing', {
+    listingId,
+    expectedUpdatedAt: (changedBySale?.updatedAt as Timestamp).toMillis(),
+  });
+  expect(deleteResult.status).toBe(400);
+
   await page.getByLabel('價格').fill('450');
-  await page.getByLabel('剩餘數量').fill('1');
+  await page.getByLabel('備註').fill('不應覆寫');
   await page.getByRole('button', { name: '儲存變更' }).click();
-  await expect(page.getByRole('alert')).toContainText('價格、庫存或圖片不正確');
+  await expect(page.getByRole('alert')).toHaveText('商品已被更新，請重新載入後再試。');
   await expect.poll(async () => {
     const unchanged = await readDocument('listings', listingId);
-    const seededSale = await readDocument('sales', 'e2e-sale-1');
+    const recordedSales = await listDocuments('sales');
     return {
       listingPrice: unchanged?.listingPrice,
       remainingQuantity: unchanged?.remainingQuantity,
       imageUrls: unchanged?.imageUrls,
-      saleQuantity: seededSale?.quantity,
+      note: unchanged?.note,
+      saleQuantities: recordedSales.map(({ data }) => data.quantity),
     };
   }).toEqual({
     listingPrice: 500,
     remainingQuantity: 3,
     imageUrls: [oldUrl],
-    saleQuantity: 2,
+    note: 'E2E 商品備註',
+    saleQuantities: [2],
   });
   await expect.poll(() => listStorageObjects(`listings/${owner.uid}/${listingId}/`))
     .toEqual([oldPath]);
 
-  await page.getByLabel('剩餘數量').fill('3');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '編輯商品' })).toBeVisible();
+  await expect(page.getByLabel('數量')).toHaveCount(0);
+  await page.getByLabel('價格').fill('450');
   await page.getByLabel('包手').uncheck();
   await page.getByLabel('支援賣貨便').uncheck();
   await page.getByLabel('備註').fill('E2E 編輯後備註');
