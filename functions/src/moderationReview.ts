@@ -95,6 +95,11 @@ export interface ModerationCaseDetailDependencies {
   getReport(id: string): Promise<unknown | null>;
 }
 
+export interface ModerationEvidenceDependencies extends ModerationCaseDetailDependencies {
+  getEvidenceMetadata(path: string): Promise<unknown | null>;
+  downloadEvidence(path: string, generation: string): Promise<Buffer>;
+}
+
 const idPattern = /^[A-Za-z0-9_-]{1,200}$/u;
 const statuses = new Set<string>(['all', ...MODERATION_CASE_STATUSES]);
 const decisions = new Set<string>(MODERATION_DECISIONS);
@@ -440,5 +445,59 @@ export async function getModerationCase(
   } catch (error) {
     if (error instanceof ModerationReviewError) throw error;
     throw new ModerationReviewError('unavailable', '目前無法載入審查案件。');
+  }
+}
+
+function readCurrentEvidenceMetadata(value: unknown): {
+  contentType: string;
+  size: number;
+  generation: string;
+} {
+  if (!isRecord(value) || typeof value.contentType !== 'string'
+    || (typeof value.size !== 'string' && typeof value.size !== 'number')
+    || typeof value.generation !== 'string' || value.generation.length < 1) {
+    return malformed();
+  }
+  const size = typeof value.size === 'string' && /^\d+$/u.test(value.size)
+    ? Number(value.size) : value.size;
+  if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 1
+    || size > 5 * 1024 * 1024) return malformed();
+  return { contentType: value.contentType, size, generation: value.generation };
+}
+
+export async function getModerationEvidence(
+  request: ModerationAdminCallableRequest,
+  dependencies: ModerationEvidenceDependencies,
+) {
+  const input = parseGetModerationEvidenceRequest(request.data);
+  try {
+    await requireActiveAdmin(request, dependencies.getAccountAccess);
+    const [caseData, reportData] = await Promise.all([
+      dependencies.getCase(input.reportId),
+      dependencies.getReport(input.reportId),
+    ]);
+    const pair = readSubmittedPair(
+      { id: input.reportId, data: caseData },
+      { id: input.reportId, data: reportData },
+    );
+    evidenceSummaries(input.reportId, pair.report);
+    const path = `reportEvidence/${pair.report.reporterId}/${input.reportId}/${input.slot}`;
+    const recorded = pair.report.evidence.find((item) => item.path === path);
+    if (!recorded) return malformed();
+    const current = readCurrentEvidenceMetadata(
+      await dependencies.getEvidenceMetadata(path),
+    );
+    if (current.contentType !== recorded.contentType || current.size !== recorded.size
+      || current.generation !== recorded.generation) return malformed();
+    const bytes = await dependencies.downloadEvidence(path, recorded.generation);
+    if (!Buffer.isBuffer(bytes) || bytes.length !== recorded.size) return malformed();
+    return {
+      contentType: recorded.contentType,
+      size: recorded.size,
+      dataBase64: bytes.toString('base64'),
+    };
+  } catch (error) {
+    if (error instanceof ModerationReviewError) throw error;
+    throw new ModerationReviewError('unavailable', '目前無法載入證據圖片。');
   }
 }

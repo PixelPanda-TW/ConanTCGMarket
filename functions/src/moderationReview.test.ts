@@ -10,8 +10,10 @@ import {
   readModerationCase,
   listModerationCases,
   getModerationCase,
+  getModerationEvidence,
   type ModerationCaseListDependencies,
   type ModerationCaseDetailDependencies,
+  type ModerationEvidenceDependencies,
 } from './moderationReview.js';
 
 const OPENED_AT = Timestamp.fromDate(new Date('2026-09-04T00:00:00.000Z'));
@@ -346,5 +348,89 @@ describe('get moderation case detail', () => {
     }, dependencies)).rejects.toMatchObject({ code: 'permission-denied' });
     expect(dependencies.getCase).not.toHaveBeenCalled();
     expect(dependencies.getReport).not.toHaveBeenCalled();
+  });
+});
+
+function evidenceHarness(overrides: Partial<ModerationEvidenceDependencies> = {}) {
+  const bytes = Buffer.from('private image bytes');
+  const report = submittedReport({ evidence: [{
+    path: 'reportEvidence/buyer-1/report-1/1', contentType: 'image/png',
+    size: bytes.length, generation: '123', md5Hash: 'private-hash',
+  }] });
+  const dependencies: ModerationEvidenceDependencies = {
+    getAccountAccess: vi.fn(async () => null),
+    getCase: vi.fn(async () => ({
+      status: 'open', reportId: 'report-1', targetSellerId: 'seller-1', openedAt: OPENED_AT,
+    })),
+    getReport: vi.fn(async () => report),
+    getEvidenceMetadata: vi.fn(async () => ({
+      contentType: 'image/png', size: String(bytes.length), generation: '123',
+      md5Hash: 'private-hash', downloadTokens: 'must-not-return',
+    })),
+    downloadEvidence: vi.fn(async () => bytes),
+    ...overrides,
+  };
+  return { bytes, report, dependencies };
+}
+
+const adminEvidenceRequest = {
+  authUid: 'admin-1', adminClaim: true, data: { reportId: 'report-1', slot: 1 },
+};
+
+describe('get moderation evidence', () => {
+  it('returns one generation-verified object as an exact base64 response', async () => {
+    const { bytes, dependencies } = evidenceHarness();
+    await expect(getModerationEvidence(adminEvidenceRequest, dependencies)).resolves.toEqual({
+      contentType: 'image/png', size: bytes.length, dataBase64: bytes.toString('base64'),
+    });
+    expect(dependencies.getEvidenceMetadata).toHaveBeenCalledWith(
+      'reportEvidence/buyer-1/report-1/1',
+    );
+    expect(dependencies.downloadEvidence).toHaveBeenCalledWith(
+      'reportEvidence/buyer-1/report-1/1', '123',
+    );
+    expect(JSON.stringify(await getModerationEvidence(adminEvidenceRequest, dependencies)))
+      .not.toMatch(/reportEvidence|generation|hash|token|url/iu);
+  });
+
+  it.each([
+    ['unrecorded slot', {}, { data: { reportId: 'report-1', slot: 0 } }],
+    ['missing object', { getEvidenceMetadata: vi.fn(async () => null) }, {}],
+    ['changed MIME', { getEvidenceMetadata: vi.fn(async () => ({
+      contentType: 'image/webp', size: '19', generation: '123',
+    })) }, {}],
+    ['changed size', { getEvidenceMetadata: vi.fn(async () => ({
+      contentType: 'image/png', size: '1', generation: '123',
+    })) }, {}],
+    ['changed generation', { getEvidenceMetadata: vi.fn(async () => ({
+      contentType: 'image/png', size: '19', generation: '124',
+    })) }, {}],
+    ['wrong downloaded byte size', { downloadEvidence: vi.fn(async () => Buffer.from('short')) }, {}],
+  ])('fails closed for %s', async (_label, dependencyOverrides, requestOverrides) => {
+    const { dependencies } = evidenceHarness(
+      dependencyOverrides as Partial<ModerationEvidenceDependencies>,
+    );
+    await expect(getModerationEvidence({
+      ...adminEvidenceRequest, ...requestOverrides,
+    }, dependencies)).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
+  it('denies a non-admin before reading report or Storage data', async () => {
+    const { dependencies } = evidenceHarness();
+    await expect(getModerationEvidence({
+      ...adminEvidenceRequest, adminClaim: false,
+    }, dependencies)).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(dependencies.getCase).not.toHaveBeenCalled();
+    expect(dependencies.getEvidenceMetadata).not.toHaveBeenCalled();
+    expect(dependencies.downloadEvidence).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes Storage failures without returning object metadata', async () => {
+    const { dependencies } = evidenceHarness({
+      downloadEvidence: vi.fn(async () => { throw new Error('private-hash generation 123'); }),
+    });
+    await expect(getModerationEvidence(adminEvidenceRequest, dependencies)).rejects.toMatchObject({
+      code: 'unavailable', message: '目前無法載入證據圖片。',
+    });
   });
 });
