@@ -19,6 +19,10 @@ describe('app routes', () => {
     expect(getAppRoute('#/notifications')).toBe('notifications');
   });
 
+  it('maps the private Card Master console hash', () => {
+    expect(getAppRoute('#/admin/cards')).toBe('admin-cards');
+  });
+
   it('keeps unknown and empty hashes on the marketplace route', () => {
     expect(getAppRoute('')).toBe('marketplace');
     expect(getAppRoute('#/unknown')).toBe('marketplace');

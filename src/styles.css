@@ -453,6 +453,166 @@ h1 {
   h1 { font-size: 34px; white-space: normal; }
 }
 
+/* Private Card Master administration */
+.admin-card-page,
+.admin-card-content,
+.admin-card-form-fields,
+.admin-card-list,
+.admin-card-summary {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-card-page {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.admin-card-feedback {
+  min-block-size: 24px;
+}
+
+.admin-card-panel,
+.admin-card-search,
+.admin-card-dialog {
+  border: 1px solid hsl(var(--border) / .82);
+  border-radius: calc(var(--radius) + .375rem);
+  background: hsl(var(--card) / .86);
+  padding: 20px;
+  box-shadow: 0 16px 40px hsl(220 30% 15% / .1);
+  backdrop-filter: blur(14px);
+}
+
+.admin-card-panel h2 {
+  margin-top: 0;
+}
+
+.admin-card-search {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-card-search input,
+.admin-card-form input,
+.admin-card-form select,
+.admin-card-form textarea {
+  width: 100%;
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius);
+  background: hsl(var(--background) / .78);
+  color: hsl(var(--foreground));
+}
+
+.admin-card-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-card-rarities {
+  display: grid;
+  gap: 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.admin-card-rarity-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) auto;
+  gap: 8px 12px;
+  align-items: end;
+}
+
+.admin-card-rarity-row label {
+  grid-column: 1 / -1;
+}
+
+.admin-card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-card-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 12px;
+}
+
+.admin-card-summary {
+  min-width: 0;
+  flex: 1 1 30rem;
+  grid-template-columns: minmax(10rem, 2fr) repeat(3, minmax(5rem, 1fr));
+}
+
+.admin-card-summary span,
+.admin-card-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.admin-card-dialog-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  background: hsl(220 30% 10% / .52);
+  padding: 20px;
+}
+
+.admin-card-dialog {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+.admin-card-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-card-page button,
+.admin-card-dialog button {
+  min-height: 44px;
+}
+
+.admin-card-page button:focus-visible,
+.admin-card-dialog button:focus-visible,
+.admin-card-page input:focus-visible,
+.admin-card-page select:focus-visible,
+.admin-card-page textarea:focus-visible,
+.admin-card-dialog input:focus-visible,
+.admin-card-dialog select:focus-visible,
+.admin-card-dialog textarea:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+@media (max-width: 640px) {
+  .admin-card-panel,
+  .admin-card-search,
+  .admin-card-dialog {
+    padding: 16px;
+  }
+
+  .admin-card-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-card-list li,
+  .admin-card-list button,
+  .admin-card-dialog-actions button {
+    width: 100%;
+  }
+}
+
 .profile-form input,
 .profile-form select {
   min-height: 42px;

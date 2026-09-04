@@ -16,6 +16,9 @@ vi.mock('./features/listings/ListingPage', () => ({
 vi.mock('./features/notifications/NotificationSettingsPage', () => ({
   NotificationSettingsPage: () => <h1>我的訂閱</h1>,
 }));
+vi.mock('./features/admin/CardMasterAdminPage', () => ({
+  CardMasterAdminPage: () => <h1>卡片資料管理</h1>,
+}));
 
 afterEach(() => {
   window.location.hash = '';
@@ -63,6 +66,12 @@ describe('App routes', () => {
     render(<App />);
 
     expect(screen.getByRole('heading', { name: '我的訂閱' })).toBeTruthy();
+  });
+
+  it('renders the protected Card Master console for #/admin/cards', () => {
+    window.location.hash = '#/admin/cards';
+    render(<App />);
+    expect(screen.getByRole('heading', { name: '卡片資料管理' })).toBeTruthy();
   });
 
 });

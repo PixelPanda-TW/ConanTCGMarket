@@ -7,6 +7,7 @@ import { ListingEditPage } from './features/listings/ListingEditPage';
 import { canonicalHomeHash, getAppRoute } from './route';
 import { MarketplacePage } from './features/marketplace/MarketplacePage';
 import { NotificationSettingsPage } from './features/notifications/NotificationSettingsPage';
+import { CardMasterAdminPage } from './features/admin/CardMasterAdminPage';
 
 function App() {
   const [hash, setHash] = useState(() => canonicalHomeHash(window.location.hash));
@@ -37,6 +38,7 @@ function App() {
   if (route === 'sell') return <SellPage />;
   if (route === 'dashboard') return <DashboardPage />;
   if (route === 'notifications') return <NotificationSettingsPage />;
+  if (route === 'admin-cards') return <CardMasterAdminPage />;
 
   return <MarketplacePage />;
 }
