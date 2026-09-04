@@ -36,6 +36,15 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
   await resetEmulators();
   try {
     await seedScenario({
+      accountAccess: [{
+        uid: 'e2e-seller',
+        status: 'suspended',
+        confirmedViolationCount: 2,
+        suspensionReason: 'Confirmed reason',
+        suspendedAt: fixedDate,
+        suspendedBy: 'admin-1',
+        updatedAt: fixedDate,
+      }],
       sellerProfiles: [{
         uid: 'e2e-seller',
         displayName: 'E2E 賣家',
@@ -94,6 +103,14 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
         updatedAt: Timestamp.fromDate(fixedDate),
       },
     }]);
+    expect(await readDocument('accountAccess', 'e2e-seller')).toEqual({
+      status: 'suspended',
+      confirmedViolationCount: 2,
+      suspensionReason: 'Confirmed reason',
+      suspendedAt: Timestamp.fromDate(fixedDate),
+      suspendedBy: 'admin-1',
+      updatedAt: Timestamp.fromDate(fixedDate),
+    });
     const listing = await readDocument('listings', 'e2e-listing');
     expect(listing).toMatchObject({
       sellerId: 'e2e-seller',

@@ -5,6 +5,7 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 
 import type {
+  AccountAccess,
   Card,
   Listing,
   NotificationSubscription,
@@ -16,6 +17,7 @@ export const E2E_PROJECT_ID = 'demo-conan-tcg-e2e';
 export const E2E_BUCKET = `${E2E_PROJECT_ID}.appspot.com`;
 
 export interface ScenarioSeed {
+  accountAccess?: readonly AccountAccess[];
   cards?: readonly Card[];
   sellerProfiles?: readonly SellerProfile[];
   listings?: readonly Listing[];
@@ -143,6 +145,22 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
   const firestore = adminFirestore();
   const batch = firestore.batch();
 
+  for (const access of seed.accountAccess ?? []) {
+    batch.set(firestore.doc(`accountAccess/${access.uid}`), access.status === 'suspended'
+      ? {
+          status: access.status,
+          confirmedViolationCount: access.confirmedViolationCount,
+          suspensionReason: access.suspensionReason,
+          suspendedAt: Timestamp.fromDate(access.suspendedAt),
+          suspendedBy: access.suspendedBy,
+          updatedAt: Timestamp.fromDate(access.updatedAt),
+        }
+      : {
+          status: access.status,
+          confirmedViolationCount: access.confirmedViolationCount,
+          updatedAt: Timestamp.fromDate(access.updatedAt),
+        });
+  }
   for (const card of seed.cards ?? []) {
     batch.set(firestore.doc(`cards/${card.key}`), {
       cardId: card.cardId,

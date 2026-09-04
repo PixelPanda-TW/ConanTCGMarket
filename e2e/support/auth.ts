@@ -59,7 +59,7 @@ export async function signInWithMockGoogle(
   }
 
   await closePromise;
-  await expect(page.getByText(`賣家登入中：${identity.displayName}`)).toBeVisible();
+  await expect(page.getByText(`Google 帳號：${identity.displayName}`)).toBeVisible();
   const uid = await lookupAuthEmulatorUid(identity.email, true);
   return { uid, ...identity };
 }
