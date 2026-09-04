@@ -1420,7 +1420,26 @@ textarea:focus-visible {
   list-style: none;
 }
 
+.subscribed-seller-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .subscribed-card-name-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 10px;
+  font-weight: 700;
+}
+
+.subscribed-seller-list li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1437,6 +1456,17 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.subscribed-seller-list span {
+  min-width: 0;
+  flex: 1 1 16rem;
+  overflow-wrap: anywhere;
+}
+
+.subscribed-seller-list small {
+  color: hsl(var(--muted-foreground));
+  overflow-wrap: anywhere;
+}
+
 .subscribed-card-name-list button {
   flex: 0 0 auto;
   border: 1px solid hsl(var(--destructive));
@@ -1445,7 +1475,22 @@ textarea:focus-visible {
   box-shadow: none;
 }
 
+.subscribed-seller-list button {
+  flex: 0 0 auto;
+  border: 1px solid hsl(var(--destructive));
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  box-shadow: none;
+}
+
 .subscribed-card-name-list button:hover:not(:disabled) {
+  border-color: hsl(var(--destructive));
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  box-shadow: 0 8px 18px hsl(var(--destructive) / .24);
+}
+
+.subscribed-seller-list button:hover:not(:disabled) {
   border-color: hsl(var(--destructive));
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
@@ -1468,6 +1513,11 @@ textarea:focus-visible {
 
   .subscribed-card-name-list li,
   .subscribed-card-name-list button {
+    width: 100%;
+  }
+
+  .subscribed-seller-list li,
+  .subscribed-seller-list button {
     width: 100%;
   }
 }

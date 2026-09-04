@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PageShell } from '../../components/PageShell';
 import {
+  getPublicSellerProfile,
   getNotificationSubscription,
   removeNotificationCardName,
+  removeNotificationSeller,
   setNotificationEmailDailyEnabled,
 } from '../../data/firestore/repositories';
-import type { NotificationSubscription } from '../../domain/models';
+import type { NotificationSubscription, PublicSellerProfile } from '../../domain/models';
 import { useAuth } from '../auth/AuthProvider';
 import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 
@@ -27,6 +29,12 @@ export function NotificationSettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [sellerProfiles, setSellerProfiles] = useState<Record<
+    string,
+    PublicSellerProfile | null | 'loading'
+  >>({});
+  const [sellerProfilesScope, setSellerProfilesScope] = useState<string | null>(null);
+  const sellerProfileGenerationRef = useRef(0);
   const currentUid = isActiveAccount ? user?.uid ?? null : null;
   const committedContextRef = useRef<CommittedAuthContext>({ uid: currentUid, generation: 0 });
   const saveOperationContextRef = useRef<CommittedAuthContext | null>(null);
@@ -83,6 +91,36 @@ export function NotificationSettingsPage() {
       });
   }, [currentUid, isActiveAccount, isAuthLoading, user]);
 
+  const sellerSubscriptions = contextualSubscription?.sellerSubscriptions ?? [];
+  const sellerSubscriptionKey = sellerSubscriptions.map((entry) => entry.sellerId).join('\u0000');
+  const expectedSellerProfilesScope = currentUid === null
+    ? null
+    : `${currentUid}\u0000${sellerSubscriptionKey}`;
+
+  useEffect(() => {
+    const generation = ++sellerProfileGenerationRef.current;
+    setSellerProfiles({});
+    setSellerProfilesScope(null);
+    if (!hasLoadedCurrentUid || currentUid === null) return;
+
+    const entries = sellerSubscriptions.map((entry) => entry.sellerId);
+    const initialProfiles: Record<string, PublicSellerProfile | null | 'loading'> = {};
+    for (const sellerId of entries) initialProfiles[sellerId] = 'loading';
+    setSellerProfiles(initialProfiles);
+    setSellerProfilesScope(expectedSellerProfilesScope);
+    void Promise.all(entries.map(async (sellerId) => {
+      try {
+        return [sellerId, await getPublicSellerProfile(sellerId)] as const;
+      } catch {
+        return [sellerId, null] as const;
+      }
+    })).then((profiles) => {
+      if (sellerProfileGenerationRef.current === generation) {
+        setSellerProfiles(Object.fromEntries(profiles));
+      }
+    });
+  }, [currentUid, expectedSellerProfilesScope, hasLoadedCurrentUid, sellerSubscriptionKey]);
+
   async function persistSettings(
     mutation: () => Promise<NotificationSubscription | null>,
   ) {
@@ -116,6 +154,21 @@ export function NotificationSettingsPage() {
   const cardNames = contextualSubscription?.cardNames ?? [];
   const sortedCardNames = [...cardNames]
     .sort((left, right) => left.localeCompare(right, 'zh-Hant'));
+  const contextualSellerProfiles = sellerProfilesScope === expectedSellerProfilesScope
+    ? sellerProfiles
+    : {};
+  const sortedSellers = sellerSubscriptions.map((entry) => {
+    const profile = contextualSellerProfiles[entry.sellerId];
+    return {
+      sellerId: entry.sellerId,
+      displayName: profile === 'loading'
+        ? '賣家名稱載入中'
+        : profile?.displayName ?? '無法取得賣家名稱',
+    };
+  }).sort((left, right) => (
+    left.displayName.localeCompare(right.displayName, 'zh-Hant')
+      || left.sellerId.localeCompare(right.sellerId)
+  ));
   const emailDailyEnabled = contextualSubscription?.emailDailyEnabled ?? false;
 
   return (
@@ -164,6 +217,32 @@ export function NotificationSettingsPage() {
               )}
             </section>
 
+            <section className="notification-settings-card" aria-labelledby="subscribed-sellers-heading">
+              <h2 id="subscribed-sellers-heading">已訂閱賣家</h2>
+              {sellerSubscriptions.length === 0 ? (
+                <p>尚未訂閱任何賣家。</p>
+              ) : (
+                <ul className="subscribed-seller-list">
+                  {sortedSellers.map(({ sellerId, displayName }) => (
+                    <li key={sellerId}>
+                      <span>{displayName}</span>
+                      <small>{sellerId}</small>
+                      <button
+                        type="button"
+                        aria-label={`移除賣家 ${displayName}（${sellerId}）訂閱`}
+                        disabled={contextualIsSaving}
+                        onClick={() => persistSettings(() => (
+                          removeNotificationSeller(user.uid, sellerId)
+                        ))}
+                      >
+                        移除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
             <section className="notification-settings-card" aria-labelledby="daily-email-heading">
               <h2 id="daily-email-heading">每日彙整通知</h2>
               <label className="checkbox-field">
@@ -177,7 +256,7 @@ export function NotificationSettingsPage() {
                 />
                 每日彙整 Email 通知
               </label>
-              <p>每日彙整你所訂閱卡名的新上架商品。</p>
+              <p>每日彙整你所訂閱卡名與賣家的新上架商品。</p>
             </section>
 
             <div className="subscription-feedback" aria-live="polite" aria-atomic="true">

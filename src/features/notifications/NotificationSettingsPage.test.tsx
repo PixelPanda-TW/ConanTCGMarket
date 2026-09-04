@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { Profiler } from 'react';
@@ -22,8 +22,10 @@ const authState = vi.hoisted(() => ({
 }));
 
 const subscriptions = vi.hoisted(() => ({
+  getPublicSellerProfile: vi.fn(),
   getNotificationSubscription: vi.fn(),
   removeNotificationCardName: vi.fn(),
+  removeNotificationSeller: vi.fn(),
   setNotificationEmailDailyEnabled: vi.fn(),
 }));
 
@@ -51,10 +53,19 @@ describe('NotificationSettingsPage', () => {
     authState.current.accountAccessState = { state: 'active', access: null };
     authState.current.isActiveAccount = true;
     subscriptions.getNotificationSubscription.mockResolvedValue(savedSubscription);
+    subscriptions.getPublicSellerProfile.mockImplementation(async (uid) => ({
+      uid, displayName: `賣家 ${uid}`, createdAt: new Date(), updatedAt: new Date(),
+    }));
     subscriptions.removeNotificationCardName.mockImplementation(async (uid, cardName) => ({
       ...savedSubscription,
       uid,
       cardNames: savedSubscription.cardNames.filter((name) => name !== cardName),
+    }));
+    subscriptions.removeNotificationSeller.mockImplementation(async (uid, sellerId) => ({
+      ...savedSubscription,
+      uid,
+      sellerSubscriptions: savedSubscription.sellerSubscriptions
+        .filter((entry) => entry.sellerId !== sellerId),
     }));
     subscriptions.setNotificationEmailDailyEnabled.mockImplementation(async (uid, enabled) => ({
       ...savedSubscription,
@@ -90,11 +101,112 @@ describe('NotificationSettingsPage', () => {
     render(<NotificationSettingsPage />);
 
     expect(await screen.findByRole('heading', { name: '我的訂閱' })).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^移除.+訂閱$/ }).map((button) => button.getAttribute('aria-label'))).toEqual([
+    const cardSection = screen.getByRole('heading', { name: '已訂閱卡名' }).parentElement!;
+    expect(within(cardSection).getAllByRole('button', { name: /^移除.+訂閱$/ }).map((button) => button.getAttribute('aria-label'))).toEqual([
       '移除江戶川柯南訂閱',
       '移除洗牌情緣訂閱',
     ]);
     expect(savedSubscription.cardNames).toEqual(['洗牌情緣', '江戶川柯南']);
+  });
+
+  it('loads followed sellers by immutable ID and sorts resolved names with UID tie-breaks', async () => {
+    subscriptions.getNotificationSubscription.mockResolvedValue({
+      ...savedSubscription,
+      sellerSubscriptions: [
+        { sellerId: 'seller-c', followedAt: new Date() },
+        { sellerId: 'seller-b', followedAt: new Date() },
+        { sellerId: 'seller-a', followedAt: new Date() },
+      ],
+    });
+    subscriptions.getPublicSellerProfile.mockImplementation(async (uid) => ({
+      uid,
+      displayName: uid === 'seller-c' ? '王小明' : '陳美玲',
+      createdAt: new Date(), updatedAt: new Date(),
+    }));
+    render(<NotificationSettingsPage />);
+
+    const heading = await screen.findByRole('heading', { name: '已訂閱賣家' });
+    const section = heading.parentElement!;
+    await waitFor(() => expect(within(section).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      '移除賣家 王小明（seller-c）訂閱',
+      '移除賣家 陳美玲（seller-a）訂閱',
+      '移除賣家 陳美玲（seller-b）訂閱',
+    ]));
+    expect(subscriptions.getPublicSellerProfile.mock.calls.map(([uid]) => uid).sort()).toEqual([
+      'seller-a', 'seller-b', 'seller-c',
+    ]);
+  });
+
+  it('keeps missing and individually failed seller profiles visible and removable', async () => {
+    subscriptions.getNotificationSubscription.mockResolvedValue({
+      ...savedSubscription,
+      sellerSubscriptions: [
+        { sellerId: 'seller-good', followedAt: new Date() },
+        { sellerId: 'seller-missing', followedAt: new Date() },
+        { sellerId: 'seller-failed', followedAt: new Date() },
+      ],
+    });
+    subscriptions.getPublicSellerProfile.mockImplementation(async (uid) => {
+      if (uid === 'seller-failed') throw new Error('private profile error');
+      if (uid === 'seller-missing') return null;
+      return { uid, displayName: '可用賣家', createdAt: new Date(), updatedAt: new Date() };
+    });
+    render(<NotificationSettingsPage />);
+
+    expect(await screen.findByText('可用賣家')).toBeTruthy();
+    expect((await screen.findAllByText('無法取得賣家名稱')).length).toBe(2);
+    expect(screen.getByRole('button', { name: '移除賣家 無法取得賣家名稱（seller-failed）訂閱' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '移除賣家 無法取得賣家名稱（seller-missing）訂閱' })).toBeTruthy();
+  });
+
+  it('removes an exact seller and preserves the card-name section', async () => {
+    const sellerSaved = {
+      ...savedSubscription,
+      sellerSubscriptions: [{ sellerId: 'seller-1', followedAt: new Date() }],
+    };
+    subscriptions.getNotificationSubscription.mockResolvedValue(sellerSaved);
+    subscriptions.removeNotificationSeller.mockResolvedValue({
+      ...sellerSaved, sellerSubscriptions: [],
+    });
+    const user = userEvent.setup();
+    render(<NotificationSettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: '移除賣家 賣家 seller-1（seller-1）訂閱' }));
+    await waitFor(() => expect(subscriptions.removeNotificationSeller)
+      .toHaveBeenCalledWith('buyer-1', 'seller-1'));
+    expect(screen.getByText('尚未訂閱任何賣家。')).toBeTruthy();
+    expect(screen.getByText('江戶川柯南')).toBeTruthy();
+  });
+
+  it('ignores seller profile results from a previous authenticated buyer', async () => {
+    let resolveOldProfile: ((value: unknown) => void) | undefined;
+    subscriptions.getNotificationSubscription.mockResolvedValueOnce({
+      ...savedSubscription,
+      sellerSubscriptions: [{ sellerId: 'seller-old', followedAt: new Date() }],
+    });
+    subscriptions.getPublicSellerProfile.mockReturnValueOnce(new Promise((resolve) => { resolveOldProfile = resolve; }));
+    const view = render(<NotificationSettingsPage />);
+    await waitFor(() => expect(subscriptions.getPublicSellerProfile).toHaveBeenCalledWith('seller-old'));
+
+    authState.current.user = { uid: 'buyer-2', displayName: 'Buyer 2', photoURL: null };
+    subscriptions.getNotificationSubscription.mockResolvedValueOnce({
+      ...savedSubscription, uid: 'buyer-2', cardNames: [],
+      sellerSubscriptions: [{ sellerId: 'seller-new', followedAt: new Date() }],
+    });
+    subscriptions.getPublicSellerProfile.mockResolvedValueOnce({
+      uid: 'seller-new', displayName: '新賣家', createdAt: new Date(), updatedAt: new Date(),
+    });
+    view.rerender(<NotificationSettingsPage />);
+    expect(await screen.findByText('新賣家')).toBeTruthy();
+    await act(async () => resolveOldProfile?.({
+      uid: 'seller-old', displayName: '舊賣家', createdAt: new Date(), updatedAt: new Date(),
+    }));
+    expect(screen.queryByText('舊賣家')).toBeNull();
+  });
+
+  it('describes the shared daily preference for card names and followed sellers', async () => {
+    render(<NotificationSettingsPage />);
+    expect(await screen.findByText('每日彙整你所訂閱卡名與賣家的新上架商品。')).toBeTruthy();
   });
 
   it('removes an exact card name from the original persisted order', async () => {
