@@ -548,6 +548,7 @@ const dailyDigestDependencies: DailyDigestDependencies = {
         return {
           uid: document.id,
           cardNames: data.cardNames as string[],
+          sellerSubscriptions: data.sellerSubscriptions,
           emailDailyEnabled: data.emailDailyEnabled as boolean,
           updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date(0),
         };

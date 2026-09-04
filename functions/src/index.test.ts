@@ -208,6 +208,20 @@ describe('notification Function deployment contract', () => {
     expect(sendDailyDigest.__endpoint.scheduleTrigger?.retryConfig?.retryCount).toBe(3);
   });
 
+  it('passes legacy and new seller subscription shapes to strict digest parsing unchanged', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+    const adapterStart = source.indexOf('async listEmailDailyEnabled(afterUid, limit)');
+    const adapterEnd = source.indexOf('\n  events:', adapterStart);
+    const adapter = source.slice(adapterStart, adapterEnd);
+
+    expect(adapter).toContain('sellerSubscriptions: data.sellerSubscriptions');
+    expect(adapter).not.toContain('sellerSubscriptions: []');
+    expect(adapter).not.toContain('sellerSubscriptions.toDate');
+    expect(adapter).not.toMatch(/contact|profile|displayName|email\s*:/u);
+    expect(adapter).toContain("where('emailDailyEnabled', '==', true)");
+    expect(adapter).toContain('.limit(limit)');
+  });
+
   it('documents an exact Firebase CLI command for every required email secret', async () => {
     const setupGuide = await readFile(
       new URL('../../docs/firebase-setup.md', import.meta.url),
