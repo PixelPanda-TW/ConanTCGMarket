@@ -9,6 +9,11 @@ import {
   matchesSubscribedCardName,
   readSubscriptionCardNames,
 } from './cardNameSubscriptions.js';
+import {
+  matchesSubscribedSeller,
+  readSellerSubscriptions,
+  type StoredSellerSubscription,
+} from './sellerSubscriptions.js';
 
 const MARKETPLACE_BASE_URL = 'https://pixelpanda-tw.github.io/ConanTCGMarket';
 const DAILY_EVENT_PAGE_SIZE = 250;
@@ -25,6 +30,8 @@ export const DAILY_DIGEST_SCHEDULE_OPTIONS = {
 export interface NotificationSubscription {
   uid: string;
   cardNames: string[];
+  /** Missing only on legacy card-name-only documents. */
+  sellerSubscriptions?: unknown;
   emailDailyEnabled: boolean;
   updatedAt: Date;
 }
@@ -373,6 +380,7 @@ export async function runDailyDigest(
     type PageClaim = {
       subscription: NotificationSubscription;
       cardNames: string[];
+      sellerSubscriptions: StoredSellerSubscription[];
       recipient: string;
       claimId: string;
       claim: DailyDigestClaim;
@@ -392,9 +400,13 @@ export async function runDailyDigest(
     try {
       for (const subscription of subscriptions) {
         const cardNames = readSubscriptionCardNames(subscription.cardNames);
+        const sellerSubscriptions = readSellerSubscriptions(
+          subscription.sellerSubscriptions ?? [],
+        );
         if (subscription.emailDailyEnabled !== true
           || !cardNames
-          || cardNames.length === 0) {
+          || !sellerSubscriptions
+          || (cardNames.length === 0 && sellerSubscriptions.length === 0)) {
           continue;
         }
 
@@ -419,6 +431,7 @@ export async function runDailyDigest(
         claimsByUid.set(subscription.uid, {
           subscription,
           cardNames,
+          sellerSubscriptions,
           recipient,
           claimId,
           claim,
@@ -448,7 +461,8 @@ export async function runDailyDigest(
             for (const pageClaim of claimsByUid.values()) {
               if (event.capturedSequence > pageClaim.claim.afterSequence
                 && event.capturedSequence <= pageClaim.claim.throughSequence
-                && matchesSubscribedCardName(pageClaim.cardNames, event.cardName)) {
+                && (matchesSubscribedCardName(pageClaim.cardNames, event.cardName)
+                  || matchesSubscribedSeller(pageClaim.sellerSubscriptions, event))) {
                 pageClaim.eventsByListingId.set(event.listingId, event);
               }
             }

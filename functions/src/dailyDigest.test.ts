@@ -24,10 +24,12 @@ function listingEvent(
   capturedAt = createdAt,
   capturedSequence = 1,
   cardType: ListingEvent['cardType'] = 'character',
+  sellerId?: string,
 ): ListingEvent {
   return {
     id,
     listingId: id,
+    ...(sellerId ? { sellerId } : {}),
     cardType,
     cardName,
     rarity: 'SR',
@@ -48,6 +50,19 @@ function subscription(uid: string, cardNames = ['江戶川柯南']): Notificatio
     cardNames,
     emailDailyEnabled: true,
     updatedAt: new Date('2026-08-25T00:00:00.000Z'),
+  };
+}
+
+const followedAt = Timestamp.fromDate(new Date('2026-08-25T02:00:00.000Z'));
+
+function sellerSubscription(
+  uid: string,
+  sellerId = 'seller-1',
+  at = followedAt,
+): NotificationSubscription {
+  return {
+    ...subscription(uid, []),
+    sellerSubscriptions: [{ sellerId, followedAt: at }],
   };
 }
 
@@ -212,6 +227,77 @@ describe('runDailyDigest', () => {
     }));
     expect(deps.deliveryState.complete).toHaveBeenCalledWith('buyer-1', 'claim-1');
     expect(deps.deliveryState.beginSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
+  });
+
+  it('sends a seller-only recipient Listings captured at or after follow time', async () => {
+    deps = createDependencies(
+      [sellerSubscription('buyer-1')],
+      [
+        listingEvent('before-follow', '灰原哀', undefined, '2026-08-25T01:59:59.999Z', 1, 'character', 'seller-1'),
+        listingEvent('at-follow', '灰原哀', undefined, '2026-08-25T02:00:00.000Z', 2, 'character', 'seller-1'),
+        listingEvent('after-follow', '毛利蘭', undefined, '2026-08-25T02:00:00.001Z', 3, 'character', 'seller-1'),
+        listingEvent('other-seller', '工藤新一', undefined, undefined, 4, 'character', 'seller-2'),
+      ],
+    );
+
+    await runDailyDigest(now, deps);
+
+    const delivered = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0]
+      .groups.flatMap((group) => group.listings).map((item) => item.listingId);
+    expect(delivered).toEqual(['after-follow', 'at-follow']);
+  });
+
+  it('matches card name OR followed seller and deduplicates a dual match', async () => {
+    deps = createDependencies(
+      [{ ...sellerSubscription('buyer-1'), cardNames: ['江戶川柯南'] }],
+      [
+        listingEvent('card-only', '江戶川柯南', undefined, undefined, 1, 'character', 'seller-2'),
+        listingEvent('seller-only', '灰原哀', undefined, undefined, 2, 'character', 'seller-1'),
+        listingEvent('both', '江戶川柯南', undefined, undefined, 3, 'character', 'seller-1'),
+      ],
+    );
+
+    await runDailyDigest(now, deps);
+
+    const delivered = vi.mocked(deps.gmail.sendDigest).mock.calls[0]?.[0]
+      .groups.flatMap((group) => group.listings).map((item) => item.listingId);
+    expect(delivered).toEqual(['both', 'card-only', 'seller-only']);
+    expect(new Set(delivered).size).toBe(3);
+  });
+
+  it('does not seller-match a legacy event without seller identity', async () => {
+    deps = createDependencies(
+      [sellerSubscription('buyer-1')],
+      [listingEvent('legacy', '灰原哀')],
+    );
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.gmail.sendDigest).not.toHaveBeenCalled();
+    expect(deps.deliveryState.completeWithoutSend).toHaveBeenCalledWith('buyer-1', 'claim-1');
+  });
+
+  it('skips a malformed seller list even when card criteria are valid', async () => {
+    deps = createDependencies([
+      { ...subscription('buyer-malformed'), sellerSubscriptions: [{
+        sellerId: 'seller-1', followedAt: new Date() as never,
+      }] },
+      subscription('buyer-valid'),
+    ]);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledTimes(1);
+    expect(deps.recipients.getVerifiedEmail).toHaveBeenCalledWith('buyer-valid');
+  });
+
+  it('skips a subscription with no card or seller criteria', async () => {
+    deps = createDependencies([{ ...subscription('buyer-empty', []), sellerSubscriptions: [] }]);
+
+    await runDailyDigest(now, deps);
+
+    expect(deps.recipients.getVerifiedEmail).not.toHaveBeenCalled();
+    expect(deps.deliveryState.claim).not.toHaveBeenCalled();
   });
 
   it('matches Character and Partner events by the same raw card-name substring', async () => {
