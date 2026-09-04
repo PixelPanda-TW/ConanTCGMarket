@@ -6,3 +6,4 @@ export * from './sellerProfileRepository';
 export * from './notificationSubscriptionRepository';
 export * from './accountAccessRepository';
 export * from './adminCardMasterRepository';
+export * from './moderationReportRepository';
