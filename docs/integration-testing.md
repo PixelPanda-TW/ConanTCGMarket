@@ -156,7 +156,7 @@ matrix where a denied action has no user-visible UI.
 | `e2e/auth-profile.spec.ts` | Signed-out guidance, Profile validation, mock sign-in, create/edit/reload persistence, and sign-out. |
 | `e2e/account-access.spec.ts` | Missing-document active compatibility, live suspension, public Marketplace browsing, blocked private/action routes, and read-only seller history. |
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
-| `e2e/subscriptions.spec.ts` | Exact-name and detail-page subscriptions, consent/cancel, substring coverage, list/removal, and daily-email preference. |
+| `e2e/subscriptions.spec.ts` | Exact-name and seller subscriptions, consent/cancel, persistence/removal, owner/sold/suspended gates, pre-follow exclusion, dual card-and-seller match deduplication, substring coverage, and daily-email preference. |
 | `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
 | `e2e/mvp-journey.spec.ts` | Login → Profile → Listing → public search → subscription → sale → public sold-out removal. |
 | `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
@@ -171,6 +171,14 @@ the UI is not the security boundary. The admin suspend/restore transaction,
 automatic Listing hide/republish behavior, appeal workflow, and protected
 contact disclosure are deliberately outside this batch and must not be inferred
 from these passing tests.
+
+Seller-subscription E2E uses only the fixed demo project and an in-memory Gmail
+fake. Seed coverage preserves both legacy card-name-only subscriptions and new
+seller subscriptions, plus Listing events with and without seller UID. The
+journey asserts UID-based persistence, Timestamp-backed `followedAt`, reload,
+selective removal, pre-follow exclusion, and dual card-and-seller match
+deduplication. The suite performs no production follow, Listing, email, or data mutation.
+It cannot invoke the production Gmail adapter.
 
 ## Reliability and evidence
 

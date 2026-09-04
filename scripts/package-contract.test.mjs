@@ -68,6 +68,33 @@ test('documents Card Master as an internal admin-managed database with guarded o
   assert.match(milestones, /repository-ready, not production-live/iu);
 });
 
+test('documents the seller subscription compatibility and production safety contract', async () => {
+  const [setupGuide, integrationGuide, milestones] = await Promise.all([
+    readFile(new URL('docs/firebase-setup.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/integration-testing.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/milestones.md', rootUrl), 'utf8'),
+  ]);
+
+  assert.match(setupGuide, /daily digest only/iu);
+  assert.match(setupGuide, /no immediate seller notification/iu);
+  assert.match(setupGuide, /Seller UID is identity/iu);
+  assert.match(setupGuide, /display name is presentation/iu);
+  assert.match(setupGuide, /followedAt[\s\S]+pre-follow Listings never replay/iu);
+  assert.match(setupGuide, /legacy card-name-only documents/iu);
+  assert.match(setupGuide, /legacy Listing events without `sellerId`/iu);
+  assert.match(setupGuide, /no migration/iu);
+  assert.match(setupGuide, /Functions → Rules → frontend/u);
+  assert.match(setupGuide, /must not create a production follow/iu);
+  assert.match(setupGuide, /must not send a production email/iu);
+  assert.match(setupGuide, /Contact data never enters subscriptions, Listing events, or digest email\./u);
+  assert.match(setupGuide, /monitor/iu);
+  assert.match(setupGuide, /rollback/iu);
+  assert.match(integrationGuide, /pre-follow exclusion/iu);
+  assert.match(integrationGuide, /dual card-and-seller match deduplication/iu);
+  assert.match(integrationGuide, /no production follow, Listing, email, or data mutation/iu);
+  assert.match(milestones, /Seller subscriptions are repository-ready, not production-live/iu);
+});
+
 function expectNoImplicitApply(source) {
   assert.doesNotMatch(root.scripts['migrate:sale-snapshots'], /--apply/u);
   assert.doesNotMatch(source, /apply:\s*true/u);

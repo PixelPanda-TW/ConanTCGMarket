@@ -285,15 +285,49 @@ describe('notification Function deployment contract', () => {
     expect(setupGuide).toContain('no matching new Listings');
   });
 
+  it('documents seller-follow compatibility, privacy, and release operations', async () => {
+    const [setupGuide, integrationGuide, milestones] = await Promise.all([
+      readFile(new URL('../../docs/firebase-setup.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/integration-testing.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/milestones.md', import.meta.url), 'utf8'),
+    ]);
+
+    for (const phrase of [
+      'daily digest only',
+      'no immediate seller notification',
+      'Seller UID is identity',
+      'display name is presentation',
+      'followedAt',
+      'pre-follow Listings never replay',
+      'legacy card-name-only documents',
+      'Legacy Listing events without `sellerId`',
+      'no migration',
+      'Functions → Rules → frontend',
+      'must not create a production follow',
+      'must not send a production email',
+      'rollback',
+      'monitor',
+    ]) {
+      expect(setupGuide).toContain(phrase);
+    }
+    expect(setupGuide).toContain(
+      'Contact data never enters subscriptions, Listing events, or digest email.',
+    );
+    expect(integrationGuide).toContain('pre-follow exclusion');
+    expect(integrationGuide).toContain('dual card-and-seller match deduplication');
+    expect(integrationGuide).toContain('no production follow, Listing, email, or data mutation');
+    expect(milestones).toContain(
+      'Seller subscriptions are repository-ready, not production-live',
+    );
+  });
+
   it('documents the fixed release order and non-invasive deployment verification', async () => {
     const setupGuide = await readFile(
       new URL('../../docs/firebase-setup.md', import.meta.url),
       'utf8',
     );
 
-    expect(setupGuide).toContain(
-      'Rules first, Functions second, and frontend third',
-    );
+    expect(setupGuide).toContain('Functions → Rules → frontend');
     expect(setupGuide).toContain('explicit operator approval');
     expect(setupGuide).toContain('no production Listing');
     expect(setupGuide).toContain('no live email');

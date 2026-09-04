@@ -304,6 +304,14 @@ Create a repeatable card master import flow using only permitted text fields.
 
 ## Milestone 11: MVP Acceptance and Launch Cleanup
 
+Status: Seller subscriptions are repository-ready, not production-live. Active
+Google buyers can follow another seller from an active Listing and manage follows
+beside card-name subscriptions. New Listing events carry seller UID, and the
+daily digest applies the follow-time boundary and Listing-ID deduplication. Legacy
+subscription documents and Listing events remain readable without migration.
+Production Functions, Rules, frontend deployment, real follows, and email remain
+separately authorized operations.
+
 ### Goal
 
 Validate the full MVP scenario and prepare the site for early users.

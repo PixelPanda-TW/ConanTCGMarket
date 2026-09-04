@@ -172,7 +172,7 @@ The complete contact release sequence is **Functions → migration → Rules →
 After apply succeeds, independently verify that every `sellerProfiles` document
 has exactly `displayName`, `createdAt`, and `updatedAt`, and that each has one
 matching `sellerContacts` document. Then deploy Firestore Rules, followed by the
-web frontend. Do not use the notification section's Rules-first ordering for
+web frontend. Do not use the notification section's no-migration procedure for
 this one-time schema cutover.
 
 Rollback favors privacy and roll-forward repair: do not restore contact fields
@@ -289,6 +289,43 @@ across all card types, IDs, and rarities. No-match delivery rule:
 no matching new Listings means no email is sent for the subscriber's pending
 digest window.
 
+### Seller-follow compatibility and privacy
+
+Seller follows use the same **daily digest only**. There is **no immediate seller notification**.
+An active Google-authenticated buyer may follow another seller from an active
+Listing, whether or not the buyer also has a Seller Profile. A Listing owner
+cannot follow their own seller identity, and suspended or unresolved accounts
+cannot add or remove follows.
+
+**Seller UID is identity; display name is presentation.** The owner-scoped
+`notificationSubscriptions/{buyerUid}` document stores at most 100 canonical
+`sellerSubscriptions` entries with only `sellerId` and `followedAt`. New Listing
+events capture `sellerId` from the trusted Listing snapshot. The digest compares
+UIDs, never display text. A matching event must have `capturedAt >= followedAt`,
+so **pre-follow Listings never replay**. A Listing matched by both `cardNames`
+and a followed seller is included once by Listing ID.
+
+Compatibility is additive and requires **no migration**. Existing legacy card-name-only documents
+without `sellerSubscriptions` read as an empty seller-follow list and
+continue matching cards. Legacy Listing events without `sellerId` continue
+matching card-name subscriptions but cannot match a seller follow. A subsequent
+write from the current frontend upgrades the owner's subscription document to
+the new four-field shape; historical events and documents are not rewritten.
+
+Contact data never enters subscriptions, Listing events, or digest email.
+Seller contact disclosure remains a separate authenticated callable workflow;
+the digest contains only approved Listing facts and links.
+
+Firestore Rules enforce active ownership, the exact top-level document shape,
+list types, uniqueness for `cardNames`, and separate 100-item bounds. Firestore
+Rules cannot validate all nested seller entries at the 100-item product limit
+without exceeding the platform's 1,000-expression ceiling. The browser model
+and converter validate exact `{ sellerId, followedAt }` entries, while Functions
+strictly parse the complete list and reject the entire document from delivery if
+any nested entry is malformed. Such malformed owner-written data can disable
+only that owner's digest; it cannot expose another user's document or server-only
+notification state.
+
 The digest processes at most 100 Gmail recipients sequentially per invocation.
 Its explicit 540-second timeout avoids relying on the 60-second default while
 leaving a six-minute safety margin before a pre-send reservation becomes stale.
@@ -334,14 +371,15 @@ it does not mutate production notification data or invoke Gmail.
 
 Production commands require explicit operator approval. After the checks pass
 and the Blaze, budget alert, and Cloud Run Functions spend cap safeguards are in
-place, use this fixed release order:
-
-Rules first, Functions second, and frontend third. Run the approved Firebase
-deployments separately and exactly as follows:
+place, the seller-subscription release order is **Functions → Rules → frontend**.
+Deploy Functions first because the strict digest parser accepts both
+legacy and new shapes. Deploy Rules second, then release the frontend immediately
+afterward so browser writes always include `sellerSubscriptions`. Run the
+approved Firebase deployments separately and exactly as follows:
 
 ```sh
-firebase deploy --only firestore --project conantcgmarket
 firebase deploy --only functions --project conantcgmarket
+firebase deploy --only firestore --project conantcgmarket
 ```
 
 Only after both Firebase deployments succeed should the operator separately
@@ -406,3 +444,22 @@ verification evidence. Do not create a production Listing, trigger the scheduled
 digest against production data, or send a test email. Production delivery is
 verified through monitoring after the separately approved release, without
 introducing synthetic Listings or recipients.
+
+Approval of this repository work does not authorize deployment or any production
+operation. Verification **must not create a production follow**, must not create
+a production Listing, and **must not send a production email**. Inspect only the
+deployed manifest/version, Rules release, frontend asset version, aggregate
+Function error rates, Scheduler outcomes, digest recipient/send counts, and
+Firestore `permission-denied` rates. Do not read owner subscription contents or
+invoke a delivery merely as a probe.
+
+Monitor scheduled invocation failures, logged Listing-event capture failures,
+active `reserved`/`sending` claims, and unusual changes in daily send volume.
+Stop the rollout on unexplained changes. For rollback before the
+frontend stage, stop and redeploy the last known Functions or Rules version as
+appropriate; no user-created seller follows can exist yet. After frontend
+release, prefer a reviewed roll-forward. A full rollback must first pause
+subscription management and preserve `notificationSubscriptions`, then restore
+compatible Rules, frontend, and Functions in that order; otherwise an older
+client could overwrite the new seller-follow field. Every rollback or production
+data restoration requires separate explicit approval.
