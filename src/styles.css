@@ -611,6 +611,8 @@ h1 {
 .seller-label { margin: 0; color: #6b7280; font-size: 13px; font-weight: 700; }
 .seller-name { margin: 4px 0 10px; color: #2e1065; font-size: 18px; font-weight: 800; }
 .contact-link, .edit-listing-link { display: inline-block; font-weight: 700; }
+.contact-reveal-button { width: 100%; margin-top: 4px; }
+.contact-access-state { color: var(--muted); }
 .listing-note { margin: 18px 0 0; border-radius: 8px; background: #faf5ff; padding: 12px; color: #4c1d95; line-height: 1.5; }
 .edit-listing-link { margin-top: 18px; }
 .listing-state { width: min(560px, 100%); margin: 64px auto; text-align: center; }

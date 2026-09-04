@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import type { Card, Listing, SellerProfile } from '../../domain/models';
-import { getListing, getPublicSellerProfile, listCards } from '../../data/firestore/repositories';
+import { useEffect, useRef, useState } from 'react';
+import type { Card, Listing, PublicSellerProfile, SellerContact } from '../../domain/models';
+import { getListing, getPublicSellerProfile, getSellerContact, listCards } from '../../data/firestore/repositories';
 import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
@@ -9,13 +9,18 @@ import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
 import { sellerContactPresentation } from '../../domain/sellerContact';
 
 export function ListingPage({ id }: { id: string }) {
-  const { isActiveAccount, user } = useAuth();
+  const { accountAccessState, isActiveAccount, isLoading, signIn, user } = useAuth();
   const [listing, setListing] = useState<Listing | null>();
   const [cards, setCards] = useState<readonly Card[]>();
-  const [seller, setSeller] = useState<Pick<
-    SellerProfile,
-    'displayName' | 'contactType' | 'contactValue'
-  > | null>();
+  const [seller, setSeller] = useState<PublicSellerProfile | null>();
+  const [contactState, setContactState] = useState<{
+    scope: string;
+    status: 'loading' | 'revealed' | 'error';
+    contact?: Pick<SellerContact, 'contactType' | 'contactValue'>;
+    message?: string;
+  } | null>(null);
+  const contactRequestGeneration = useRef(0);
+  const contactScope = `${id}:${user?.uid ?? 'signed-out'}:${accountAccessState.state}`;
 
   useEffect(() => {
     let isCurrent = true;
@@ -45,6 +50,34 @@ export function ListingPage({ id }: { id: string }) {
     };
   }, [id]);
 
+  useEffect(() => {
+    contactRequestGeneration.current += 1;
+    setContactState(null);
+  }, [accountAccessState.state, id, user?.uid]);
+
+  async function revealContact() {
+    if (!isActiveAccount || !user || contactState?.status === 'loading') return;
+    const generation = ++contactRequestGeneration.current;
+    const scope = contactScope;
+    setContactState({ scope, status: 'loading' });
+    try {
+      const contact = await getSellerContact(id);
+      if (contactRequestGeneration.current !== generation) return;
+      setContactState({ scope, status: 'revealed', contact });
+    } catch (error) {
+      if (contactRequestGeneration.current !== generation) return;
+      const isRateLimited = typeof error === 'object' && error !== null
+        && 'code' in error && error.code === 'functions/resource-exhausted';
+      setContactState({
+        scope,
+        status: 'error',
+        message: isRateLimited
+          ? '本時段查看次數已達上限，請稍後再試。'
+          : '目前無法讀取聯絡方式，請稍後再試。',
+      });
+    }
+  }
+
   if (listing === undefined) {
     return <PageShell width="listing" backToMarketplace><p>商品載入中</p></PageShell>;
   }
@@ -60,8 +93,12 @@ export function ListingPage({ id }: { id: string }) {
     && metadata.resolution !== 'missing';
   const isKnownCardName = hasResolvedCardName
     && isKnownSubscriptionCardName(cards ?? [], metadata.cardName);
-  const contact = seller
-    ? sellerContactPresentation(seller.contactType, seller.contactValue)
+  const currentContactState = contactState?.scope === contactScope ? contactState : null;
+  const contact = currentContactState?.status === 'revealed' && currentContactState.contact
+    ? sellerContactPresentation(
+        currentContactState.contact.contactType,
+        currentContactState.contact.contactValue,
+      )
     : undefined;
   return (
     <PageShell width="listing" backToMarketplace>
@@ -119,7 +156,36 @@ export function ListingPage({ id }: { id: string }) {
                   {contact.label}{contact.value ? `：${contact.value}` : ''}
                 </p>
               )
-            ) : <p>聯絡方式載入中</p>}
+            ) : isLoading || accountAccessState.state === 'loading' ? (
+              <button type="button" className="contact-reveal-button" disabled>
+                確認帳號狀態中
+              </button>
+            ) : !user ? (
+              <button
+                type="button"
+                className="contact-reveal-button"
+                onClick={() => { void signIn(); }}
+              >
+                登入後查看聯絡方式
+              </button>
+            ) : accountAccessState.state === 'suspended' ? (
+              <p className="contact-access-state" role="status">帳號目前已停權，無法查看聯絡方式。</p>
+            ) : accountAccessState.state === 'unavailable' ? (
+              <p className="contact-access-state" role="status">無法確認帳號狀態，請重新整理後再試。</p>
+            ) : currentContactState?.status === 'loading' ? (
+              <button type="button" className="contact-reveal-button" disabled>
+                讀取聯絡方式中
+              </button>
+            ) : (
+              <>
+                {currentContactState?.status === 'error' && (
+                  <p className="field-error" role="alert">{currentContactState.message}</p>
+                )}
+                <button type="button" className="contact-reveal-button" onClick={revealContact}>
+                  {currentContactState?.status === 'error' ? '重新查看聯絡方式' : '查看聯絡方式'}
+                </button>
+              </>
+            )}
             {listing.note && <p className="listing-note">{listing.note}</p>}
             {isActiveAccount && user?.uid === listing.sellerId && (
               <a className="edit-listing-link" href={`#/listing/${id}/edit`}>管理此商品</a>

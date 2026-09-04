@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Card, Listing, SellerProfile } from '../../domain/models';
+import type { Card, Listing, PublicSellerProfile } from '../../domain/models';
 import { ListingPage } from './ListingPage';
 
 const repositories = vi.hoisted(() => ({
@@ -10,6 +10,7 @@ const repositories = vi.hoisted(() => ({
   getListing: vi.fn(),
   getNotificationSubscription: vi.fn(),
   getPublicSellerProfile: vi.fn(),
+  getSellerContact: vi.fn(),
   listCards: vi.fn(),
   removeNotificationCardName: vi.fn(),
 }));
@@ -52,11 +53,9 @@ const listing: Listing = {
   createdAt: new Date(),
   updatedAt: new Date(),
 };
-const seller: SellerProfile = {
+const seller: PublicSellerProfile = {
   uid: 'seller-1',
   displayName: 'Seller',
-  contactType: 'line',
-  contactValue: 'seller',
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -176,66 +175,115 @@ describe('ListingPage card-name subscriptions', () => {
     expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
   });
 
-  describe('seller contact presentation', () => {
-    it('renders LINE as an encoded external ID link', async () => {
-      repositories.getPublicSellerProfile.mockResolvedValue({
-        ...seller,
-        contactType: 'line',
-        contactValue: '@seller',
-      });
+  describe('protected seller contact disclosure', () => {
+    function activate(uid = 'buyer-1') {
+      authState.current.user = { uid };
+      authState.current.accountAccessState = { state: 'active', access: null };
+      authState.current.isActiveAccount = true;
+    }
 
+    it('loads public seller presentation without requesting or rendering contact', async () => {
       render(<ListingPage id="listing-1" />);
-
-      const link = await screen.findByRole('link', { name: 'LINE ID：@seller' });
-      expect(link.getAttribute('href')).toBe('https://line.me/ti/p/~%40seller');
-      expect(link.getAttribute('target')).toBe('_blank');
-      expect(link.getAttribute('rel')).toBe('noreferrer');
+      expect(await screen.findByText('Seller')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '登入後查看聯絡方式' })).toBeTruthy();
+      expect(repositories.getSellerContact).not.toHaveBeenCalled();
+      expect(document.body.textContent).not.toContain('@seller');
     });
 
-    it('renders Discord as plain ID text', async () => {
-      repositories.getPublicSellerProfile.mockResolvedValue({
-        ...seller,
-        contactType: 'discord',
-        contactValue: 'seller_name',
-      });
-
+    it('uses existing Google sign-in and preserves the Listing route', async () => {
+      window.location.hash = '#/listing/listing-1';
       render(<ListingPage id="listing-1" />);
+      await screen.findByText('Seller');
+      fireEvent.click(screen.getByRole('button', { name: '登入後查看聯絡方式' }));
+      expect(authState.current.signIn).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe('#/listing/listing-1');
+      expect(repositories.getSellerContact).not.toHaveBeenCalled();
+    });
 
+    it.each([
+      ['line', '@seller', 'LINE ID：@seller', 'https://line.me/ti/p/~%40seller'],
+      ['discord', 'seller_name', 'Discord ID：seller_name', null],
+      ['facebook', 'https://www.facebook.com/seller', 'Facebook 個人頁面', 'https://www.facebook.com/seller'],
+      ['threads', 'https://www.threads.net/@seller', 'Threads 個人頁面', 'https://www.threads.net/@seller'],
+    ] as const)('reveals canonical %s only after an active user clicks', async (contactType, contactValue, label, href) => {
+      activate();
+      repositories.getSellerContact.mockResolvedValue({ contactType, contactValue });
+      render(<ListingPage id="listing-1" />);
+      const button = await screen.findByRole('button', { name: '查看聯絡方式' });
+      expect(screen.queryByText(label)).toBeNull();
+      fireEvent.click(button);
+
+      const rendered = await screen.findByText(label);
+      expect(repositories.getSellerContact).toHaveBeenCalledWith('listing-1');
+      if (href) {
+        expect(rendered.closest('a')?.getAttribute('href')).toBe(href);
+      } else {
+        expect(rendered.closest('a')).toBeNull();
+      }
+    });
+
+    it('disables duplicate requests while a reveal is pending', async () => {
+      activate();
+      repositories.getSellerContact.mockReturnValue(new Promise(() => undefined));
+      render(<ListingPage id="listing-1" />);
+      const button = await screen.findByRole('button', { name: '查看聯絡方式' });
+      fireEvent.click(button);
+      expect((await screen.findByRole('button', { name: '讀取聯絡方式中' })).hasAttribute('disabled')).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: '讀取聯絡方式中' }));
+      expect(repositories.getSellerContact).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['suspended', { state: 'suspended', access: { uid: 'buyer-1', status: 'suspended' } }],
+      ['unavailable', { state: 'unavailable', message: '請重新整理。' }],
+      ['loading', { state: 'loading' }],
+    ])('does not expose a callable trigger while account state is %s', async (_name, accountAccessState) => {
+      authState.current.user = { uid: 'buyer-1' };
+      authState.current.accountAccessState = accountAccessState;
+      authState.current.isActiveAccount = false;
+      render(<ListingPage id="listing-1" />);
+      await screen.findByText('Seller');
+      expect(screen.queryByRole('button', { name: /查看聯絡方式/ })).toBeNull();
+      expect(repositories.getSellerContact).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['generic', new Error('network'), '目前無法讀取聯絡方式，請稍後再試。'],
+      ['rate limit', { code: 'functions/resource-exhausted' }, '本時段查看次數已達上限，請稍後再試。'],
+    ])('shows a contact-free retry state for %s failure', async (_name, error, message) => {
+      activate();
+      repositories.getSellerContact.mockRejectedValue(error);
+      render(<ListingPage id="listing-1" />);
+      fireEvent.click(await screen.findByRole('button', { name: '查看聯絡方式' }));
+      expect((await screen.findByRole('alert')).textContent).toBe(message);
+      expect(screen.getByRole('button', { name: '重新查看聯絡方式' })).toBeTruthy();
+      expect(document.body.textContent).not.toContain('@seller');
+    });
+
+    it('drops a stale reveal when the authenticated UID changes', async () => {
+      activate('buyer-1');
+      let resolveContact!: (value: unknown) => void;
+      repositories.getSellerContact.mockReturnValue(new Promise((resolve) => { resolveContact = resolve; }));
+      const view = render(<ListingPage id="listing-1" />);
+      fireEvent.click(await screen.findByRole('button', { name: '查看聯絡方式' }));
+
+      activate('buyer-2');
+      view.rerender(<ListingPage id="listing-1" />);
+      resolveContact({ contactType: 'line', contactValue: '@seller' });
+      await waitFor(() => expect(screen.getByRole('button', { name: '查看聯絡方式' })).toBeTruthy());
+      expect(screen.queryByText('LINE ID：@seller')).toBeNull();
+    });
+
+    it('clears a revealed contact immediately when navigating to another Listing', async () => {
+      activate();
+      repositories.getSellerContact.mockResolvedValue({ contactType: 'discord', contactValue: 'seller_name' });
+      const view = render(<ListingPage id="listing-1" />);
+      fireEvent.click(await screen.findByRole('button', { name: '查看聯絡方式' }));
       expect(await screen.findByText('Discord ID：seller_name')).toBeTruthy();
-      expect(screen.queryByRole('link', { name: 'Discord ID：seller_name' })).toBeNull();
-    });
+      repositories.getListing.mockResolvedValue({ ...listing, id: 'listing-2' });
 
-    it.each([
-      ['facebook', 'https://www.facebook.com/seller', 'Facebook 個人頁面'],
-      ['threads', 'https://www.threads.net/@seller', 'Threads 個人頁面'],
-    ] as const)('renders a canonical %s profile link', async (contactType, contactValue, label) => {
-      repositories.getPublicSellerProfile.mockResolvedValue({
-        ...seller,
-        contactType,
-        contactValue,
-      });
-
-      render(<ListingPage id="listing-1" />);
-
-      const link = await screen.findByRole('link', { name: label });
-      expect(link.getAttribute('href')).toBe(contactValue);
-    });
-
-    it.each([
-      ['threads', '@legacy'],
-      ['facebook', 'javascript:alert(1)'],
-    ] as const)('keeps an invalid legacy %s contact non-interactive', async (contactType, contactValue) => {
-      repositories.getPublicSellerProfile.mockResolvedValue({
-        ...seller,
-        contactType,
-        contactValue,
-      });
-
-      render(<ListingPage id="listing-1" />);
-
-      expect(await screen.findByText('聯絡方式需要由賣家更新')).toBeTruthy();
-      expect(screen.queryByRole('link', { name: '聯絡方式需要由賣家更新' })).toBeNull();
-      expect([...document.querySelectorAll('a')].some((link) => link.getAttribute('href') === contactValue)).toBe(false);
+      view.rerender(<ListingPage id="listing-2" />);
+      expect(screen.queryByText('Discord ID：seller_name')).toBeNull();
     });
   });
 });
