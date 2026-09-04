@@ -4,14 +4,18 @@ import {
   validateCard,
   validateListing,
   validateNotificationSubscription,
+  validatePublicSellerProfile,
   validateSale,
+  validateSellerContact,
   validateSellerProfile,
   validateSellerProfileStructure,
   type Card,
   type AccountAccess,
   type Listing,
   type NotificationSubscription,
+  type PublicSellerProfile,
   type Sale,
+  type SellerContact,
   type SellerProfile,
 } from './index';
 import { CARD_TYPES, cardTypeLabel, isCardType } from '../cardType';
@@ -316,6 +320,52 @@ describe('domain model validation', () => {
     expect(() => validateSellerProfile({
       ...baseProfile, contactType: 'threads', contactValue: 'https://www.threads.net/@seller',
     })).not.toThrow();
+  });
+
+  it('validates a strict public seller profile independently from contact data', () => {
+    const profile: PublicSellerProfile = {
+      uid: 'seller-1',
+      displayName: 'Seller',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+    };
+
+    expect(() => validatePublicSellerProfile(profile)).not.toThrow();
+    expect(() => validatePublicSellerProfile({ ...profile, displayName: '' })).toThrow('1 to 80');
+    expect(() => validatePublicSellerProfile({ ...profile, displayName: ' Seller' })).toThrow('trimmed');
+    expect(() => validatePublicSellerProfile({ ...profile, displayName: '名'.repeat(81) })).toThrow('1 to 80');
+    expect(() => validatePublicSellerProfile({ ...profile, uid: '' })).toThrow('uid');
+    expect(() => validatePublicSellerProfile({ ...profile, createdAt: new Date('invalid') }))
+      .toThrow('valid createdAt');
+  });
+
+  it.each([
+    ['line', '@seller'],
+    ['discord', 'seller_name'],
+    ['facebook', 'https://www.facebook.com/seller'],
+    ['threads', 'https://www.threads.net/@seller'],
+  ] as const)('validates a canonical private %s seller contact', (contactType, contactValue) => {
+    const contact: SellerContact = {
+      uid: 'seller-1', contactType, contactValue,
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+    };
+
+    expect(() => validateSellerContact(contact)).not.toThrow();
+  });
+
+  it('rejects noncanonical private contacts and overlong composite display names', () => {
+    const contact: SellerContact = {
+      uid: 'seller-1', contactType: 'threads', contactValue: '@legacy',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+    };
+
+    expect(() => validateSellerContact(contact)).toThrow('canonical contactValue');
+    expect(() => validateSellerProfile({
+      ...contact,
+      displayName: '名'.repeat(81),
+    })).toThrow('1 to 80');
   });
 
   it.each([

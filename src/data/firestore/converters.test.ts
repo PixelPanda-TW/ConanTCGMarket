@@ -4,8 +4,8 @@ import {
   accountAccessConverter,
   cardConverter,
   listingConverter,
+  publicSellerProfileConverter,
   saleConverter,
-  sellerProfileConverter,
   notificationSubscriptionConverter,
 } from './converters';
 import { collections } from './paths';
@@ -13,6 +13,13 @@ import { collections } from './paths';
 describe('Firestore converters', () => {
   it('exposes the account access collection path', () => {
     expect(collections.accountAccess).toBe('accountAccess');
+  });
+
+  it('exposes private seller contact and access-control collection paths', () => {
+    expect(collections.sellerContacts).toBe('sellerContacts');
+    expect(collections.sellerContactAccessLogs).toBe('sellerContactAccessLogs');
+    expect(collections.sellerContactRequesterLimits).toBe('sellerContactRequesterLimits');
+    expect(collections.sellerContactSellerLimits).toBe('sellerContactSellerLimits');
   });
 
   it('converts canonical active and suspended account access documents', () => {
@@ -237,86 +244,58 @@ describe('Firestore converters', () => {
       .toThrow('Listing requires cardType, cardName, and rarity snapshots.');
   });
 
-  it('converts seller profile timestamps to Date values', () => {
+  it('converts only a strict public seller profile to Date values', () => {
     const snapshot = {
       id: 'seller-1',
       data: () => ({
         displayName: 'Seller',
-        contactType: 'line',
-        contactValue: 'seller-line',
         createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
         updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
       }),
     };
 
-    expect(sellerProfileConverter.fromFirestore(snapshot as never)).toMatchObject({
+    expect(publicSellerProfileConverter.fromFirestore(snapshot as never)).toEqual({
       uid: 'seller-1',
+      displayName: 'Seller',
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
       updatedAt: new Date('2026-08-17T01:00:00.000Z'),
     });
   });
 
-  it('writes only allowlisted seller profile fields', () => {
+  it('writes only allowlisted public seller profile fields', () => {
     expect(
-      sellerProfileConverter.toFirestore({
+      publicSellerProfileConverter.toFirestore({
         uid: 'seller-1',
         displayName: 'Seller',
-        contactType: 'line',
-        contactValue: 'seller-line',
         createdAt: new Date('2026-08-17T00:00:00.000Z'),
         updatedAt: new Date('2026-08-17T01:00:00.000Z'),
+        contactType: 'line',
+        contactValue: 'must-not-be-public',
         email: 'seller@example.com',
         unknown: 'unknown',
       } as never),
     ).toEqual({
       displayName: 'Seller',
-      contactType: 'line',
-      contactValue: 'seller-line',
       createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
       updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
     });
   });
 
-  it('rejects a legacy contact value when writing a seller profile', () => {
-    expect(() => sellerProfileConverter.toFirestore({
-      uid: 'seller-1',
-      displayName: 'Seller',
-      contactType: 'threads',
-      contactValue: '@legacy',
-      createdAt: new Date('2026-08-17T00:00:00.000Z'),
-      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
-    })).toThrow('Seller profile requires a canonical contactValue for contactType.');
-  });
-
-  it('writes a canonical social profile URL unchanged', () => {
-    expect(sellerProfileConverter.toFirestore({
-      uid: 'seller-1',
-      displayName: 'Seller',
-      contactType: 'threads',
-      contactValue: 'https://www.threads.net/@seller',
-      createdAt: new Date('2026-08-17T00:00:00.000Z'),
-      updatedAt: new Date('2026-08-17T01:00:00.000Z'),
-    })).toMatchObject({
-      contactType: 'threads',
-      contactValue: 'https://www.threads.net/@seller',
-    });
-  });
-
-  it('keeps a legacy seller contact readable for owner correction', () => {
-    const snapshot = {
-      id: 'seller-1',
-      data: () => ({
-        displayName: 'Seller',
-        contactType: 'threads',
-        contactValue: '@legacy',
-        createdAt: Timestamp.fromDate(new Date('2026-08-17T00:00:00.000Z')),
-        updatedAt: Timestamp.fromDate(new Date('2026-08-17T01:00:00.000Z')),
-      }),
-    };
-
-    expect(sellerProfileConverter.fromFirestore(snapshot as never)).toMatchObject({
-      contactType: 'threads',
-      contactValue: '@legacy',
-    });
+  it.each([
+    ['legacy contact fields', {
+      displayName: 'Seller', contactType: 'line', contactValue: 'seller-line',
+      createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    }],
+    ['an unknown field', {
+      displayName: 'Seller', createdAt: Timestamp.now(), updatedAt: Timestamp.now(), extra: true,
+    }],
+    ['a noncanonical display name', {
+      displayName: ' Seller', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    }],
+  ])('rejects non-public seller profile data: %s', (_name, data) => {
+    expect(() => publicSellerProfileConverter.fromFirestore({
+      id: 'seller-1', data: () => data,
+    } as never)).toThrow();
   });
 
   it('converts sale timestamps to Date values', () => {

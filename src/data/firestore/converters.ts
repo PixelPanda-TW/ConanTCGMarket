@@ -9,15 +9,14 @@ import {
   validateCard,
   validateListing,
   validateNotificationSubscription,
+  validatePublicSellerProfile,
   validateSale,
-  validateSellerProfile,
-  validateSellerProfileStructure,
   type Card,
   type AccountAccess,
   type Listing,
   type NotificationSubscription,
+  type PublicSellerProfile,
   type Sale,
-  type SellerProfile,
 } from '../../domain/models';
 import { normalizeCardId } from '../../domain/cardId';
 import { toCharacterKey } from '../../domain/characterKey';
@@ -203,34 +202,46 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
   },
 };
 
-export const sellerProfileConverter: FirestoreDataConverter<SellerProfile> = {
+const publicSellerProfileFields = ['createdAt', 'displayName', 'updatedAt'] as const;
+
+function assertCanonicalPublicSellerProfileFields(data: FirestoreData) {
+  const fields = Object.keys(data).sort();
+  if (
+    fields.length !== publicSellerProfileFields.length
+    || fields.some((field, index) => field !== publicSellerProfileFields[index])
+  ) {
+    throw new Error('Public seller profile requires exactly displayName, createdAt, and updatedAt.');
+  }
+}
+
+export const publicSellerProfileConverter: FirestoreDataConverter<PublicSellerProfile> = {
   toFirestore(profile) {
-    const profileData = profile as SellerProfile;
-    validateSellerProfile(profileData);
+    const profileData = profile as PublicSellerProfile;
+    validatePublicSellerProfile(profileData);
 
     return {
       displayName: profileData.displayName,
-      contactType: profileData.contactType,
-      contactValue: profileData.contactValue,
       createdAt: dateToTimestamp(profileData.createdAt),
       updatedAt: dateToTimestamp(profileData.updatedAt),
     };
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
-    const profile: SellerProfile = {
+    assertCanonicalPublicSellerProfileFields(data);
+    const profile: PublicSellerProfile = {
       uid: snapshot.id,
       displayName: data.displayName as string,
-      contactType: data.contactType as SellerProfile['contactType'],
-      contactValue: data.contactValue as string,
       createdAt: timestampToDate(data.createdAt, 'createdAt'),
       updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
     };
 
-    validateSellerProfileStructure(profile);
+    validatePublicSellerProfile(profile);
     return profile;
   },
 };
+
+// Transitional public-only alias removed when the repository switches to callables in Task 4.
+export const sellerProfileConverter = publicSellerProfileConverter;
 
 export const saleConverter: FirestoreDataConverter<Sale> = {
   toFirestore(sale) {
