@@ -1240,23 +1240,27 @@ textarea:focus-visible {
 
 /* Buyer notification controls */
 .card-name-subscription-control,
+.seller-subscription-control,
 .subscription-sign-in-guidance,
 .notification-settings-content {
   display: grid;
   gap: 12px;
 }
 
-.card-name-subscription-control {
+.card-name-subscription-control,
+.seller-subscription-control {
   min-width: 0;
   justify-items: start;
 }
 
 .card-name-subscription-control button,
+.seller-subscription-control button,
 .notification-settings-card button {
   min-height: 44px;
 }
 
 .card-name-subscription-control button,
+.seller-subscription-control button,
 .subscription-management-link,
 .notification-settings-card button {
   max-width: 100%;
@@ -1265,6 +1269,12 @@ textarea:focus-visible {
 
 .card-name-subscription-control button:focus-visible,
 .subscription-management-link:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px hsl(var(--background));
+}
+
+.seller-subscription-control button:focus-visible {
   outline: 3px solid hsl(var(--ring));
   outline-offset: 3px;
   box-shadow: 0 0 0 2px hsl(var(--background));
@@ -1445,7 +1455,9 @@ textarea:focus-visible {
 @media (max-width: 640px) {
   .marketplace-subscription,
   .marketplace-subscription .card-name-subscription-control,
+  .seller-subscription-control,
   .card-name-subscription-control > button,
+  .seller-subscription-control > button,
   .subscription-management-link {
     width: 100%;
   }
