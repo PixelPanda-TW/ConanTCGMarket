@@ -4,6 +4,9 @@ import {
   validateCard,
   validateCardMasterArchive,
   validateListing,
+  validateModerationCaseDetail,
+  validateModerationCasePage,
+  validateModerationDecisionResult,
   validateModerationReportDraftReceipt,
   validateModerationReportForm,
   validateNotificationSubscription,
@@ -16,6 +19,8 @@ import {
   type CardMasterArchive,
   type AccountAccess,
   type Listing,
+  type ModerationCaseDetail,
+  type ModerationCasePage,
   type ModerationReportForm,
   type NotificationSubscription,
   type PublicSellerProfile,
@@ -36,6 +41,95 @@ describe('domain model validation', () => {
     confirmedViolationCount: 0,
     updatedAt: new Date('2026-09-03T00:00:00.000Z'),
   };
+
+  const moderationSnapshot = {
+    listingId: 'listing-1', cardType: 'character' as const,
+    cardName: '諸伏高明', cardId: '0501', rarity: 'D', listingPrice: 500,
+    createdAt: new Date('2026-09-01T00:00:00.000Z'),
+  };
+
+  it('accepts exact open, dismissed, and confirmed moderation summaries', () => {
+    const page: ModerationCasePage = {
+      cases: [
+        {
+          reportId: 'report-open', status: 'open', category: 'other',
+          targetSellerId: 'seller-1', listingSnapshot: moderationSnapshot,
+          openedAt: new Date('2026-09-04T01:00:00.000Z'),
+        },
+        {
+          reportId: 'report-dismissed', status: 'dismissed', category: 'listing_mismatch',
+          targetSellerId: 'seller-2', listingSnapshot: moderationSnapshot,
+          openedAt: new Date('2026-09-04T00:00:00.000Z'),
+          decidedAt: new Date('2026-09-04T02:00:00.000Z'),
+        },
+        {
+          reportId: 'report-confirmed', status: 'confirmed', category: 'suspected_counterfeit',
+          targetSellerId: 'seller-3', listingSnapshot: moderationSnapshot,
+          openedAt: new Date('2026-09-03T00:00:00.000Z'),
+          decidedAt: new Date('2026-09-04T03:00:00.000Z'),
+          resultingConfirmedViolationCount: 2,
+        },
+      ],
+      nextCursor: {
+        openedAt: new Date('2026-09-03T00:00:00.000Z'), key: 'report-confirmed',
+      },
+    };
+    expect(() => validateModerationCasePage(page, 3)).not.toThrow();
+  });
+
+  it('accepts exact private moderation detail without storage or contact fields', () => {
+    const detail: ModerationCaseDetail = {
+      reportId: 'report-1', status: 'confirmed', category: 'listing_mismatch',
+      description: '照片與卡片資料不符', reporterId: 'buyer-1', targetSellerId: 'seller-1',
+      listingSnapshot: moderationSnapshot,
+      submittedAt: new Date('2026-09-04T00:00:00.000Z'),
+      openedAt: new Date('2026-09-04T00:00:00.000Z'),
+      evidence: [{ slot: 0, contentType: 'image/png', size: 100 }],
+      account: { status: 'active', confirmedViolationCount: 2, suspensionEligible: true },
+      rationale: '證據與刊登內容一致證明違規', decidedBy: 'admin-1',
+      decidedAt: new Date('2026-09-04T01:00:00.000Z'),
+      resultingConfirmedViolationCount: 2,
+    };
+    expect(() => validateModerationCaseDetail(detail)).not.toThrow();
+    for (const extra of ['contactValue', 'email', 'path', 'md5Hash']) {
+      expect(() => validateModerationCaseDetail({ ...detail, [extra]: 'private' }))
+        .toThrow('exact fields');
+    }
+  });
+
+  it.each([
+    ['padded rationale', { rationale: ' 原因' }],
+    ['long rationale', { rationale: '字'.repeat(1001) }],
+    ['unsorted evidence', {
+      evidence: [
+        { slot: 2, contentType: 'image/png', size: 1 },
+        { slot: 0, contentType: 'image/png', size: 1 },
+      ],
+    }],
+    ['invalid account eligibility', {
+      account: { status: 'active', confirmedViolationCount: 1, suspensionEligible: true },
+    }],
+  ])('rejects malformed moderation detail: %s', (_label, override) => {
+    expect(() => validateModerationCaseDetail({
+      reportId: 'report-1', status: 'dismissed', category: 'other', description: '說明',
+      reporterId: 'buyer-1', targetSellerId: 'seller-1', listingSnapshot: moderationSnapshot,
+      submittedAt: new Date(), openedAt: new Date(), evidence: [],
+      account: { status: 'active', confirmedViolationCount: 0, suspensionEligible: false },
+      rationale: '無法證實', decidedBy: 'admin-1', decidedAt: new Date(), ...override,
+    })).toThrow();
+  });
+
+  it('requires exact trusted moderation decision results', () => {
+    expect(() => validateModerationDecisionResult({
+      reportId: 'report-1', status: 'confirmed',
+      resultingConfirmedViolationCount: 2, suspensionEligible: true,
+    })).not.toThrow();
+    expect(() => validateModerationDecisionResult({
+      reportId: 'report-1', status: 'dismissed',
+      resultingConfirmedViolationCount: 0, suspensionEligible: false,
+      email: 'private@example.test',
+    })).toThrow('exact fields');
+  });
 
   it('models the exact report categories and canonical form fields', () => {
     expect(MODERATION_REPORT_CATEGORIES).toEqual([
