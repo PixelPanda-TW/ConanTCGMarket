@@ -34,9 +34,11 @@ vi.mock('../../../lib/firebase/app', () => firebaseApp);
 
 import {
   addNotificationCardName,
+  addNotificationSeller,
   deleteNotificationSubscription,
   getNotificationSubscription,
   removeNotificationCardName,
+  removeNotificationSeller,
   setNotificationEmailDailyEnabled,
 } from './notificationSubscriptionRepository';
 import { collections } from '../paths';
@@ -54,6 +56,19 @@ describe('notification subscription repository', () => {
     emailDailyEnabled = true,
   ): StoredSubscription => ({
     cardNames,
+    emailDailyEnabled,
+    updatedAt: timestamp(),
+  });
+  const sellerData = (
+    sellerSubscriptions: Array<{ sellerId: string; followedAt?: string }> = [],
+    cardNames = ['鈴木園子'],
+    emailDailyEnabled = true,
+  ): StoredSubscription => ({
+    cardNames,
+    sellerSubscriptions: sellerSubscriptions.map(({ sellerId, followedAt }) => ({
+      sellerId,
+      followedAt: timestamp(followedAt),
+    })),
     emailDailyEnabled,
     updatedAt: timestamp(),
   });
@@ -229,6 +244,117 @@ describe('notification subscription repository', () => {
     });
   });
 
+  it('adds a seller by UID with follow time, sorted identity, and preserved card criteria', async () => {
+    serverData = sellerData(
+      [{ sellerId: 'seller-z', followedAt: '2026-09-01T00:00:00.000Z' }],
+      ['江戶川柯南'],
+      false,
+    );
+    const followedAt = new Date('2026-09-04T03:00:00.000Z');
+
+    const saved = await addNotificationSeller('buyer-1', 'seller-a', followedAt);
+
+    expect(saved).toEqual({
+      uid: 'buyer-1',
+      cardNames: ['江戶川柯南'],
+      sellerSubscriptions: [
+        { sellerId: 'seller-a', followedAt },
+        { sellerId: 'seller-z', followedAt: new Date('2026-09-01T00:00:00.000Z') },
+      ],
+      emailDailyEnabled: true,
+      updatedAt: expect.any(Date),
+    });
+    expect(serverData).toEqual({
+      cardNames: ['江戶川柯南'],
+      sellerSubscriptions: [
+        { sellerId: 'seller-a', followedAt: expect.any(firestore.Timestamp) },
+        { sellerId: 'seller-z', followedAt: expect.any(firestore.Timestamp) },
+      ],
+      emailDailyEnabled: true,
+      updatedAt: expect.any(firestore.Timestamp),
+    });
+  });
+
+  it('re-adding a seller is idempotent and retains the original follow time', async () => {
+    serverData = sellerData([{ sellerId: 'seller-a', followedAt: '2026-09-01T00:00:00.000Z' }]);
+
+    const saved = await addNotificationSeller(
+      'buyer-1',
+      'seller-a',
+      new Date('2026-09-04T00:00:00.000Z'),
+    );
+
+    expect(saved.sellerSubscriptions).toEqual([{
+      sellerId: 'seller-a', followedAt: new Date('2026-09-01T00:00:00.000Z'),
+    }]);
+  });
+
+  it('removes only one seller while preserving card names and preference', async () => {
+    serverData = sellerData([
+      { sellerId: 'seller-a', followedAt: '2026-09-01T00:00:00.000Z' },
+      { sellerId: 'seller-b', followedAt: '2026-09-02T00:00:00.000Z' },
+    ], ['灰原哀'], false);
+
+    const saved = await removeNotificationSeller('buyer-1', 'seller-a');
+
+    expect(saved).toMatchObject({
+      cardNames: ['灰原哀'],
+      sellerSubscriptions: [{
+        sellerId: 'seller-b', followedAt: new Date('2026-09-02T00:00:00.000Z'),
+      }],
+      emailDailyEnabled: false,
+    });
+    await expect(removeNotificationSeller('buyer-1', 'seller-missing')).resolves.toMatchObject({
+      sellerSubscriptions: [{ sellerId: 'seller-b' }],
+    });
+  });
+
+  it('rejects malformed and over-limit seller additions without writing', async () => {
+    serverData = sellerData(Array.from({ length: 100 }, (_, index) => ({
+      sellerId: `seller-${String(index).padStart(3, '0')}`,
+    })));
+    const original = serverData;
+
+    await expect(addNotificationSeller('buyer-1', ' seller-new', new Date())).rejects.toThrow();
+    await expect(addNotificationSeller('buyer-1', 'seller-new', new Date('invalid'))).rejects.toThrow();
+    await expect(addNotificationSeller('buyer-1', 'seller-new', new Date())).rejects.toThrow(/at most 100/);
+    expect(serverData).toBe(original);
+  });
+
+  it('preserves a concurrent card add when a seller add transaction runs second', async () => {
+    serverData = sellerData([], [], false);
+    const deferredTransactions: Array<() => Promise<void>> = [];
+    firestore.runTransaction.mockImplementation((
+      _database: unknown,
+      operation: (transaction: {
+        get(reference: unknown): Promise<ReturnType<typeof snapshot>>;
+        set(reference: unknown, data: StoredSubscription): void;
+      }) => unknown,
+    ) => new Promise((resolve, reject) => {
+      deferredTransactions.push(async () => {
+        try {
+          const result = await operation({
+            get: vi.fn(async () => snapshot()),
+            set: vi.fn((_reference, data) => { serverData = data; }),
+          });
+          resolve(result);
+        } catch (error) { reject(error); }
+      });
+    }));
+
+    const addSeller = addNotificationSeller('buyer-1', 'seller-a', new Date());
+    const addCard = addNotificationCardName('buyer-1', '灰原哀');
+    await deferredTransactions[1]?.();
+    await deferredTransactions[0]?.();
+    await Promise.all([addSeller, addCard]);
+
+    expect(serverData).toMatchObject({
+      cardNames: ['灰原哀'],
+      sellerSubscriptions: [{ sellerId: 'seller-a' }],
+      emailDailyEnabled: true,
+    });
+  });
+
   it.each([
     ['mixed legacy/current fields', {
       ...currentData(),
@@ -264,6 +390,12 @@ describe('notification subscription repository', () => {
       'Notification subscription access requires the authenticated buyer.',
     );
     await expect(removeNotificationCardName('buyer-1', '江戶川柯南')).rejects.toThrow(
+      'Notification subscription access requires the authenticated buyer.',
+    );
+    await expect(addNotificationSeller('buyer-1', 'seller-a', new Date())).rejects.toThrow(
+      'Notification subscription access requires the authenticated buyer.',
+    );
+    await expect(removeNotificationSeller('buyer-1', 'seller-a')).rejects.toThrow(
       'Notification subscription access requires the authenticated buyer.',
     );
     await expect(setNotificationEmailDailyEnabled('buyer-1', false)).rejects.toThrow(

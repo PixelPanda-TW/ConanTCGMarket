@@ -38,6 +38,20 @@ function validateMutationCardName(uid: string, cardName: string) {
   });
 }
 
+function validateMutationSeller(uid: string, sellerId: string, followedAt: Date) {
+  validateNotificationSubscription({
+    uid,
+    cardNames: [],
+    sellerSubscriptions: [{ sellerId, followedAt }],
+    emailDailyEnabled: true,
+    updatedAt: new Date(),
+  });
+}
+
+function compareSellerId(left: { sellerId: string }, right: { sellerId: string }): number {
+  return left.sellerId < right.sellerId ? -1 : left.sellerId > right.sellerId ? 1 : 0;
+}
+
 async function mutateNotificationSubscription(
   uid: string,
   mutation: (
@@ -88,6 +102,43 @@ export async function removeNotificationCardName(
     return {
       ...current,
       cardNames: current.cardNames.filter((name) => name !== cardName),
+      updatedAt: new Date(),
+    };
+  });
+}
+
+export async function addNotificationSeller(
+  uid: string,
+  sellerId: string,
+  followedAt = new Date(),
+): Promise<NotificationSubscription> {
+  assertOwner(uid);
+  validateMutationSeller(uid, sellerId, followedAt);
+  const saved = await mutateNotificationSubscription(uid, (current) => ({
+    uid,
+    cardNames: [...(current?.cardNames ?? [])],
+    sellerSubscriptions: current?.sellerSubscriptions.some((entry) => entry.sellerId === sellerId)
+      ? [...current.sellerSubscriptions]
+      : [...(current?.sellerSubscriptions ?? []), { sellerId, followedAt }].sort(compareSellerId),
+    emailDailyEnabled: true,
+    updatedAt: new Date(),
+  }));
+  return saved!;
+}
+
+export async function removeNotificationSeller(
+  uid: string,
+  sellerId: string,
+): Promise<NotificationSubscription | null> {
+  assertOwner(uid);
+  validateMutationSeller(uid, sellerId, new Date());
+  return mutateNotificationSubscription(uid, (current) => {
+    if (!current || !current.sellerSubscriptions.some((entry) => entry.sellerId === sellerId)) {
+      return current;
+    }
+    return {
+      ...current,
+      sellerSubscriptions: current.sellerSubscriptions.filter((entry) => entry.sellerId !== sellerId),
       updatedAt: new Date(),
     };
   });
