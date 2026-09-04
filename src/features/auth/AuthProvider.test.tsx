@@ -8,6 +8,7 @@ const authService = vi.hoisted(() => ({
   onAuthUserChanged: vi.fn(),
   signInWithGoogle: vi.fn(),
   signOutUser: vi.fn(),
+  resolveAdminClaim: vi.fn(),
 }));
 const repositories = vi.hoisted(() => ({
   subscribeAccountAccess: vi.fn(),
@@ -35,6 +36,7 @@ function Consumer() {
         error: state.error,
         accountAccessState: state.accountAccessState,
         isActiveAccount: state.isActiveAccount,
+        adminAccessState: state.adminAccessState,
       })}</output>
       <button type="button" onClick={() => void state.signIn()}>sign in</button>
       <button type="button" onClick={() => void state.signOut()}>sign out</button>
@@ -68,6 +70,7 @@ describe('AuthProvider', () => {
     });
     authService.signInWithGoogle.mockResolvedValue(undefined);
     authService.signOutUser.mockResolvedValue(undefined);
+    authService.resolveAdminClaim.mockResolvedValue(false);
   });
 
   afterEach(cleanup);
@@ -204,5 +207,79 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(readState().error).toBe('Popup closed.'));
     fireEvent.click(screen.getByRole('button', { name: 'sign out' }));
     await waitFor(() => expect(readState().error).toBe('Sign-out failed.'));
+  });
+
+  it('resolves an exact admin claim only after account access is active', async () => {
+    authService.resolveAdminClaim.mockResolvedValueOnce(true);
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    act(() => onAuthValue?.({ uid: 'admin-1', displayName: 'Admin', photoURL: null }));
+    expect(readState().adminAccessState).toEqual({ state: 'loading' });
+
+    await waitFor(() => expect(authService.resolveAdminClaim).toHaveBeenCalledWith('admin-1'));
+    expect(readState().adminAccessState).toEqual({ state: 'loading' });
+    act(() => accessObservers[0]?.onValue(null));
+    await waitFor(() => expect(readState().adminAccessState).toEqual({ state: 'admin' }));
+  });
+
+  it('looks up the token once per authenticated UID transition', async () => {
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    act(() => onAuthValue?.({ uid: 'buyer-1', displayName: 'One', photoURL: null }));
+    await waitFor(() => expect(authService.resolveAdminClaim).toHaveBeenCalledTimes(1));
+
+    act(() => onAuthValue?.({ uid: 'buyer-1', displayName: 'Renamed', photoURL: null }));
+    await Promise.resolve();
+    expect(authService.resolveAdminClaim).toHaveBeenCalledTimes(1);
+
+    act(() => onAuthValue?.({ uid: 'buyer-2', displayName: 'Two', photoURL: null }));
+    await waitFor(() => expect(authService.resolveAdminClaim).toHaveBeenCalledTimes(2));
+    expect(authService.resolveAdminClaim).toHaveBeenLastCalledWith('buyer-2');
+  });
+
+  it('keeps ordinary active access when admin claim lookup fails', async () => {
+    authService.resolveAdminClaim.mockRejectedValueOnce(new Error('token unavailable'));
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    act(() => onAuthValue?.({ uid: 'buyer-1', displayName: 'Buyer', photoURL: null }));
+    act(() => accessObservers[0]?.onValue(null));
+
+    await waitFor(() => expect(readState()).toMatchObject({
+      accountAccessState: { state: 'active' },
+      isActiveAccount: true,
+      adminAccessState: { state: 'unavailable' },
+    }));
+  });
+
+  it('invalidates a stale admin lookup across identity changes and logout', async () => {
+    let resolveFirst: ((value: boolean) => void) | undefined;
+    authService.resolveAdminClaim
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(false);
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    act(() => onAuthValue?.({ uid: 'admin-1', displayName: 'One', photoURL: null }));
+    act(() => accessObservers[0]?.onValue(null));
+    act(() => onAuthValue?.({ uid: 'buyer-2', displayName: 'Two', photoURL: null }));
+    act(() => accessObservers[1]?.onValue(null));
+    await waitFor(() => expect(readState().adminAccessState).toEqual({ state: 'not-admin' }));
+
+    await act(async () => { resolveFirst?.(true); });
+    expect(readState()).toMatchObject({
+      user: { uid: 'buyer-2' }, adminAccessState: { state: 'not-admin' },
+    });
+
+    act(() => onAuthValue?.(null));
+    expect(readState().adminAccessState).toEqual({ state: 'not-admin' });
+  });
+
+  it('removes admin access immediately when the live account becomes suspended', async () => {
+    authService.resolveAdminClaim.mockResolvedValueOnce(true);
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    act(() => onAuthValue?.({ uid: 'admin-1', displayName: 'Admin', photoURL: null }));
+    act(() => accessObservers[0]?.onValue(null));
+    await waitFor(() => expect(readState().adminAccessState).toEqual({ state: 'admin' }));
+    act(() => accessObservers[0]?.onValue({
+      uid: 'admin-1', status: 'suspended', confirmedViolationCount: 1,
+      suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-2',
+      updatedAt: new Date(),
+    }));
+    expect(readState().adminAccessState).toEqual({ state: 'not-admin' });
   });
 });

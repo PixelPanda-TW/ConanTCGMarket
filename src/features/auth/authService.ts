@@ -1,5 +1,6 @@
 import {
   GoogleAuthProvider,
+  getIdTokenResult,
   onAuthStateChanged,
   signInWithPopup,
   signOut,
@@ -37,4 +38,13 @@ export async function signInWithGoogle() {
 
 export function signOutUser() {
   return signOut(auth);
+}
+
+export async function resolveAdminClaim(uid: string): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== uid) {
+    throw new Error('Admin claim lookup requires the current authenticated identity.');
+  }
+  const token = await getIdTokenResult(currentUser, true);
+  return token.claims.admin === true;
 }

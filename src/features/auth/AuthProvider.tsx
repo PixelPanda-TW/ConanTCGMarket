@@ -10,6 +10,7 @@ import {
 import {
   type AuthUser,
   onAuthUserChanged,
+  resolveAdminClaim,
   signInWithGoogle,
   signOutUser,
 } from './authService';
@@ -23,12 +24,19 @@ export type AccountAccessState =
   | { state: 'suspended'; access: AccountAccess }
   | { state: 'unavailable'; message: string };
 
+export type AdminAccessState =
+  | { state: 'loading' }
+  | { state: 'admin' }
+  | { state: 'not-admin' }
+  | { state: 'unavailable' };
+
 export interface AuthState {
   user: AuthUser | null;
   isLoading: boolean;
   error: string | null;
   accountAccessState: AccountAccessState;
   isActiveAccount: boolean;
+  adminAccessState: AdminAccessState;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -38,6 +46,11 @@ interface ObservedAccountAccess {
   value: AccountAccessState;
 }
 
+interface ObservedAdminClaim {
+  uid: string;
+  value: Exclude<AdminAccessState, { state: 'loading' }>;
+}
+
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -45,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthResolved, setIsAuthResolved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [observedAccess, setObservedAccess] = useState<ObservedAccountAccess | null>(null);
+  const [observedAdminClaim, setObservedAdminClaim] = useState<ObservedAdminClaim | null>(null);
 
   useEffect(() => {
     return onAuthUserChanged((nextUser) => {
@@ -113,6 +127,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [isAuthResolved, user]);
 
+  useEffect(() => {
+    if (!isAuthResolved || !user) {
+      setObservedAdminClaim(null);
+      return;
+    }
+
+    const uid = user.uid;
+    let isCurrent = true;
+    setObservedAdminClaim(null);
+    void resolveAdminClaim(uid).then((isAdmin) => {
+      if (!isCurrent) return;
+      setObservedAdminClaim({
+        uid,
+        value: { state: isAdmin ? 'admin' : 'not-admin' },
+      });
+    }).catch(() => {
+      if (!isCurrent) return;
+      setObservedAdminClaim({ uid, value: { state: 'unavailable' } });
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isAuthResolved, user?.uid]);
+
   const accountAccessState: AccountAccessState = !isAuthResolved
     ? { state: 'loading' }
     : !user
@@ -122,6 +161,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : { state: 'loading' };
   const isLoading = !isAuthResolved || (user !== null && accountAccessState.state === 'loading');
   const isActiveAccount = accountAccessState.state === 'active';
+  const resolvedAdminClaim = user && observedAdminClaim?.uid === user.uid
+    ? observedAdminClaim.value
+    : null;
+  const adminAccessState: AdminAccessState = !isAuthResolved
+    ? { state: 'loading' }
+    : !user
+      ? { state: 'not-admin' }
+      : !resolvedAdminClaim
+        ? { state: 'loading' }
+        : resolvedAdminClaim.state === 'not-admin'
+          ? resolvedAdminClaim
+          : resolvedAdminClaim.state === 'unavailable'
+            ? resolvedAdminClaim
+            : accountAccessState.state === 'active'
+              ? { state: 'admin' }
+              : accountAccessState.state === 'loading'
+                ? { state: 'loading' }
+                : accountAccessState.state === 'unavailable'
+                  ? { state: 'unavailable' }
+                  : { state: 'not-admin' };
 
   const signIn = useCallback(async () => {
     setError(null);
@@ -150,10 +209,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       error,
       accountAccessState,
       isActiveAccount,
+      adminAccessState,
       signIn,
       signOut,
     }),
-    [accountAccessState, error, isActiveAccount, isLoading, signIn, signOut, user],
+    [accountAccessState, adminAccessState, error, isActiveAccount, isLoading, signIn, signOut, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

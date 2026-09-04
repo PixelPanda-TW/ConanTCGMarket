@@ -20,6 +20,7 @@ function activeState(): AuthState {
     error: null,
     accountAccessState: { state: 'active', access: null },
     isActiveAccount: true,
+    adminAccessState: { state: 'not-admin' },
     signIn: vi.fn(),
     signOut: vi.fn(),
   };
@@ -62,6 +63,24 @@ describe('AuthStatus', () => {
     expect(screen.getByRole('status').textContent).toContain('帳號目前已停權');
     expect(screen.getByRole('button', { name: '登出' })).toBeTruthy();
     expect(screen.queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('shows Card Master navigation only to an active resolved admin', () => {
+    auth.current = { ...activeState(), adminAccessState: { state: 'admin' } };
+    const view = render(<AuthStatus />);
+    expect(screen.getByRole('link', { name: '管理卡片資料' }).getAttribute('href'))
+      .toBe('#/admin/cards');
+
+    for (const adminAccessState of [
+      { state: 'loading' as const },
+      { state: 'not-admin' as const },
+      { state: 'unavailable' as const },
+    ]) {
+      auth.current = { ...activeState(), adminAccessState };
+      view.rerender(<AuthStatus />);
+      expect(screen.queryByRole('link', { name: '管理卡片資料' })).toBeNull();
+      expect(screen.getByRole('link', { name: '我的訂閱' })).toBeTruthy();
+    }
   });
 
   it('fails closed but keeps sign-out when access state is unavailable', () => {

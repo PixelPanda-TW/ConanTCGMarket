@@ -4,6 +4,7 @@ import { AccountAccessNotice } from './AccountAccessNotice';
 export function AuthStatus() {
   const {
     accountAccessState,
+    adminAccessState,
     error,
     isActiveAccount,
     isLoading,
@@ -27,6 +28,9 @@ export function AuthStatus() {
                 <a href="#/sell">我要上架</a>
                 <a href="#/dashboard">賣家管理</a>
                 <a href="#/notifications">我的訂閱</a>
+                {adminAccessState.state === 'admin' && (
+                  <a href="#/admin/cards">管理卡片資料</a>
+                )}
               </>
             )}
             <button type="button" onClick={signOut}>
