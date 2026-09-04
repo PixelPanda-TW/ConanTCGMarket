@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   validateAccountAccess,
   validateCard,
+  validateCardMasterArchive,
   validateListing,
   validateNotificationSubscription,
   validatePublicSellerProfile,
@@ -10,6 +11,7 @@ import {
   validateSellerProfile,
   validateSellerProfileStructure,
   type Card,
+  type CardMasterArchive,
   type AccountAccess,
   type Listing,
   type NotificationSubscription,
@@ -187,6 +189,43 @@ describe('domain model validation', () => {
     };
 
     expect(card.cardName).toBe('追跡開始');
+  });
+
+  it('accepts exact disabled, superseded, and merged Card Master archives', () => {
+    const base = {
+      key: `card_${'a'.repeat(64)}`,
+      cardId: '0501', cardType: 'character' as const, cardName: '黑羽快斗',
+      rarities: ['R', 'SR'], rationale: '修正重複資料', actedBy: 'admin-1',
+      actedAt: new Date('2026-09-04T00:00:00Z'),
+    };
+    for (const archive of [
+      { ...base, disposition: 'disabled' as const },
+      { ...base, disposition: 'superseded' as const, replacementCardKey: `card_${'b'.repeat(64)}` },
+      { ...base, disposition: 'merged' as const, replacementCardKey: `card_${'c'.repeat(64)}` },
+    ]) {
+      expect(() => validateCardMasterArchive(archive)).not.toThrow();
+    }
+  });
+
+  it.each([
+    ['extra field', { email: 'private@example.com' }],
+    ['effect field', { effect: 'forbidden' }],
+    ['bad key', { key: '0501' }],
+    ['noncanonical rarity', { rarities: ['SR', 'R'] }],
+    ['empty rationale', { rationale: ' ' }],
+    ['invalid timestamp', { actedAt: new Date('invalid') }],
+    ['missing replacement', { disposition: 'merged' }],
+    ['replacement on disabled', { disposition: 'disabled', replacementCardKey: `card_${'b'.repeat(64)}` }],
+  ])('rejects malformed Card Master archive: %s', (_name, overrides) => {
+    const archive = {
+      key: `card_${'a'.repeat(64)}`,
+      cardId: '0501', cardType: 'character' as const, cardName: '黑羽快斗',
+      rarities: ['R', 'SR'], disposition: 'disabled' as const,
+      rationale: '錯誤卡片', actedBy: 'admin-1',
+      actedAt: new Date('2026-09-04T00:00:00Z'),
+      ...overrides,
+    } as CardMasterArchive;
+    expect(() => validateCardMasterArchive(archive)).toThrow('Card Master archive');
   });
 
   it.each(['P01', 'B0982', 'p001'])('rejects unnormalized or incomplete Card Master card ID %s', (cardId) => {

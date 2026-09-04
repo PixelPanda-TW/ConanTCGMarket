@@ -5,3 +5,4 @@ export * from './saleRepository';
 export * from './sellerProfileRepository';
 export * from './notificationSubscriptionRepository';
 export * from './accountAccessRepository';
+export * from './adminCardMasterRepository';
