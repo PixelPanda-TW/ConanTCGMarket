@@ -440,15 +440,14 @@ git commit -m "test: cover suspended account access journey"
 **Files:**
 
 - Modify: `docs/milestones.md`
-- Modify: `docs/integration-verification.md`
-- Modify if behavior is documented: `README.md`
+- Modify: `docs/integration-testing.md`
 
 ### RED documentation check
 
 Add documentation assertions or repository text checks only if the project already has a suitable docs test. Otherwise use explicit searches as the failing audit:
 
 ```bash
-rg -n "賣家登入中|authenticated users only|accountAccess|suspended" README.md docs src/features/auth
+rg -n "賣家登入中|authenticated users only|accountAccess|suspended" docs src/features/auth
 ```
 
 Expected before update: account-access enforcement and its deliberate Listing-visibility deferral are absent or stale wording remains.
@@ -503,7 +502,7 @@ If any check fails, use systematic diagnosis, add a reproducing test when covera
 ### Commit
 
 ```bash
-git add docs/milestones.md docs/integration-verification.md README.md
+git add docs/milestones.md docs/integration-testing.md
 git commit -m "docs: record account access enforcement"
 ```
 
