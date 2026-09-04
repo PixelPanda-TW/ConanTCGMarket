@@ -172,4 +172,14 @@ describe('moderation review repository', () => {
       '審查服務目前無法使用，請稍後再試。',
     );
   });
+
+  it('preserves only a sanitized not-found signal for the detail route', async () => {
+    functions.callableByName.get('getModerationCase')!.mockRejectedValue(
+      Object.assign(new Error('private report and seller data'), { code: 'functions/not-found' }),
+    );
+    const error = await getModerationCase('report-2').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error & { code?: string }).code).toBe('not-found');
+    expect((error as Error).message).not.toContain('private');
+  });
 });

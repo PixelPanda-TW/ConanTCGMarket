@@ -845,6 +845,95 @@ h1 {
   .moderation-queue-link { justify-content: center; }
 }
 
+/* Private moderation case review */
+.moderation-case-page,
+.moderation-case-content,
+.moderation-case-panel,
+.moderation-case-meta {
+  display: grid;
+  gap: 14px;
+}
+
+.moderation-case-page {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+
+.moderation-case-back {
+  justify-self: start;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 750;
+}
+
+.moderation-case-panel {
+  border: 1px solid hsl(var(--border) / .82);
+  border-radius: calc(var(--radius) + .375rem);
+  background: hsl(var(--card) / .88);
+  padding: 20px;
+  box-shadow: 0 14px 34px hsl(220 30% 15% / .08);
+}
+
+.moderation-case-panel h2 { margin: 0; }
+
+.moderation-case-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.moderation-case-meta div { min-width: 0; }
+.moderation-case-meta dt { color: hsl(var(--muted-foreground)); font-size: .8rem; font-weight: 700; }
+.moderation-case-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+
+.moderation-evidence-controls,
+.moderation-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.moderation-decision-actions h2 { width: 100%; }
+
+.moderation-case-panel img {
+  width: min(100%, 720px);
+  max-height: 70vh;
+  justify-self: center;
+  border-radius: var(--radius);
+  object-fit: contain;
+}
+
+.moderation-decision-feedback,
+.moderation-eligibility {
+  border-radius: var(--radius);
+  background: hsl(var(--accent));
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
+.moderation-decision-dialog form { display: grid; gap: 12px; }
+.moderation-decision-dialog textarea { width: 100%; min-height: 130px; }
+
+.moderation-case-page button { min-height: 44px; }
+.moderation-case-page button:focus-visible,
+.moderation-case-page a:focus-visible,
+.moderation-decision-dialog button:focus-visible,
+.moderation-decision-dialog textarea:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .moderation-case-panel { padding: 16px; }
+  .moderation-case-meta { grid-template-columns: 1fr; }
+  .moderation-case-back,
+  .moderation-evidence-controls,
+  .moderation-evidence-controls button,
+  .moderation-decision-actions button {
+    width: 100%;
+  }
+}
+
 .profile-form input,
 .profile-form select {
   min-height: 42px;

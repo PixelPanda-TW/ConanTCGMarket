@@ -137,10 +137,14 @@ function readEvidence(value: unknown): ModerationEvidenceData {
   }
 }
 
-async function callService<T>(operation: () => Promise<T>): Promise<T> {
+async function callService<T>(operation: () => Promise<T>, allowNotFound = false): Promise<T> {
   try {
     return await operation();
-  } catch {
+  } catch (error) {
+    if (allowNotFound && isRecord(error) && typeof error.code === 'string'
+      && error.code.replace(/^functions\//u, '') === 'not-found') {
+      throw Object.assign(new Error('找不到檢舉案件。'), { code: 'not-found' as const });
+    }
     throw new Error('審查服務目前無法使用，請稍後再試。');
   }
 }
@@ -189,7 +193,7 @@ export async function listModerationCases(
 export async function getModerationCase(reportId: string): Promise<ModerationCaseDetail> {
   const request = { reportId: readReportId(reportId) };
   const callable = httpsCallable<typeof request, unknown>(functionsClient, 'getModerationCase');
-  const result = await callService(() => callable(request));
+  const result = await callService(() => callable(request), true);
   return readCaseDetail(result.data);
 }
 
