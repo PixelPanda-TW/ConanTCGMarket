@@ -163,6 +163,47 @@ describe('listing repository', () => {
     });
   });
 
+  it.each([
+    ['character snapshot', {
+      characterName: '鈴木園子', rarity: 'SR',
+    }, {
+      cardType: 'character', cardName: '鈴木園子', characterName: '鈴木園子', rarity: 'SR',
+    }],
+    ['card-ID-only', {}, {}],
+  ])('accepts and normalizes a strict legacy Listing response: %s', async (_name, legacyFields, expectedMetadata) => {
+    const listing = {
+      id: 'listing-legacy', sellerId: 'seller-1', cardId: 'legacy-id',
+      imageUrls: ['https://example.com/legacy.jpg'], listingPrice: 300,
+      originalQuantity: 1, remainingQuantity: 1, hasSleeve: false,
+      supportsMyShip: false, status: 'active' as const,
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-18T00:00:00.000Z'),
+      ...legacyFields,
+    };
+    functions.callableByName.get('updateSellerListing')!.mockResolvedValue({
+      data: { ...listing, createdAt: listing.createdAt.valueOf(), updatedAt: 1788597000000 },
+    });
+
+    await expect(updateListing(listing)).resolves.toMatchObject({
+      ...listing, ...expectedMetadata, updatedAt: new Date(1788597000000),
+    });
+  });
+
+  it('rejects partial normalized metadata in a legacy-shaped Listing response', async () => {
+    const listing = {
+      id: 'listing-legacy', sellerId: 'seller-1', cardId: '0501', cardType: 'event' as const,
+      imageUrls: ['https://example.com/legacy.jpg'], listingPrice: 300,
+      originalQuantity: 1, remainingQuantity: 1, hasSleeve: false,
+      supportsMyShip: false, status: 'active' as const,
+      createdAt: new Date('2026-08-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-18T00:00:00.000Z'),
+    };
+    functions.callableByName.get('updateSellerListing')!.mockResolvedValue({
+      data: { ...listing, createdAt: listing.createdAt.valueOf(), updatedAt: 1788597000000 },
+    });
+    await expect(updateListing(listing)).rejects.toThrow('invalid listing response');
+  });
+
   it('deletes by version and returns only strict stored image URLs', async () => {
     const callable = functions.callableByName.get('deleteUnsoldListing')!;
     callable.mockResolvedValue({ data: { imageUrls: ['https://example.com/card.jpg'] } });

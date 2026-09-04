@@ -19,10 +19,10 @@ export class ListingLifecycleError extends Error {
 interface StoredListing {
   sellerId: string;
   cardId: string;
-  cardType: CardType;
-  cardName: string;
+  cardType?: CardType;
+  cardName?: string;
   characterName?: string;
-  rarity: string;
+  rarity?: string;
   imageUrls: string[];
   listingPrice: number;
   originalQuantity: number;
@@ -92,12 +92,17 @@ interface CallableRequest {
 }
 
 const cardTypes = new Set<CardType>(['character', 'event', 'case', 'partner']);
+function isCardType(value: unknown): value is CardType {
+  return cardTypes.has(value as CardType);
+}
 const requiredListingFields = [
-  'sellerId', 'cardId', 'cardType', 'cardName', 'rarity', 'imageUrls', 'listingPrice',
+  'sellerId', 'cardId', 'imageUrls', 'listingPrice',
   'originalQuantity', 'remainingQuantity', 'hasSleeve', 'supportsMyShip', 'status',
   'createdAt', 'updatedAt',
 ] as const;
-const optionalListingFields = new Set(['characterName', 'sleeveFee', 'myShipFee', 'note']);
+const optionalListingFields = new Set([
+  'cardType', 'cardName', 'characterName', 'rarity', 'sleeveFee', 'myShipFee', 'note',
+]);
 
 function invalidArgument(message = '請檢查輸入資料。'): never {
   throw new ListingLifecycleError('invalid-argument', message);
@@ -182,11 +187,9 @@ function readStoredListing(value: Record<string, unknown> | null): StoredListing
   const imageUrls = readImageUrls(value.imageUrls);
   const sleeveFee = readOptionalFee(value.sleeveFee);
   const myShipFee = readOptionalFee(value.myShipFee);
+  const hasNormalizedMetadata = value.cardType !== undefined || value.cardName !== undefined;
   if (!hasTrimmedText(value.sellerId, 128)
     || !hasTrimmedText(value.cardId, 32)
-    || !cardTypes.has(value.cardType as CardType)
-    || !hasTrimmedText(value.cardName, 200)
-    || !hasTrimmedText(value.rarity, 100)
     || !imageUrls
     || !isPositiveNumber(value.listingPrice)
     || !Number.isInteger(value.originalQuantity) || (value.originalQuantity as number) < 1
@@ -200,17 +203,19 @@ function readStoredListing(value: Record<string, unknown> | null): StoredListing
     || (!value.hasSleeve && sleeveFee !== undefined)
     || (!value.supportsMyShip && myShipFee !== undefined)
     || (value.note !== undefined && !hasTrimmedText(value.note, 2000))) return null;
-  const cardType = value.cardType as CardType;
-  if (cardType === 'character') {
-    if (value.characterName !== value.cardName) return null;
-  } else if (value.characterName !== undefined) return null;
+  if (hasNormalizedMetadata) {
+    if (!isCardType(value.cardType)
+      || !hasTrimmedText(value.cardName, 200)
+      || !hasTrimmedText(value.rarity, 100)) return null;
+    if (value.cardType === 'character') {
+      if (value.characterName !== value.cardName) return null;
+    } else if (value.characterName !== undefined) return null;
+  } else if ((value.characterName !== undefined && !hasTrimmedText(value.characterName, 200))
+    || (value.rarity !== undefined && !hasTrimmedText(value.rarity, 100))) return null;
   return {
     ...value,
     sellerId: value.sellerId,
     cardId: value.cardId,
-    cardType,
-    cardName: value.cardName,
-    rarity: value.rarity,
     imageUrls,
     listingPrice: value.listingPrice,
     originalQuantity: value.originalQuantity as number,
@@ -280,6 +285,14 @@ export async function handleRecordListingSale(
     }
     const remainingQuantity = storedListing.remainingQuantity - quantity;
     const status: ListingStatus = remainingQuantity === 0 ? 'sold_out' : 'active';
+    if (!isCardType(storedListing.cardType)
+      || !hasTrimmedText(storedListing.cardName, 200)
+      || !hasTrimmedText(storedListing.rarity, 100)) {
+      throw new ListingLifecycleError(
+        'failed-precondition',
+        '舊商品缺少完整卡片快照，無法新增成交紀錄。',
+      );
+    }
     const sale: StoredSale = {
       listingId,
       sellerId: uid,

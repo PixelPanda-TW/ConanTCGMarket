@@ -71,11 +71,13 @@ export async function getListing(id: string): Promise<Listing | null> {
 function isExactListingWire(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const required = [
-    'id', 'sellerId', 'cardId', 'cardType', 'cardName', 'rarity', 'imageUrls',
+    'id', 'sellerId', 'cardId', 'imageUrls',
     'listingPrice', 'originalQuantity', 'remainingQuantity', 'hasSleeve',
     'supportsMyShip', 'status', 'createdAt', 'updatedAt',
   ];
-  const optional = new Set(['characterName', 'sleeveFee', 'myShipFee', 'note']);
+  const optional = new Set([
+    'cardType', 'cardName', 'characterName', 'rarity', 'sleeveFee', 'myShipFee', 'note',
+  ]);
   const keys = Object.keys(value);
   return required.every((field) => keys.includes(field))
     && keys.every((field) => required.includes(field) || optional.has(field));
@@ -90,11 +92,15 @@ function readListingResponse(value: unknown): Listing {
   }
   const listing = {
     ...value,
+    ...(value.cardType === undefined && value.cardName === undefined
+      && typeof value.characterName === 'string'
+      ? { cardType: 'character', cardName: value.characterName }
+      : {}),
     createdAt: new Date(value.createdAt),
     updatedAt: new Date(value.updatedAt),
   } as unknown as Listing;
   try {
-    validateListing(listing);
+    validateListing(listing, true);
   } catch {
     throw new Error('Server returned an invalid listing response.');
   }

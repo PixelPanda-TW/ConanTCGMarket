@@ -198,6 +198,40 @@ describe('trusted listing lifecycle', () => {
     expect(state.updatedListing?.patch).not.toHaveProperty('status');
   });
 
+  it('updates mutable fields on a recognized legacy Listing without persisting guessed identity', async () => {
+    const legacy = listing({
+      cardType: undefined, cardName: undefined, rarity: undefined,
+      characterName: undefined,
+    });
+    delete legacy.cardType;
+    delete legacy.cardName;
+    delete legacy.rarity;
+    delete legacy.characterName;
+    const { state, dependencies } = harness({ listings: { 'listing-1': legacy } });
+
+    await expect(handleUpdateSellerListing({
+      authUid: 'seller-1', data: updateInput({ listingPrice: 475 }),
+    }, dependencies)).resolves.toEqual({
+      id: 'listing-1', ...legacy, imageUrls: ['https://example.com/new.jpg'],
+      listingPrice: 475, hasSleeve: true, sleeveFee: 10,
+      createdAt: EARLIER.valueOf(), updatedAt: NOW.valueOf(),
+    });
+    expect(state.updatedListing?.patch).not.toHaveProperty('cardType');
+    expect(state.updatedListing?.patch).not.toHaveProperty('cardName');
+    expect(state.updatedListing?.patch).not.toHaveProperty('rarity');
+  });
+
+  it('does not create a new Sale when a legacy Listing lacks immutable snapshots', async () => {
+    const legacy = listing({ cardType: undefined, cardName: undefined });
+    delete legacy.cardType;
+    delete legacy.cardName;
+    const { state, dependencies } = harness({ listings: { 'listing-1': legacy } });
+    await expectCode(handleRecordListingSale({
+      authUid: 'seller-1', data: { listingId: 'listing-1', quantity: 1, soldUnitPrice: 450 },
+    }, dependencies), 'failed-precondition');
+    expect(state.createdSale).toBeUndefined();
+  });
+
   it.each([
     ['stale version', updateInput({ expectedUpdatedAt: NOW.valueOf() }), 'aborted'],
     ['sold-out listing', updateInput(), 'failed-precondition', listing({ remainingQuantity: 0, status: 'sold_out' })],
@@ -216,6 +250,19 @@ describe('trusted listing lifecycle', () => {
       data: { listingId: 'listing-1', expectedUpdatedAt: EARLIER.valueOf() },
     }, dependencies)).resolves.toEqual({ imageUrls: ['https://example.com/card.jpg'] });
     expect(transaction.hasSaleForListing).toHaveBeenCalledWith('listing-1');
+    expect(state.deletedListingId).toBe('listing-1');
+  });
+
+  it('allows an unsold recognized legacy Listing to be deleted without identity migration', async () => {
+    const legacy = listing({ cardType: undefined, cardName: undefined, rarity: undefined });
+    delete legacy.cardType;
+    delete legacy.cardName;
+    delete legacy.rarity;
+    const { state, dependencies } = harness({ listings: { 'listing-1': legacy } });
+    await expect(handleDeleteUnsoldListing({
+      authUid: 'seller-1',
+      data: { listingId: 'listing-1', expectedUpdatedAt: EARLIER.valueOf() },
+    }, dependencies)).resolves.toEqual({ imageUrls: ['https://example.com/card.jpg'] });
     expect(state.deletedListingId).toBe('listing-1');
   });
 
