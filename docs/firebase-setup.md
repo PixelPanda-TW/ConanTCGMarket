@@ -44,6 +44,85 @@ approves the exact generated artifact, its successful fail-closed sync report,
 the dry-run result, and that exact command. No Card Master production mutation
 is implied by configuring Firebase, ADC, or `GOOGLE_CLOUD_PROJECT`.
 
+## Secure seller contact split
+
+Seller presentation and contact data have different trust boundaries:
+
+- `sellerProfiles` contains only public display name and timestamps;
+- `sellerContacts` contains the private LINE/Discord identifier or
+  Facebook/Threads personal-profile URL;
+- `sellerContactAccessLogs` is the append-only disclosure audit;
+- `sellerContactRequesterLimits` and `sellerContactSellerLimits` are trusted
+  UTC-hour counters.
+
+Firestore Rules deny every browser read/write to the latter four operational
+collections and every browser write to `sellerProfiles`. The callable Functions
+`saveSellerProfile`, `getOwnSellerProfile`, and `getSellerContact` verify the
+authenticated account and current `accountAccess` state on the server. Contact
+reveal is limited to 60 reveals per requester per UTC hour and
+300 reveals per seller per UTC hour. Contact values are never written to audit
+or counter data.
+
+### Migration safety and exact release order
+
+Approval of this guide does not authorize migration `--apply`, deployment, or
+any production data mutation. A production operation needs a separate,
+explicit operator approval for the reviewed dry-run result, exact backup path,
+and exact command. Use a maintenance window that prevents profile edits for the
+entire migration/verification interval; the migration deliberately aborts on
+malformed data or a private/legacy contact conflict rather than choosing a
+winner.
+
+First take a managed Firestore export and record its location. Then deploy only
+the three split-aware callable Functions while the existing legacy fields and
+Rules remain available. Run the read-only dry-run:
+
+```sh
+npm run migrate:seller-contacts -- --project conantcgmarket
+```
+
+Review source, legacy, contact-write, and public-rewrite counts. Resolve every
+validation/conflict result before continuing. Prepare a local backup directory
+outside the web build; the JSON path must not already exist. Only after separate
+approval, run exactly:
+
+```sh
+npm run migrate:seller-contacts -- --project conantcgmarket --backup ./backups/seller-contacts-YYYYMMDD.json --apply
+```
+
+Apply mode writes the non-overwritable JSON backup before mutation, writes
+private contacts in batches of at most 400, reads them back in bounded batches,
+and removes public contact fields only after count/value/timestamp verification.
+Retain both the managed export and JSON backup through the observation period.
+If verification fails, stop: public cleanup is not started. Preserve the backup,
+inspect conflicts, and rerun only after a new dry-run and approval.
+
+The complete contact release sequence is **Functions → migration → Rules → frontend**.
+After apply succeeds, independently verify that every `sellerProfiles` document
+has exactly `displayName`, `createdAt`, and `updatedAt`, and that each has one
+matching `sellerContacts` document. Then deploy Firestore Rules, followed by the
+web frontend. Do not use the notification section's Rules-first ordering for
+this one-time schema cutover.
+
+Rollback favors privacy and roll-forward repair: do not restore contact fields
+to public profiles merely to run the old frontend. Keep the tightened Rules,
+restore private records from the reviewed backup/managed export if necessary,
+and redeploy the last known split-aware Functions/frontend.
+
+### Contact release verification and monitoring
+
+Local release gates include Function unit tests, Rules Emulator tests, and the
+Chromium contact-disclosure journey. Production verification is non-invasive:
+inspect the deployed Functions manifest, Rules release, aggregate migration
+counts, and Cloud Logging. It creates no Listing/Profile/contact, sends no
+notification, and must not reveal a real seller contact. Do not invoke
+`getSellerContact` against a real Listing merely as a deployment probe.
+
+Monitor `sellerContactAccessLogs` outcome counts and the number of exhausted
+documents in both limit collections. Investigate unusual requester/seller
+concentration without exporting contact values. A threshold change is a code
+and review change; never edit counters to silently bypass a limit.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

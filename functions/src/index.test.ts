@@ -149,4 +149,30 @@ describe('notification Function deployment contract', () => {
     expect(setupGuide).toContain('sending');
     expect(setupGuide).toContain('at-most-once');
   });
+
+  it('documents the secure contact split rollout, limits, and non-invasive verification', async () => {
+    const setupGuide = await readFile(
+      new URL('../../docs/firebase-setup.md', import.meta.url),
+      'utf8',
+    );
+    const lines = setupGuide.split(/\r?\n/);
+
+    expect(lines).toContain('npm run migrate:seller-contacts -- --project conantcgmarket');
+    expect(lines).toContain(
+      'npm run migrate:seller-contacts -- --project conantcgmarket --backup ./backups/seller-contacts-YYYYMMDD.json --apply',
+    );
+    expect(setupGuide).toContain('Functions → migration → Rules → frontend');
+    expect(setupGuide).toContain('60 reveals per requester per UTC hour');
+    expect(setupGuide).toContain('300 reveals per seller per UTC hour');
+    for (const collection of [
+      'sellerContacts',
+      'sellerContactAccessLogs',
+      'sellerContactRequesterLimits',
+      'sellerContactSellerLimits',
+    ]) {
+      expect(setupGuide).toContain(collection);
+    }
+    expect(setupGuide).toContain('does not authorize migration `--apply`');
+    expect(setupGuide).toContain('must not reveal a real seller contact');
+  });
 });
