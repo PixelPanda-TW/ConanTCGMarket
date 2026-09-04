@@ -132,11 +132,12 @@ export function SellerProfilePage() {
     };
 
     try {
-      await saveSellerProfile(nextProfile);
+      const savedProfile = await saveSellerProfile(nextProfile);
       if (!canApplyProfileRequest(isMountedRef.current, user.uid, activeUserUidRef.current)) {
         return;
       }
-      setProfile(nextProfile);
+      setProfile(savedProfile);
+      setForm(profileToForm(savedProfile));
       setSaveSuccess(true);
     } catch (caughtError) {
       if (canApplyProfileRequest(isMountedRef.current, user.uid, activeUserUidRef.current)) {

@@ -33,7 +33,11 @@ describe('SellerProfilePage contact fields', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repositories.getSellerProfile.mockResolvedValue(null);
-    repositories.saveSellerProfile.mockResolvedValue(undefined);
+    repositories.saveSellerProfile.mockImplementation(async (value) => ({
+      ...value,
+      createdAt: new Date('2026-09-04T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-04T00:00:00.000Z'),
+    }));
     authState.accountAccessState = { state: 'active', access: null };
     authState.isActiveAccount = true;
   });
@@ -130,5 +134,37 @@ describe('SellerProfilePage contact fields', () => {
       contactValue: 'https://www.facebook.com/conan.seller',
     }));
     expect((await screen.findByRole('status')).textContent).toBe('已儲存個人檔案。');
+  });
+
+  it('adopts authoritative server timestamps for the next profile save', async () => {
+    const serverCreatedAt = new Date('2024-01-02T03:04:05.000Z');
+    repositories.saveSellerProfile.mockImplementation(async (value) => ({
+      ...value,
+      createdAt: serverCreatedAt,
+      updatedAt: new Date('2026-09-04T00:00:00.000Z'),
+    }));
+    render(<SellerProfilePage />);
+    await screen.findByLabelText('LINE ID');
+    fireEvent.change(screen.getByLabelText('LINE ID'), { target: { value: 'aming' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '儲存個人檔案' }));
+    await waitFor(() => expect(repositories.saveSellerProfile).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: '更新名稱' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存個人檔案' }));
+
+    await waitFor(() => expect(repositories.saveSellerProfile).toHaveBeenCalledTimes(2));
+    expect(repositories.saveSellerProfile.mock.calls[1][0].createdAt).toEqual(serverCreatedAt);
+  });
+
+  it('keeps the form available and reports a callable save failure', async () => {
+    repositories.saveSellerProfile.mockRejectedValue(new Error('儲存服務暫時無法使用。'));
+    render(<SellerProfilePage />);
+    await screen.findByLabelText('LINE ID');
+    fireEvent.change(screen.getByLabelText('LINE ID'), { target: { value: 'aming' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存個人檔案' }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('儲存服務暫時無法使用。');
+    expect(screen.getByRole('button', { name: '儲存個人檔案' })).toBeTruthy();
+    expect(screen.queryByText('已儲存個人檔案。')).toBeNull();
   });
 });

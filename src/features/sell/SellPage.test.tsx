@@ -88,6 +88,16 @@ describe('SellPage', () => {
     expect(createListingMock).not.toHaveBeenCalled();
   });
 
+  it('requires both protected profile halves before enabling selling', async () => {
+    listCardsMock.mockResolvedValue([]);
+    const incompleteProfile = vi.fn(async () => null);
+    render(<SellPage loadSellerProfile={incompleteProfile} />);
+
+    expect(await screen.findByText('請先完成賣家個人檔案，才能刊登商品。')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '前往設定個人檔案' }).getAttribute('href')).toBe('#/profile');
+    expect(screen.queryByRole('button', { name: '建立刊登' })).toBeNull();
+  });
+
   it('renders an independent back-to-market link with an arrow before the listing title', async () => {
     listCardsMock.mockResolvedValue([]);
     render(<SellPage loadSellerProfile={loadSellerProfile} />);
