@@ -17,6 +17,7 @@ test('pins local E2E tools and exposes the approved commands', async () => {
     'test:e2e:webkit': 'npm run build:functions && firebase emulators:exec --project demo-conan-tcg-e2e --only auth,firestore,storage,functions "playwright test --config playwright.config.ts --project webkit-iphone"',
     'test:smoke': 'node scripts/run-smoke.mjs',
     'migrate:seller-contacts': 'node scripts/migrate-seller-contacts.mjs',
+    'migrate:sale-snapshots': 'node scripts/migrate-sale-snapshots.mjs',
   };
 
   assert.deepEqual(Object.fromEntries(Object.keys(commands).map((name) => [name, root.scripts[name]])), commands);

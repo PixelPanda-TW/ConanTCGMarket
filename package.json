@@ -20,7 +20,8 @@
     "test:smoke": "node scripts/run-smoke.mjs",
     "import:cards": "node scripts/import-card-master.mjs",
     "sync:cards": "node scripts/sync-rugia-card-master.mjs",
-    "migrate:seller-contacts": "node scripts/migrate-seller-contacts.mjs"
+    "migrate:seller-contacts": "node scripts/migrate-seller-contacts.mjs",
+    "migrate:sale-snapshots": "node scripts/migrate-sale-snapshots.mjs"
   },
   "dependencies": {
     "firebase": "^12.17.1",
