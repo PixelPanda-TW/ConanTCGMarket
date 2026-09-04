@@ -482,7 +482,7 @@ Then open a clean shell that has not sourced production `.env` and run:
 
 ```bash
 npm run test:rules
-npx playwright test --project=chromium
+npm run test:e2e:chromium
 git diff --check
 git status -sb
 ```
