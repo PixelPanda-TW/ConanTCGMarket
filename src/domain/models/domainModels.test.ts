@@ -4,6 +4,8 @@ import {
   validateCard,
   validateCardMasterArchive,
   validateListing,
+  validateModerationReportDraftReceipt,
+  validateModerationReportForm,
   validateNotificationSubscription,
   validatePublicSellerProfile,
   validateSale,
@@ -14,6 +16,7 @@ import {
   type CardMasterArchive,
   type AccountAccess,
   type Listing,
+  type ModerationReportForm,
   type NotificationSubscription,
   type PublicSellerProfile,
   type Sale,
@@ -21,6 +24,10 @@ import {
   type SellerProfile,
 } from './index';
 import { CARD_TYPES, cardTypeLabel, isCardType } from '../cardType';
+import {
+  MODERATION_REPORT_CATEGORIES,
+  normalizeModerationReportDescription,
+} from './moderationReport';
 
 describe('domain model validation', () => {
   const activeAccount: AccountAccess = {
@@ -29,6 +36,52 @@ describe('domain model validation', () => {
     confirmedViolationCount: 0,
     updatedAt: new Date('2026-09-03T00:00:00.000Z'),
   };
+
+  it('models the exact report categories and canonical form fields', () => {
+    expect(MODERATION_REPORT_CATEGORIES).toEqual([
+      'suspected_counterfeit',
+      'listing_mismatch',
+      'fraud_or_harassment',
+      'prohibited_content',
+      'other',
+    ]);
+    const form: ModerationReportForm = {
+      category: 'listing_mismatch',
+      description: '卡片稀有度與照片不符',
+      evidence: [
+        { contentType: 'image/jpeg', size: 5 * 1024 * 1024 },
+        { contentType: 'image/png', size: 1 },
+        { contentType: 'image/webp', size: 500 },
+      ],
+    };
+
+    expect(() => validateModerationReportForm(form)).not.toThrow();
+    expect(normalizeModerationReportDescription('  說明  ')).toBe('說明');
+  });
+
+  it.each([
+    ['unknown category', { category: 'spam' }],
+    ['blank description', { description: '' }],
+    ['padded description', { description: ' 說明' }],
+    ['long description', { description: '字'.repeat(101) }],
+    ['too many files', { evidence: Array.from({ length: 4 }, () => ({ contentType: 'image/png', size: 1 })) }],
+    ['wrong file type', { evidence: [{ contentType: 'application/pdf', size: 1 }] }],
+    ['oversized file', { evidence: [{ contentType: 'image/png', size: 5 * 1024 * 1024 + 1 }] }],
+    ['extra field', { email: 'reporter@example.test' }],
+  ])('rejects malformed report form data: %s', (_label, override) => {
+    expect(() => validateModerationReportForm({
+      category: 'other', description: '說明', evidence: [], ...override,
+    })).toThrow();
+  });
+
+  it('accepts only an exact opaque report draft receipt', () => {
+    expect(() => validateModerationReportDraftReceipt({
+      reportId: 'report-1', expiresAt: new Date('2026-09-05T00:00:00Z'),
+    })).not.toThrow();
+    expect(() => validateModerationReportDraftReceipt({
+      reportId: 'report-1', expiresAt: new Date(), contactValue: 'private',
+    })).toThrow('exact fields');
+  });
 
   it('accepts canonical active and suspended account access records', () => {
     expect(() => validateAccountAccess(activeAccount)).not.toThrow();
