@@ -35,8 +35,27 @@ service cloud.firestore {
     }
 
     match /sellerProfiles/{uid} {
-      allow read: if true;
-      allow write: if isActiveAccount() && request.auth.uid == uid;
+      allow read: if resource.data.keys().hasOnly(['displayName', 'createdAt', 'updatedAt'])
+        && resource.data.keys().hasAll(['displayName', 'createdAt', 'updatedAt'])
+        && resource.data.displayName is string
+        && resource.data.displayName.size() >= 1
+        && resource.data.displayName.size() <= 80
+        && resource.data.createdAt is timestamp
+        && resource.data.updatedAt is timestamp;
+      allow write: if false;
+    }
+
+    match /sellerContacts/{uid} {
+      allow read, write: if false;
+    }
+    match /sellerContactAccessLogs/{id} {
+      allow read, write: if false;
+    }
+    match /sellerContactRequesterLimits/{id} {
+      allow read, write: if false;
+    }
+    match /sellerContactSellerLimits/{id} {
+      allow read, write: if false;
     }
 
     match /listings/{id} {

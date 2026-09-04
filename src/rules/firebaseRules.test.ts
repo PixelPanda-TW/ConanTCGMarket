@@ -65,6 +65,22 @@ beforeAll(async () => {
       ...activeAccountAccess,
       unexpected: true,
     });
+    await setDoc(doc(context.firestore(), 'sellerProfiles', 'seller-a'), {
+      displayName: 'Seller A', createdAt: new Date(), updatedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'sellerProfiles', 'legacy-public-contact'), {
+      displayName: 'Legacy', contactType: 'line', contactValue: 'must-not-be-public',
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'sellerContacts', 'seller-a'), {
+      contactType: 'line', contactValue: 'seller-a', createdAt: new Date(), updatedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'sellerContactAccessLogs', 'audit-1'), {
+      requesterUid: 'active-user', sellerUid: 'seller-a', listingId: 'active',
+      outcome: 'revealed', createdAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'sellerContactRequesterLimits', 'active-user:2026090403'), { count: 1 });
+    await setDoc(doc(context.firestore(), 'sellerContactSellerLimits', 'seller-a:2026090403'), { count: 1 });
     for (const uid of ['missing-user', 'active-user', 'suspended-user', 'malformed-active-user']) {
       await setDoc(doc(context.firestore(), 'listings', `${uid}-listing`), {
         ...activeListing,
@@ -105,14 +121,12 @@ describe('Firebase rules', () => {
     'allows current owner mutations for %s account access',
     async (uid) => {
       const db = environment.authenticatedContext(uid).firestore();
-      const profile = doc(db, 'sellerProfiles', uid);
       const listing = doc(db, 'listings', `${uid}-new-listing`);
       const subscription = doc(db, 'notificationSubscriptions', uid);
 
-      await assertSucceeds(setDoc(profile, {
-        displayName: uid, contactType: 'line', contactValue: uid,
+      await assertFails(setDoc(doc(db, 'sellerProfiles', uid), {
+        displayName: uid, createdAt: new Date(), updatedAt: new Date(),
       }));
-      await assertSucceeds(updateDoc(profile, { displayName: `${uid}-updated` }));
       await assertSucceeds(setDoc(listing, { ...eventListing, sellerId: uid }));
       await assertSucceeds(updateDoc(listing, { listingPrice: 450 }));
       await assertSucceeds(setDoc(doc(db, 'sales', `${uid}-sale`), {
@@ -226,12 +240,41 @@ describe('Firebase rules', () => {
     await assertFails(updateDoc(authenticatedCard, { cardName: '認證篡改' }));
     await assertFails(deleteDoc(authenticatedCard));
   });
-  it('preserves seller profile ownership', async () => {
+  it('allows only strict public profile reads and denies every browser profile write', async () => {
     const sellerA = environment.authenticatedContext('seller-a').firestore();
     const sellerB = environment.authenticatedContext('seller-b').firestore();
+    const publicDb = environment.unauthenticatedContext().firestore();
 
-    await assertSucceeds(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'A', contactType: 'line', contactValue: 'a' }));
-    await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), { displayName: 'B', contactType: 'line', contactValue: 'b' }));
+    await assertSucceeds(getDoc(doc(publicDb, 'sellerProfiles', 'seller-a')));
+    await assertSucceeds(getDoc(doc(sellerB, 'sellerProfiles', 'seller-a')));
+    await assertFails(getDoc(doc(publicDb, 'sellerProfiles', 'legacy-public-contact')));
+    await assertFails(setDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), {
+      displayName: 'A', createdAt: new Date(), updatedAt: new Date(),
+    }));
+    await assertFails(updateDoc(doc(sellerA, 'sellerProfiles', 'seller-a'), { displayName: 'Changed' }));
+    await assertFails(deleteDoc(doc(sellerA, 'sellerProfiles', 'seller-a')));
+    await assertFails(setDoc(doc(sellerB, 'sellerProfiles', 'seller-a'), {
+      displayName: 'B', createdAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it.each([
+    ['sellerContacts', 'seller-a'],
+    ['sellerContactAccessLogs', 'audit-1'],
+    ['sellerContactRequesterLimits', 'active-user:2026090403'],
+    ['sellerContactSellerLimits', 'seller-a:2026090403'],
+  ])('denies every browser read and write of server-only %s', async (collectionName, id) => {
+    const identities = [
+      environment.unauthenticatedContext().firestore(),
+      environment.authenticatedContext('seller-a').firestore(),
+      environment.authenticatedContext('active-user').firestore(),
+      environment.authenticatedContext('suspended-user').firestore(),
+      environment.authenticatedContext('malformed-active-user').firestore(),
+    ];
+    for (const db of identities) {
+      await assertFails(getDoc(doc(db, collectionName, id)));
+      await assertFails(setDoc(doc(db, collectionName, `${id}-write`), { value: 'blocked' }));
+    }
   });
   it('allows an owner to create, read, update, and delete a card name subscription', async () => {
     const buyerA = environment.authenticatedContext('buyer-a').firestore();
