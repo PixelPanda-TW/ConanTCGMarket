@@ -5,6 +5,7 @@ import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
 import { CardNameSubscriptionControl } from '../notifications/CardNameSubscriptionControl';
+import { SellerSubscriptionControl } from '../notifications/SellerSubscriptionControl';
 import { ListingMetadata, resolveListingMetadata } from './ListingMetadata';
 import { sellerContactPresentation } from '../../domain/sellerContact';
 
@@ -145,6 +146,12 @@ export function ListingPage({ id }: { id: string }) {
             <hr />
             <p className="seller-label">賣家</p>
             <p className="seller-name">{seller?.displayName ?? '賣家'}</p>
+            {!isSoldOut && seller !== undefined && (
+              <SellerSubscriptionControl
+                sellerId={listing.sellerId}
+                sellerName={seller?.displayName ?? '賣家'}
+              />
+            )}
             {isSoldOut ? (
               <p className="contact-access-state" role="status">此商品已售罄，僅供賣家查看。</p>
             ) : contact ? (

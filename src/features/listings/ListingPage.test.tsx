@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Card, Listing, PublicSellerProfile } from '../../domain/models';
 import { ListingPage } from './ListingPage';
 
 const repositories = vi.hoisted(() => ({
   addNotificationCardName: vi.fn(),
+  addNotificationSeller: vi.fn(),
   getListing: vi.fn(),
   getNotificationSubscription: vi.fn(),
   getPublicSellerProfile: vi.fn(),
   getSellerContact: vi.fn(),
   listCards: vi.fn(),
   removeNotificationCardName: vi.fn(),
+  removeNotificationSeller: vi.fn(),
 }));
 const authState = vi.hoisted(() => ({
   current: {
@@ -69,6 +72,11 @@ describe('ListingPage card-name subscriptions', () => {
     repositories.listCards.mockResolvedValue(cards);
     repositories.getPublicSellerProfile.mockResolvedValue(seller);
     repositories.getNotificationSubscription.mockResolvedValue(null);
+    repositories.addNotificationSeller.mockResolvedValue({
+      uid: 'buyer-1', cardNames: [],
+      sellerSubscriptions: [{ sellerId: 'seller-1', followedAt: new Date() }],
+      emailDailyEnabled: true, updatedAt: new Date(),
+    });
     authState.current.user = null;
     authState.current.accountAccessState = { state: 'signed-out' };
     authState.current.isActiveAccount = false;
@@ -94,6 +102,37 @@ describe('ListingPage card-name subscriptions', () => {
 
     expect(screen.getByRole('heading', { name: '商品詳情' })).toBeTruthy();
     expect(screen.queryByRole('link', { name: '管理此商品' })).toBeNull();
+  });
+
+  it('connects an active non-owner Listing seller identity to seller subscription', async () => {
+    authState.current.user = { uid: 'buyer-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    const user = userEvent.setup();
+    render(<ListingPage id="listing-1" />);
+
+    await user.click(await screen.findByRole('button', { name: '訂閱賣家 Seller' }));
+    await user.click(screen.getByRole('checkbox', { name: '以 Google 登入信箱接收每日摘要' }));
+    await user.click(screen.getByRole('button', { name: '確認訂閱' }));
+
+    await waitFor(() => expect(repositories.addNotificationSeller)
+      .toHaveBeenCalledWith('buyer-1', 'seller-1'));
+  });
+
+  it('does not expose seller subscription mutation for owner or suspended buyer', async () => {
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    const view = render(<ListingPage id="listing-1" />);
+    await screen.findByText('Seller');
+    expect(screen.queryByRole('button', { name: /訂閱賣家/u })).toBeNull();
+
+    authState.current.user = { uid: 'buyer-1' };
+    authState.current.accountAccessState = { state: 'suspended', access: {} };
+    authState.current.isActiveAccount = false;
+    view.rerender(<ListingPage id="listing-1" />);
+    expect(screen.queryByRole('button', { name: /訂閱賣家/u })).toBeNull();
+    expect(repositories.addNotificationSeller).not.toHaveBeenCalled();
   });
 
   it('keeps a sold-out Listing visible only to its owner and removes every action', async () => {
@@ -177,7 +216,7 @@ describe('ListingPage card-name subscriptions', () => {
     render(<ListingPage id="listing-1" />);
 
     expect(await screen.findByRole('heading', { name: '卡片資料不明確' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
+    expect(document.querySelector('.card-name-subscription-control')).toBeNull();
   });
 
   it('shows unavailable metadata and no subscription when a legacy card cannot be resolved', async () => {
@@ -193,7 +232,7 @@ describe('ListingPage card-name subscriptions', () => {
     render(<ListingPage id="listing-missing" />);
 
     expect(await screen.findByRole('heading', { name: '未提供卡片名稱' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /訂閱/ })).toBeNull();
+    expect(document.querySelector('.card-name-subscription-control')).toBeNull();
   });
 
   describe('protected seller contact disclosure', () => {
