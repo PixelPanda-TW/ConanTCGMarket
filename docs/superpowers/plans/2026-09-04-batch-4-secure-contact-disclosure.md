@@ -158,6 +158,8 @@ git commit -m "feat: expose protected seller contact callables"
 - Modify: `src/data/firestore/repositories/index.ts`
 - Modify: `src/features/profile/profileForm.ts`
 - Modify: `src/features/profile/profileForm.test.ts`
+- Modify: `src/features/marketplace/MarketplacePage.tsx`
+- Modify: `src/features/marketplace/MarketplacePage.test.tsx`
 
 ### RED
 
@@ -169,6 +171,7 @@ Add tests proving:
 - `getSellerContact` sends only Listing ID and rejects empty IDs;
 - every callable response rejects extra/missing/malformed fields, bad dates, or noncanonical contact;
 - profile form rejects a display name over 80 characters.
+- Marketplace seller loading accepts only the public profile shape and never requires contact fields.
 
 Run:
 
@@ -182,12 +185,12 @@ Expected: FAIL because the repository directly reads/writes the old public docum
 
 Use modular `httpsCallable(functionsClient, ...)`, exact runtime response guards, the strict public converter, and same-UID assertions. Change `saveSellerProfile` to return the authoritative server composite profile and add the client display-name bound.
 
-Rerun the focused tests and `npm run build:e2e`.
+Rerun the focused repository, form, and Marketplace tests. The full client type/build check is deferred to Task 6 because Listing detail intentionally remains on the old contact-bearing render shape until its deliberate-reveal tests are written first; Task 6 restores the cross-layer build checkpoint without retaining a public compatibility path.
 
 ### Commit
 
 ```bash
-git add src/data/firestore/repositories/sellerProfileRepository.ts src/data/firestore/repositories/sellerProfileRepository.test.ts src/data/firestore/repositories/index.ts src/features/profile/profileForm.ts src/features/profile/profileForm.test.ts
+git add src/data/firestore/repositories/sellerProfileRepository.ts src/data/firestore/repositories/sellerProfileRepository.test.ts src/data/firestore/repositories/index.ts src/features/profile/profileForm.ts src/features/profile/profileForm.test.ts src/features/marketplace/MarketplacePage.tsx src/features/marketplace/MarketplacePage.test.tsx
 git commit -m "feat: use protected seller profile callables"
 ```
 
