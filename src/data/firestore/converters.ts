@@ -305,6 +305,10 @@ export const notificationSubscriptionConverter: FirestoreDataConverter<Notificat
 
     return {
       cardNames: subscriptionData.cardNames,
+      sellerSubscriptions: subscriptionData.sellerSubscriptions.map((entry) => ({
+        sellerId: entry.sellerId,
+        followedAt: dateToTimestamp(entry.followedAt),
+      })),
       emailDailyEnabled: subscriptionData.emailDailyEnabled,
       updatedAt: dateToTimestamp(subscriptionData.updatedAt),
     };
@@ -322,6 +326,12 @@ export const notificationSubscriptionConverter: FirestoreDataConverter<Notificat
 };
 
 const CURRENT_NOTIFICATION_SUBSCRIPTION_FIELDS = [
+  'cardNames',
+  'sellerSubscriptions',
+  'emailDailyEnabled',
+  'updatedAt',
+] as const;
+const CARD_NAME_ONLY_NOTIFICATION_SUBSCRIPTION_FIELDS = [
   'cardNames',
   'emailDailyEnabled',
   'updatedAt',
@@ -374,13 +384,36 @@ export function readNotificationSubscriptionDocument(
     }
     return null;
   }
-  if (!hasExactFields(data, CURRENT_NOTIFICATION_SUBSCRIPTION_FIELDS)) {
+  const cardNameOnly = hasExactFields(data, CARD_NAME_ONLY_NOTIFICATION_SUBSCRIPTION_FIELDS);
+  if (!cardNameOnly && !hasExactFields(data, CURRENT_NOTIFICATION_SUBSCRIPTION_FIELDS)) {
     throw new Error('Notification subscription document has invalid fields.');
+  }
+
+  let sellerSubscriptions: NotificationSubscription['sellerSubscriptions'] = [];
+  if (!cardNameOnly) {
+    if (!Array.isArray(data.sellerSubscriptions)) {
+      throw new Error('Notification seller subscriptions are malformed.');
+    }
+    sellerSubscriptions = data.sellerSubscriptions.map((value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)
+        || !hasExactFields(value as FirestoreData, ['sellerId', 'followedAt'])) {
+        throw new Error('Notification seller subscriptions are malformed.');
+      }
+      const entry = value as FirestoreData;
+      if (!(entry.followedAt instanceof Timestamp)) {
+        throw new Error('Notification seller subscriptions are malformed.');
+      }
+      return {
+        sellerId: entry.sellerId as string,
+        followedAt: timestampToDate(entry.followedAt, 'seller followedAt'),
+      };
+    });
   }
 
   const subscription: NotificationSubscription = {
     uid,
     cardNames: data.cardNames as string[],
+    sellerSubscriptions,
     emailDailyEnabled: data.emailDailyEnabled as boolean,
     updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
   };

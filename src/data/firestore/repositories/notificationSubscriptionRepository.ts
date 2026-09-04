@@ -32,6 +32,7 @@ function validateMutationCardName(uid: string, cardName: string) {
   validateNotificationSubscription({
     uid,
     cardNames: [cardName],
+    sellerSubscriptions: [],
     emailDailyEnabled: true,
     updatedAt: new Date(),
   });
@@ -69,6 +70,7 @@ export async function addNotificationCardName(
     cardNames: current?.cardNames.includes(cardName)
       ? [...current.cardNames]
       : [...(current?.cardNames ?? []), cardName],
+    sellerSubscriptions: [...(current?.sellerSubscriptions ?? [])],
     emailDailyEnabled: true,
     updatedAt: new Date(),
   }));
@@ -99,6 +101,7 @@ export async function setNotificationEmailDailyEnabled(
   const saved = await mutateNotificationSubscription(uid, (current) => ({
     uid,
     cardNames: [...(current?.cardNames ?? [])],
+    sellerSubscriptions: [...(current?.sellerSubscriptions ?? [])],
     emailDailyEnabled,
     updatedAt: new Date(),
   }));

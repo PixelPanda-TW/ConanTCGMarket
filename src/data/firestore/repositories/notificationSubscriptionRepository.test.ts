@@ -90,6 +90,7 @@ describe('notification subscription repository', () => {
     await expect(getNotificationSubscription('buyer-1')).resolves.toEqual({
       uid: 'buyer-1',
       cardNames: ['鈴木園子'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-25T00:00:00.000Z'),
     });
@@ -124,10 +125,12 @@ describe('notification subscription repository', () => {
     expect(saved).toMatchObject({
       uid: 'buyer-1',
       cardNames: ['江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
     });
     expect(serverData).toEqual({
       cardNames: ['江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: expect.any(firestore.Timestamp),
     });

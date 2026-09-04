@@ -369,11 +369,15 @@ describe('Firestore converters', () => {
       .toThrow('fields');
   });
 
-  it('writes only card-name subscription fields with an updatedAt Timestamp', () => {
+  it('writes canonical card-name and seller subscription fields with Timestamps', () => {
     expect(
       notificationSubscriptionConverter.toFirestore({
         uid: 'buyer-1',
         cardNames: ['江戶川柯南', '洗牌情緣'],
+        sellerSubscriptions: [{
+          sellerId: 'seller-a',
+          followedAt: new Date('2026-08-24T00:00:00.000Z'),
+        }],
         emailDailyEnabled: true,
         updatedAt: new Date('2026-08-25T00:00:00.000Z'),
         email: 'buyer@example.com',
@@ -381,12 +385,13 @@ describe('Firestore converters', () => {
       } as never),
     ).toEqual({
       cardNames: ['江戶川柯南', '洗牌情緣'],
+      sellerSubscriptions: [{ sellerId: 'seller-a', followedAt: expect.any(Timestamp) }],
       emailDailyEnabled: true,
       updatedAt: expect.any(Timestamp),
     });
   });
 
-  it('converts a card-name subscription Timestamp to a Date value', () => {
+  it('reads the previous card-name-only shape as an empty seller list', () => {
     const snapshot = {
       id: 'buyer-1',
       data: () => ({
@@ -399,9 +404,47 @@ describe('Firestore converters', () => {
     expect(notificationSubscriptionConverter.fromFirestore(snapshot as never)).toEqual({
       uid: 'buyer-1',
       cardNames: ['江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: false,
       updatedAt: new Date('2026-08-25T00:00:00.000Z'),
     });
+  });
+
+  it('converts canonical seller subscription Timestamps to Date values', () => {
+    const followedAt = Timestamp.fromDate(new Date('2026-08-24T00:00:00.000Z'));
+    const updatedAt = Timestamp.fromDate(new Date('2026-08-25T00:00:00.000Z'));
+    const snapshot = {
+      id: 'buyer-1',
+      data: () => ({
+        cardNames: [],
+        sellerSubscriptions: [{ sellerId: 'seller-a', followedAt }],
+        emailDailyEnabled: true,
+        updatedAt,
+      }),
+    };
+
+    expect(notificationSubscriptionConverter.fromFirestore(snapshot as never)).toEqual({
+      uid: 'buyer-1',
+      cardNames: [],
+      sellerSubscriptions: [{ sellerId: 'seller-a', followedAt: followedAt.toDate() }],
+      emailDailyEnabled: true,
+      updatedAt: updatedAt.toDate(),
+    });
+  });
+
+  it.each([
+    ['partial seller entry', [{ sellerId: 'seller-a' }]],
+    ['extra seller entry field', [{
+      sellerId: 'seller-a', followedAt: Timestamp.now(), contactValue: 'private',
+    }]],
+    ['non-Timestamp follow date', [{ sellerId: 'seller-a', followedAt: new Date() }]],
+  ])('rejects malformed persisted seller subscriptions: %s', (_name, sellerSubscriptions) => {
+    expect(() => notificationSubscriptionConverter.fromFirestore({
+      id: 'buyer-1',
+      data: () => ({
+        cardNames: [], sellerSubscriptions, emailDailyEnabled: true, updatedAt: Timestamp.now(),
+      }),
+    } as never)).toThrow('seller subscriptions');
   });
 
   it('rejects a legacy character-key subscription document', () => {

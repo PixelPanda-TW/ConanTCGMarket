@@ -1,11 +1,24 @@
 const MAX_NOTIFICATION_CARD_NAMES = 100;
 const MAX_NOTIFICATION_CARD_NAME_LENGTH = 100;
+const MAX_NOTIFICATION_SELLERS = 100;
+const MAX_SELLER_ID_LENGTH = 128;
+
+export interface SellerSubscription {
+  sellerId: string;
+  followedAt: Date;
+}
 
 export interface NotificationSubscription {
   uid: string;
   cardNames: string[];
+  sellerSubscriptions: SellerSubscription[];
   emailDailyEnabled: boolean;
   updatedAt: Date;
+}
+
+function hasExactFields(value: object, fields: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === fields.length && fields.every((field) => keys.includes(field));
 }
 
 export function validateNotificationSubscription(value: unknown) {
@@ -43,6 +56,31 @@ export function validateNotificationSubscription(value: unknown) {
     }
 
     cardNames.add(cardName);
+  }
+
+  if (!Array.isArray(subscription.sellerSubscriptions)
+    || subscription.sellerSubscriptions.length > MAX_NOTIFICATION_SELLERS) {
+    throw new Error('Notification seller subscriptions require a list of at most 100 entries.');
+  }
+  let previousSellerId: string | null = null;
+  for (const entry of subscription.sellerSubscriptions) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)
+      || !hasExactFields(entry, ['sellerId', 'followedAt'])) {
+      throw new Error('Notification seller subscriptions require exact entries.');
+    }
+    if (typeof entry.sellerId !== 'string'
+      || entry.sellerId.length < 1
+      || entry.sellerId.length > MAX_SELLER_ID_LENGTH
+      || entry.sellerId !== entry.sellerId.trim()) {
+      throw new Error('Notification seller subscriptions require valid seller IDs.');
+    }
+    if (!(entry.followedAt instanceof Date) || Number.isNaN(entry.followedAt.valueOf())) {
+      throw new Error('Notification seller subscriptions require valid follow dates.');
+    }
+    if (previousSellerId !== null && previousSellerId >= entry.sellerId) {
+      throw new Error('Notification seller subscriptions require unique sorted seller IDs.');
+    }
+    previousSellerId = entry.sellerId;
   }
 
   if (typeof subscription.emailDailyEnabled !== 'boolean') {

@@ -40,6 +40,7 @@ function savedSubscription(cardNames: string[]): NotificationSubscription {
   return {
     uid: 'buyer-1',
     cardNames,
+    sellerSubscriptions: [],
     emailDailyEnabled: true,
     updatedAt: new Date('2026-08-25T00:00:00.000Z'),
   };

@@ -36,6 +36,7 @@ vi.mock('../../data/firestore/repositories', () => subscriptions);
 const savedSubscription: NotificationSubscription = {
   uid: 'buyer-1',
   cardNames: ['洗牌情緣', '江戶川柯南'],
+  sellerSubscriptions: [],
   emailDailyEnabled: true,
   updatedAt: new Date('2026-08-27T00:00:00.000Z'),
 };

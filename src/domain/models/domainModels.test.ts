@@ -105,6 +105,7 @@ describe('domain model validation', () => {
     const subscription: NotificationSubscription = {
       uid: 'buyer-1',
       cardNames: ['江戶川柯南', '洗牌情緣'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     };
@@ -120,47 +121,55 @@ describe('domain model validation', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: [''],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow();
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: ['江戶川柯南', '江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow('unique card names');
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: [' 江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow('trimmed card names');
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: [123],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow();
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: ['角'.repeat(101)],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow(/at most 100 characters/);
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: Array.from({ length: 101 }, (_, index) => `角色-${index}`),
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow(/at most 100/);
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow('cardNames');
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       characterKeys: ['江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: true,
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow();
@@ -170,9 +179,50 @@ describe('domain model validation', () => {
     expect(() => validateNotificationSubscription({
       uid: 'buyer-1',
       cardNames: ['江戶川柯南'],
+      sellerSubscriptions: [],
       emailDailyEnabled: 'true',
       updatedAt: new Date('2026-08-27T00:00:00.000Z'),
     })).toThrow('boolean emailDailyEnabled');
+  });
+
+  it('accepts exact, unique, seller-ID-sorted subscription entries', () => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1',
+      cardNames: [],
+      sellerSubscriptions: [
+        { sellerId: 'seller-a', followedAt: new Date('2026-09-04T00:00:00.000Z') },
+        { sellerId: 'seller-b', followedAt: new Date('2026-09-04T01:00:00.000Z') },
+      ],
+      emailDailyEnabled: true,
+      updatedAt: new Date('2026-09-04T01:00:00.000Z'),
+    })).not.toThrow();
+  });
+
+  it.each([
+    ['missing list', undefined],
+    ['not a list', {}],
+    ['duplicate seller', [
+      { sellerId: 'seller-a', followedAt: new Date() },
+      { sellerId: 'seller-a', followedAt: new Date() },
+    ]],
+    ['unsorted seller', [
+      { sellerId: 'seller-b', followedAt: new Date() },
+      { sellerId: 'seller-a', followedAt: new Date() },
+    ]],
+    ['blank seller', [{ sellerId: '', followedAt: new Date() }]],
+    ['untrimmed seller', [{ sellerId: ' seller-a', followedAt: new Date() }]],
+    ['oversized seller', [{ sellerId: 's'.repeat(129), followedAt: new Date() }]],
+    ['invalid date', [{ sellerId: 'seller-a', followedAt: new Date('invalid') }]],
+    ['extra entry field', [{ sellerId: 'seller-a', followedAt: new Date(), contactValue: 'private' }]],
+    ['over limit', Array.from({ length: 101 }, (_, index) => ({
+      sellerId: `seller-${String(index).padStart(3, '0')}`,
+      followedAt: new Date(),
+    }))],
+  ])('rejects malformed seller subscriptions: %s', (_name, sellerSubscriptions) => {
+    expect(() => validateNotificationSubscription({
+      uid: 'buyer-1', cardNames: [], sellerSubscriptions,
+      emailDailyEnabled: true, updatedAt: new Date(),
+    })).toThrow('seller subscriptions');
   });
 
   it('accepts normalized promotional Card Master metadata with a stable key', () => {
