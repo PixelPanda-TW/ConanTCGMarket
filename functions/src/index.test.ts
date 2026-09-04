@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest';
 import * as deployedFunctions from './index.js';
 import { DEFAULT_DAILY_RECIPIENT_CAP } from './dailyDigest.js';
 
-const { captureListingEvent, dailyDigestOperator, sendDailyDigest } = deployedFunctions;
+const {
+  captureListingEvent,
+  dailyDigestOperator,
+  getOwnSellerProfile,
+  getSellerContact,
+  saveSellerProfile,
+  sendDailyDigest,
+} = deployedFunctions;
 
 const functionsPackage = JSON.parse(await readFile(
   new URL('../package.json', import.meta.url),
@@ -11,12 +18,23 @@ const functionsPackage = JSON.parse(await readFile(
 )) as { engines?: { node?: string } };
 
 describe('notification Function deployment contract', () => {
-  it('deploys only email notification handlers while Discord is disabled', () => {
+  it('deploys only approved notification and protected seller-profile handlers', () => {
     expect(Object.keys(deployedFunctions).sort()).toStrictEqual([
       'captureListingEvent',
       'dailyDigestOperator',
+      'getOwnSellerProfile',
+      'getSellerContact',
+      'saveSellerProfile',
       'sendDailyDigest',
     ]);
+  });
+
+  it('exposes seller profile operations as callable handlers without public invoker overrides', () => {
+    for (const callable of [saveSellerProfile, getOwnSellerProfile, getSellerContact]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+    }
   });
 
   it('targets the supported Node.js 22 Functions runtime', () => {

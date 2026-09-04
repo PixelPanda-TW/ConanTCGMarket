@@ -9,7 +9,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { error as logError } from 'firebase-functions/logger';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
-import { onRequest } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
   DAILY_DIGEST_SCHEDULE_OPTIONS,
@@ -44,12 +44,154 @@ import {
   captureListingEvent as captureListingEventData,
   type ListingEventStore,
 } from './listingEvents.js';
+import {
+  SecureSellerProfileError,
+  handleGetOwnSellerProfile,
+  handleGetSellerContact,
+  handleSaveSellerProfile,
+  type ContactAccessAudit,
+  type SecureSellerProfileDependencies,
+  type SecureSellerProfileTransaction,
+} from './sellerProfiles.js';
 
 if (getApps().length === 0) {
   initializeApp();
 }
 
 const firestore = getFirestore();
+
+function firestoreDataWithDates(data: DocumentData | undefined): Record<string, unknown> | null {
+  if (!data) return null;
+  return Object.fromEntries(Object.entries(data).map(([key, value]) => [
+    key,
+    value instanceof Timestamp ? value.toDate() : value,
+  ]));
+}
+
+function storedAudit(audit: ContactAccessAudit): DocumentData {
+  return {
+    requesterUid: audit.requesterUid,
+    ...(audit.sellerUid ? { sellerUid: audit.sellerUid } : {}),
+    listingId: audit.listingId,
+    outcome: audit.outcome,
+    createdAt: Timestamp.fromDate(audit.createdAt),
+  };
+}
+
+const secureSellerProfileDependencies: SecureSellerProfileDependencies = {
+  now: () => new Date(),
+  randomId: randomUUID,
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => {
+      const port: SecureSellerProfileTransaction = {
+        async getAccountAccess(uid) {
+          const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getPublicProfile(uid) {
+          const snapshot = await transaction.get(firestore.collection('sellerProfiles').doc(uid));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getSellerContact(uid) {
+          const snapshot = await transaction.get(firestore.collection('sellerContacts').doc(uid));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getListing(id) {
+          const snapshot = await transaction.get(firestore.collection('listings').doc(id));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getRequesterCount(key) {
+          const snapshot = await transaction.get(
+            firestore.collection('sellerContactRequesterLimits').doc(key),
+          );
+          return snapshot.exists ? snapshot.data()?.count as number : 0;
+        },
+        async getSellerCount(key) {
+          const snapshot = await transaction.get(
+            firestore.collection('sellerContactSellerLimits').doc(key),
+          );
+          return snapshot.exists ? snapshot.data()?.count as number : 0;
+        },
+        saveProfilePair(uid, profile, contact) {
+          transaction.set(firestore.collection('sellerProfiles').doc(uid), {
+            displayName: profile.displayName,
+            createdAt: Timestamp.fromDate(profile.createdAt),
+            updatedAt: Timestamp.fromDate(profile.updatedAt),
+          });
+          transaction.set(firestore.collection('sellerContacts').doc(uid), {
+            contactType: contact.contactType,
+            contactValue: contact.contactValue,
+            createdAt: Timestamp.fromDate(contact.createdAt),
+            updatedAt: Timestamp.fromDate(contact.updatedAt),
+          });
+        },
+        setRequesterCount(key, count) {
+          transaction.set(firestore.collection('sellerContactRequesterLimits').doc(key), {
+            count,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        },
+        setSellerCount(key, count) {
+          transaction.set(firestore.collection('sellerContactSellerLimits').doc(key), {
+            count,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        },
+        createAudit(audit) {
+          transaction.create(
+            firestore.collection('sellerContactAccessLogs').doc(audit.id),
+            storedAudit(audit),
+          );
+        },
+      };
+      return operation(port);
+    });
+  },
+  async writeAudit(audit) {
+    await firestore.collection('sellerContactAccessLogs').doc(audit.id).create(storedAudit(audit));
+  },
+};
+
+function throwCallableError(error: unknown, operation: string): never {
+  if (error instanceof SecureSellerProfileError) {
+    throw new HttpsError(error.code, error.message);
+  }
+  logError(`${operation} failed.`, error);
+  throw new HttpsError('unavailable', '服務目前無法使用，請稍後再試。');
+}
+
+export const saveSellerProfile = onCall(async (request) => {
+  try {
+    return await handleSaveSellerProfile({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, secureSellerProfileDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Seller profile save');
+  }
+});
+
+export const getOwnSellerProfile = onCall(async (request) => {
+  try {
+    return await handleGetOwnSellerProfile({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, secureSellerProfileDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Own seller profile read');
+  }
+});
+
+export const getSellerContact = onCall(async (request) => {
+  try {
+    return await handleGetSellerContact({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, secureSellerProfileDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Seller contact disclosure');
+  }
+});
 
 function readDailyDeliveryRecord(data: DocumentData | undefined): DailyDigestDeliveryRecord {
   const cursorSequence = data?.emailDailyCursorSequence;
