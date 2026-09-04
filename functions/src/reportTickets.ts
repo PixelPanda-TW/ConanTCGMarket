@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Timestamp } from 'firebase-admin/firestore';
 
 export const MODERATION_REPORT_CATEGORIES = [
@@ -75,6 +76,30 @@ export interface SubmittedModerationReport extends Omit<DraftModerationReport, '
 }
 
 export type ModerationReport = DraftModerationReport | SubmittedModerationReport;
+
+export interface CreateReportDraftTransaction {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getListing(id: string): Promise<Record<string, unknown> | null>;
+  getRequestPointer(key: string): Promise<unknown | null>;
+  getReport(id: string): Promise<unknown | null>;
+  getDailyLimit(key: string): Promise<unknown | null>;
+  createReport(id: string, data: Record<string, unknown>): void;
+  createRequestPointer(key: string, data: Record<string, unknown>): void;
+  setDailyLimit(key: string, data: Record<string, unknown>): void;
+}
+
+export interface CreateReportDraftDependencies {
+  now(): Date;
+  randomId(): string;
+  runTransaction<T>(
+    operation: (transaction: CreateReportDraftTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
+interface CallableRequest {
+  authUid: string | null;
+  data: unknown;
+}
 
 const categories = new Set<string>(MODERATION_REPORT_CATEGORIES);
 const evidenceTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -242,4 +267,154 @@ export function readModerationReport(value: unknown): ModerationReport {
     evidence,
     submittedAt: readTimestamp(value.submittedAt, '檢舉送出時間'),
   };
+}
+
+function requireAuthUid(value: string | null): string {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 128
+    || value !== value.trim()) {
+    throw new ReportTicketError('unauthenticated', '請先使用 Google 登入。');
+  }
+  return value;
+}
+
+function isValidTimestampLike(value: unknown): boolean {
+  return value instanceof Timestamp
+    || (value instanceof Date && !Number.isNaN(value.valueOf()));
+}
+
+function isCanonicalActiveAccess(value: unknown): boolean {
+  if (!isObject(value) || !hasExactFields(value, [
+    'status', 'confirmedViolationCount', 'updatedAt',
+  ])) return false;
+  return value.status === 'active'
+    && Number.isInteger(value.confirmedViolationCount)
+    && (value.confirmedViolationCount as number) >= 0
+    && isValidTimestampLike(value.updatedAt);
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function readRequestPointer(value: unknown): {
+  reportId: string;
+  reporterId: string;
+  requestIdHash: string;
+  createdAt: Timestamp;
+} | null {
+  if (value === null) return null;
+  if (!isObject(value) || !hasExactFields(value, [
+    'reportId', 'reporterId', 'requestIdHash', 'createdAt',
+  ]) || typeof value.requestIdHash !== 'string' || !SHA256_PATTERN.test(value.requestIdHash)) {
+    throw new ReportTicketError('aborted', '無法確認先前的檢舉請求。');
+  }
+  return {
+    reportId: readId(value.reportId, '檢舉編號'),
+    reporterId: readBoundedString(value.reporterId, '檢舉人 ID', 128),
+    requestIdHash: value.requestIdHash,
+    createdAt: readTimestamp(value.createdAt, '請求建立時間'),
+  };
+}
+
+function readDailyLimit(value: unknown, reporterId: string, utcDate: string): {
+  count: number;
+  createdAt: Timestamp;
+} {
+  if (value === null) return { count: 0, createdAt: Timestamp.fromMillis(0) };
+  if (!isObject(value) || !hasExactFields(value, [
+    'reporterId', 'utcDate', 'count', 'createdAt', 'updatedAt',
+  ]) || value.reporterId !== reporterId || value.utcDate !== utcDate
+    || !Number.isInteger(value.count) || (value.count as number) < 0
+    || (value.count as number) > 10) {
+    throw new ReportTicketError('aborted', '無法確認今日的檢舉額度。');
+  }
+  return {
+    count: value.count as number,
+    createdAt: readTimestamp(value.createdAt, '額度建立時間'),
+  };
+}
+
+function receipt(reportId: string, report: ModerationReport) {
+  return { reportId, expiresAt: report.expiresAt };
+}
+
+export async function createReportDraft(
+  request: CallableRequest,
+  dependencies: CreateReportDraftDependencies,
+): Promise<{ reportId: string; expiresAt: Timestamp }> {
+  const uid = requireAuthUid(request.authUid);
+  const input = parseCreateReportDraftRequest(request.data);
+  const requestIdHash = sha256(input.requestId);
+  const requestKey = sha256(`${uid}\0${input.requestId}`);
+
+  try {
+    return await dependencies.runTransaction(async (transaction) => {
+      const access = await transaction.getAccountAccess(uid);
+      if (access !== null && !isCanonicalActiveAccess(access)) {
+        throw new ReportTicketError('permission-denied', '此帳號目前無法建立檢舉。');
+      }
+
+      const existingPointer = readRequestPointer(await transaction.getRequestPointer(requestKey));
+      if (existingPointer) {
+        if (existingPointer.reporterId !== uid || existingPointer.requestIdHash !== requestIdHash) {
+          throw new ReportTicketError('aborted', '無法確認先前的檢舉請求。');
+        }
+        const existingReport = readModerationReport(
+          await transaction.getReport(existingPointer.reportId),
+        );
+        if (existingReport.requestKey !== requestKey
+          || existingReport.reporterId !== uid
+          || existingReport.listingSnapshot.listingId !== input.listingId) {
+          throw new ReportTicketError('aborted', '無法確認先前的檢舉請求。');
+        }
+        return receipt(existingPointer.reportId, existingReport);
+      }
+
+      const rawListing = await transaction.getListing(input.listingId);
+      if (rawListing === null) {
+        throw new ReportTicketError('not-found', '找不到可檢舉的商品。');
+      }
+      if (rawListing.status !== 'active') {
+        throw new ReportTicketError('failed-precondition', '此商品目前無法檢舉。');
+      }
+      const sellerId = readBoundedString(rawListing.sellerId, '賣家 ID', 128);
+      if (sellerId === uid) {
+        throw new ReportTicketError('permission-denied', '不能檢舉自己的商品。');
+      }
+      const listingSnapshot = projectReportListingSnapshot(input.listingId, rawListing);
+      const nowDate = dependencies.now();
+      if (Number.isNaN(nowDate.valueOf())) {
+        throw new ReportTicketError('unavailable', '目前無法建立檢舉，請稍後再試。');
+      }
+      const now = Timestamp.fromDate(nowDate);
+      const expiresAt = Timestamp.fromMillis(now.toMillis() + 24 * 60 * 60 * 1000);
+      const utcDate = nowDate.toISOString().slice(0, 10);
+      const limitKey = `${uid}_${utcDate}`;
+      const currentLimit = readDailyLimit(
+        await transaction.getDailyLimit(limitKey), uid, utcDate,
+      );
+      if (currentLimit.count >= 10) {
+        throw new ReportTicketError('resource-exhausted', '今日建立的檢舉已達上限。');
+      }
+
+      const reportId = readId(dependencies.randomId(), '檢舉編號');
+      const draft: DraftModerationReport = {
+        status: 'draft', requestKey, reporterId: uid, targetSellerId: sellerId,
+        listingSnapshot, createdAt: now, expiresAt,
+      };
+      transaction.createReport(reportId, { ...draft });
+      transaction.createRequestPointer(requestKey, {
+        reportId, reporterId: uid, requestIdHash, createdAt: now,
+      });
+      transaction.setDailyLimit(limitKey, {
+        reporterId: uid, utcDate, count: currentLimit.count + 1,
+        createdAt: currentLimit.count === 0 ? now : currentLimit.createdAt,
+        updatedAt: now,
+      });
+      return receipt(reportId, draft);
+    });
+  } catch (error) {
+    if (error instanceof ReportTicketError) throw error;
+    throw new ReportTicketError('unavailable', '目前無法建立檢舉，請稍後再試。');
+  }
 }
