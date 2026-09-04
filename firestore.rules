@@ -24,6 +24,70 @@ service cloud.firestore {
           || isCanonicalActiveAccess(get(accountAccessPath()).data));
     }
 
+    function isPositiveNumber(value) {
+      return (value is int || value is float) && value > 0;
+    }
+
+    function isNonNegativeNumber(value) {
+      return (value is int || value is float) && value >= 0;
+    }
+
+    function hasValidListingImages(data) {
+      return data.imageUrls is list
+        && data.imageUrls.size() >= 1
+        && data.imageUrls.size() <= 3
+        && data.imageUrls[0] is string
+        && (data.imageUrls.size() < 2 || data.imageUrls[1] is string)
+        && (data.imageUrls.size() < 3 || data.imageUrls[2] is string);
+    }
+
+    function isValidNewListing(data) {
+      return data.keys().hasOnly([
+          'sellerId', 'cardId', 'cardType', 'cardName', 'characterName', 'rarity',
+          'imageUrls', 'listingPrice', 'originalQuantity', 'remainingQuantity',
+          'hasSleeve', 'sleeveFee', 'supportsMyShip', 'myShipFee', 'note',
+          'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'sellerId', 'cardId', 'cardType', 'cardName', 'rarity', 'imageUrls',
+          'listingPrice', 'originalQuantity', 'remainingQuantity', 'hasSleeve',
+          'supportsMyShip', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.sellerId is string
+        && data.sellerId == request.auth.uid
+        && data.cardId is string
+        && data.cardId.matches('^(\\d{4}|P\\d{3})$')
+        && data.cardType in ['character', 'event', 'case', 'partner']
+        && data.cardName is string
+        && data.cardName.size() >= 1
+        && data.cardName.size() <= 200
+        && data.rarity is string
+        && data.rarity.size() >= 1
+        && data.rarity.size() <= 100
+        && ((data.cardType == 'character'
+            && data.keys().hasAll(['characterName'])
+            && data.characterName is string
+            && data.characterName == data.cardName)
+          || (data.cardType != 'character' && !('characterName' in data)))
+        && hasValidListingImages(data)
+        && isPositiveNumber(data.listingPrice)
+        && data.originalQuantity is int
+        && data.originalQuantity > 0
+        && data.remainingQuantity is int
+        && data.remainingQuantity == data.originalQuantity
+        && data.hasSleeve is bool
+        && (!('sleeveFee' in data)
+          || (data.hasSleeve && isNonNegativeNumber(data.sleeveFee)))
+        && data.supportsMyShip is bool
+        && (!('myShipFee' in data)
+          || (data.supportsMyShip && isNonNegativeNumber(data.myShipFee)))
+        && (!('note' in data) || (data.note is string && data.note.size() <= 2000))
+        && data.status == 'active'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.createdAt == data.updatedAt;
+    }
+
     match /cards/{id} {
       allow read: if true;
       allow write: if false;
@@ -62,19 +126,13 @@ service cloud.firestore {
       allow read: if resource.data.status == 'active'
         || (isAuthenticated() && request.auth.uid == resource.data.sellerId);
       allow create: if isActiveAccount()
-        && request.auth.uid == request.resource.data.sellerId;
-      allow update, delete: if isActiveAccount()
-        && request.auth.uid == resource.data.sellerId;
+        && isValidNewListing(request.resource.data);
+      allow update, delete: if false;
     }
 
     match /sales/{id} {
       allow read: if isAuthenticated() && request.auth.uid == resource.data.sellerId;
-      allow create: if isActiveAccount()
-        && request.auth.uid == request.resource.data.sellerId
-        && request.resource.data.listingId is string
-        && exists(/databases/$(database)/documents/listings/$(request.resource.data.listingId))
-        && get(/databases/$(database)/documents/listings/$(request.resource.data.listingId)).data.sellerId == request.auth.uid;
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     function isValidNotificationSubscription() {

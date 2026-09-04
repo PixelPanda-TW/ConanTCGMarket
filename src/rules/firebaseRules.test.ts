@@ -93,6 +93,8 @@ beforeAll(async () => {
       listingId: 'suspended-user-listing',
       sellerId: 'suspended-user',
     });
+    await setDoc(doc(context.firestore(), 'sales', 'owner-sale'), saleData);
+    await setDoc(doc(context.firestore(), 'sales', 'immutable-owner-sale'), saleData);
     await setDoc(doc(context.firestore(), 'notificationSubscriptions', 'suspended-user'), subscriptionData);
     await uploadBytes(
       ref(context.storage(), 'listings/suspended-user/existing/card.jpg'),
@@ -118,7 +120,7 @@ describe('Firebase rules', () => {
   });
 
   it.each(['missing-user', 'active-user'])(
-    'allows current owner mutations for %s account access',
+    'allows only approved browser mutations for %s account access',
     async (uid) => {
       const db = environment.authenticatedContext(uid).firestore();
       const listing = doc(db, 'listings', `${uid}-new-listing`);
@@ -128,8 +130,8 @@ describe('Firebase rules', () => {
         displayName: uid, createdAt: new Date(), updatedAt: new Date(),
       }));
       await assertSucceeds(setDoc(listing, { ...eventListing, sellerId: uid }));
-      await assertSucceeds(updateDoc(listing, { listingPrice: 450 }));
-      await assertSucceeds(setDoc(doc(db, 'sales', `${uid}-sale`), {
+      await assertFails(updateDoc(listing, { listingPrice: 450 }));
+      await assertFails(setDoc(doc(db, 'sales', `${uid}-sale`), {
         ...saleData,
         sellerId: uid,
         listingId: `${uid}-listing`,
@@ -137,7 +139,7 @@ describe('Firebase rules', () => {
       await assertSucceeds(setDoc(subscription, subscriptionData));
       await assertSucceeds(updateDoc(subscription, { emailDailyEnabled: false }));
       await assertSucceeds(deleteDoc(subscription));
-      await assertSucceeds(deleteDoc(listing));
+      await assertFails(deleteDoc(listing));
     },
   );
 
@@ -211,6 +213,29 @@ describe('Firebase rules', () => {
     await assertSucceeds(setDoc(listing, eventListing));
     await assertFails(setDoc(doc(unauthenticated, 'listings', 'blocked'), eventListing));
     await assertFails(setDoc(doc(sellerB, 'listings', 'event-listing'), { ...eventListing, listingPrice: 1 }));
+  });
+  it.each([
+    ['unknown field', { ...eventListing, unexpected: true }],
+    ['initial inventory mismatch', { ...eventListing, remainingQuantity: 4 }],
+    ['sold-out status', { ...eventListing, status: 'sold_out' }],
+    ['missing card snapshot', { ...activeListing }],
+    ['invalid image count', { ...eventListing, imageUrls: [] }],
+    ['invalid price', { ...eventListing, listingPrice: 0 }],
+    ['invalid service fee', { ...eventListing, sleeveFee: -1 }],
+  ])('rejects malformed Listing creation: %s', async (_name, data) => {
+    const owner = environment.authenticatedContext('seller-a').firestore();
+    await assertFails(setDoc(doc(owner, 'listings', `invalid-${_name}`), data));
+  });
+  it('denies a direct owner lifecycle transaction even when its arithmetic is consistent', async () => {
+    const owner = environment.authenticatedContext('seller-a').firestore();
+    await assertFails(updateDoc(doc(owner, 'listings', 'active'), {
+      remainingQuantity: 4, status: 'active', updatedAt: new Date(),
+    }));
+    await assertFails(setDoc(doc(owner, 'sales', 'direct-sale'), {
+      ...saleData,
+      cardType: 'case', cardName: '封鎖現場', rarity: 'SR',
+    }));
+    await assertFails(deleteDoc(doc(owner, 'listings', 'active')));
   });
   it('allows public active and owner private Listing reads but rejects sold-out cross-user reads', async () => {
     const publicDb = environment.unauthenticatedContext().firestore();
@@ -326,13 +351,12 @@ describe('Firebase rules', () => {
     await assertFails(getDoc(doc(buyer, 'listingEvents', 'listing-1')));
     await assertFails(setDoc(doc(buyer, 'notificationDeliveryState', 'buyer-a'), {}));
   });
-  it('allows only the Listing owner to create and query immutable Sale records', async () => {
+  it('allows only the owner to read/query server-created immutable Sale records', async () => {
     const owner = environment.authenticatedContext('seller-a').firestore();
     const otherSeller = environment.authenticatedContext('seller-b').firestore();
     const publicDb = environment.unauthenticatedContext().firestore();
     const ownerSale = doc(owner, 'sales', 'owner-sale');
 
-    await assertSucceeds(setDoc(ownerSale, saleData));
     await assertSucceeds(getDoc(ownerSale));
     await assertSucceeds(getDocs(query(
       collection(owner, 'sales'),
@@ -356,11 +380,11 @@ describe('Firebase rules', () => {
     )));
     await assertFails(getDoc(doc(publicDb, 'sales', 'owner-sale')));
   });
-  it('rejects even the Sale owner updating or deleting an immutable record', async () => {
+  it('rejects every browser create, update, and delete of Sale records', async () => {
     const owner = environment.authenticatedContext('seller-a').firestore();
     const immutableSale = doc(owner, 'sales', 'immutable-owner-sale');
 
-    await assertSucceeds(setDoc(immutableSale, saleData));
+    await assertFails(setDoc(doc(owner, 'sales', 'new-owner-sale'), saleData));
     const updateFailure = await assertFails(updateDoc(immutableSale, { soldUnitPrice: 400 }));
     expect(updateFailure.code).toBe('permission-denied');
     const deleteFailure = await assertFails(deleteDoc(immutableSale));
