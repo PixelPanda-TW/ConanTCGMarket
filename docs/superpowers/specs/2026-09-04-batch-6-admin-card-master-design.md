@@ -89,10 +89,17 @@ Every admin callable requires both:
 1. a valid authenticated Firebase UID; and
 2. `request.auth.token.admin === true`.
 
+It also applies the existing canonical active-account check inside the trusted
+operation. A suspended or malformed account cannot use its older admin token as
+an authorization bypass; a missing access document retains the approved active
+compatibility behavior.
+
 The client-side claim check controls navigation and user guidance only. It is
 not an authorization boundary. A missing, false, string, or otherwise malformed
-claim is non-admin. Browser Firestore writes to `cards`, `cardMasterArchives`,
-and `cardMasterAuditLogs` remain denied for every user, including admins.
+claim is non-admin. Claim lookup failure disables only the admin surface and
+does not block ordinary buyer/seller capabilities. Browser Firestore writes to
+`cards`, `cardMasterArchives`, and `cardMasterAuditLogs` remain denied for every
+user, including admins.
 
 This batch does not add a UI or script that grants the custom claim. Initial
 claim assignment is a separately authorized production operator action and is
