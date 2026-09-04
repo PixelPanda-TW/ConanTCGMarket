@@ -12,6 +12,7 @@ import {
 const now = new Date('2026-08-25T02:00:00.000Z');
 
 const listing: ListingSnapshot = {
+  sellerId: 'seller-1',
   cardType: 'character',
   cardName: '諸伏景光',
   cardId: 'P001',
@@ -25,6 +26,7 @@ const listing: ListingSnapshot = {
 const event: ListingEvent = {
   id: 'listing-1',
   listingId: 'listing-1',
+  sellerId: 'seller-1',
   cardType: 'character',
   cardName: '諸伏景光',
   rarity: 'SR',
@@ -103,6 +105,7 @@ describe('captureListingEvent', () => {
     expect(deps.events.create).toHaveBeenCalledWith(expect.objectContaining({
       id: `${cardType}-1`,
       listingId: `${cardType}-1`,
+      sellerId: 'seller-1',
       cardType,
       cardName,
       cardId,
@@ -137,6 +140,7 @@ describe('captureListingEvent', () => {
     expect(createdEvent).toMatchObject({
       id: 'event-listing',
       listingId: 'event-listing',
+      sellerId: 'seller-1',
       cardType: 'event',
       cardName: '追蹤開始',
       cardId: '1100',
@@ -177,6 +181,28 @@ describe('captureListingEvent', () => {
     expect(deps.events.create).toHaveBeenCalledWith(expect.objectContaining({
       cardName: rawCardName,
     }));
+  });
+
+  it('does not persist unrelated seller or contact fields', async () => {
+    const deps = createDependencies();
+
+    await captureListingEvent({
+      params: { listingId: 'listing-private-fields' },
+      data: {
+        ...listing,
+        sellerDisplayName: 'Seller Name',
+        contactValue: 'private-contact',
+        email: 'seller@example.com',
+      },
+    }, deps, { discordEnabled: false });
+
+    expect(deps.events.create).toHaveBeenCalledWith(expect.objectContaining({
+      sellerId: 'seller-1',
+    }));
+    const created = vi.mocked(deps.events.create).mock.calls[0]?.[0];
+    expect(created).not.toHaveProperty('sellerDisplayName');
+    expect(created).not.toHaveProperty('contactValue');
+    expect(created).not.toHaveProperty('email');
   });
 
   it('does not swallow non-duplicate persistence failures', async () => {

@@ -8,6 +8,7 @@ import {
 } from './domain.js';
 
 const listing: ListingSnapshot = {
+  sellerId: 'seller-1',
   cardType: 'character',
   cardName: ' 諸伏景光 ',
   cardId: 'P001',
@@ -21,6 +22,7 @@ const listing: ListingSnapshot = {
 const expectedEvent = {
   id: 'listing-1',
   listingId: 'listing-1',
+  sellerId: 'seller-1',
   cardType: 'character',
   cardName: ' 諸伏景光 ',
   rarity: 'SR',
@@ -44,6 +46,7 @@ describe('toListingEvent', () => {
     ['case', '洗牌情緣', '0019'],
   ] as const)('creates a generic %s event', (cardType, cardName, cardId) => {
     expect(toListingEvent('listing-1', {
+      sellerId: 'seller-1',
       cardType,
       cardName,
       cardId,
@@ -106,6 +109,7 @@ describe('toListingEvent', () => {
     cardId,
   ) => {
     expect(toListingEvent('listing-1', {
+      sellerId: 'seller-1',
       cardType,
       cardName,
       cardId,
@@ -122,7 +126,7 @@ describe('toListingEvent', () => {
       .toThrow('Listing event requires an active listing.');
   });
 
-  it('does not copy private seller or recipient data into the event', () => {
+  it('copies only the seller identity needed for matching, not private contact data', () => {
     const privateListing = {
       ...listing,
       sellerId: 'seller-1',
@@ -133,13 +137,18 @@ describe('toListingEvent', () => {
     const event = toListingEvent('listing-1', privateListing);
 
     expect(event).toStrictEqual(expectedEvent);
-    expect(event).not.toHaveProperty('sellerId');
+    expect(event.sellerId).toBe('seller-1');
     expect(event).not.toHaveProperty('contactValue');
     expect(event).not.toHaveProperty('email');
   });
 
   it.each([
     ['non-object snapshot', null],
+    ['missing seller ID', { ...listing, sellerId: undefined }],
+    ['non-string seller ID', { ...listing, sellerId: 42 }],
+    ['blank seller ID', { ...listing, sellerId: ' \t ' }],
+    ['padded seller ID', { ...listing, sellerId: ' seller-1 ' }],
+    ['oversized seller ID', { ...listing, sellerId: 'S'.repeat(129) }],
     ['non-string card ID', { ...listing, cardId: 1096 }],
     ['oversized card ID', { ...listing, cardId: 'C'.repeat(101) }],
     ['non-string card name', { ...listing, cardName: 42 }],
@@ -180,6 +189,21 @@ describe('stored Listing event decoding', () => {
 
   it('runtime-decodes a complete generic event without rewriting its raw card name', () => {
     expect(readListingEvent(storedEvent)).toStrictEqual(storedEvent);
+  });
+
+  it('continues to decode a legacy event that has no seller identity', () => {
+    const { sellerId: _sellerId, ...legacyEvent } = storedEvent;
+
+    expect(readListingEvent(legacyEvent)).toStrictEqual(legacyEvent);
+  });
+
+  it.each([
+    ['non-string seller ID', { ...storedEvent, sellerId: 42 }],
+    ['blank seller ID', { ...storedEvent, sellerId: '' }],
+    ['padded seller ID', { ...storedEvent, sellerId: ' seller-1 ' }],
+    ['oversized seller ID', { ...storedEvent, sellerId: 'S'.repeat(129) }],
+  ])('skips an event with a present but %s', (_label, value) => {
+    expect(readListingEvent(value)).toBeNull();
   });
 
   it.each([

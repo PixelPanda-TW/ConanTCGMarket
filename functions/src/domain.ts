@@ -8,6 +8,7 @@ export interface ListingEventOptions {
 }
 
 export interface ListingSnapshot {
+  sellerId: string;
   cardId: string;
   cardType: 'character' | 'event' | 'case' | 'partner';
   cardName: string;
@@ -21,6 +22,8 @@ export interface ListingSnapshot {
 export interface ListingEvent {
   id: string;
   listingId: string;
+  /** Absent only on events captured before seller subscriptions existed. */
+  sellerId?: string;
   cardType: 'character' | 'event' | 'case' | 'partner';
   cardName: string;
   cardId: string;
@@ -44,7 +47,9 @@ export interface ListingEventPage {
   hasMore: boolean;
 }
 
-export type ListingEventDraft = Omit<ListingEvent, 'capturedAt' | 'capturedSequence'>;
+export type ListingEventDraft = Omit<ListingEvent, 'capturedAt' | 'capturedSequence' | 'sellerId'> & {
+  sellerId: string;
+};
 
 export interface DigestGroup {
   cardName: string;
@@ -72,6 +77,7 @@ export interface RecipientDirectory {
 }
 
 const MAX_LISTING_ID_LENGTH = 200;
+const MAX_SELLER_ID_LENGTH = 128;
 const MAX_CARD_ID_LENGTH = 100;
 const MAX_CARD_NAME_LENGTH = 100;
 const MAX_RARITY_LENGTH = 50;
@@ -132,6 +138,7 @@ function readCreatedAt(value: unknown): Timestamp {
 const LISTING_EVENT_FIELDS = new Set([
   'id',
   'listingId',
+  'sellerId',
   'cardType',
   'cardName',
   'cardId',
@@ -165,6 +172,9 @@ export function readListingEvent(value: unknown): ListingEvent | null {
     || !isStoredString(data.id, MAX_LISTING_ID_LENGTH)
     || !isStoredString(data.listingId, MAX_LISTING_ID_LENGTH)
     || data.id !== data.listingId
+    || (data.sellerId !== undefined
+      && (!isStoredString(data.sellerId, MAX_SELLER_ID_LENGTH)
+        || data.sellerId.trim() !== data.sellerId))
     || (data.cardType !== 'character'
       && data.cardType !== 'event'
       && data.cardType !== 'case'
@@ -204,6 +214,7 @@ export function readListingEvent(value: unknown): ListingEvent | null {
   return {
     id: data.id,
     listingId: data.listingId,
+    ...(data.sellerId === undefined ? {} : { sellerId: data.sellerId }),
     cardType: data.cardType,
     cardName: data.cardName,
     cardId: data.cardId,
@@ -288,6 +299,13 @@ export function toListingEvent(
     return invalidSnapshot('cardType must be character, event, case, or partner.');
   }
 
+  if (!isStoredString(data.sellerId, MAX_SELLER_ID_LENGTH)
+    || data.sellerId.trim() !== data.sellerId) {
+    return invalidSnapshot(
+      `sellerId must contain 1 to ${MAX_SELLER_ID_LENGTH} unpadded characters.`,
+    );
+  }
+
   const cardName = readRawCardName(data.cardName);
   const rarity = readMetadata(data.rarity, 'rarity', MAX_RARITY_LENGTH);
   const cardId = readMetadata(data.cardId, 'cardId', MAX_CARD_ID_LENGTH);
@@ -310,6 +328,7 @@ export function toListingEvent(
   return {
     id: listingId,
     listingId,
+    sellerId: data.sellerId,
     cardType: data.cardType,
     cardName,
     cardId,
