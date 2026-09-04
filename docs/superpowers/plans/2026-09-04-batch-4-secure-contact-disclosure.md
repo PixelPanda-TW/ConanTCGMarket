@@ -375,6 +375,7 @@ git commit -m "feat: add safe seller contact migration"
 - Modify: `e2e/support/emulator-state.ts`
 - Modify: `e2e/support/emulator-state.spec.ts`
 - Modify: `e2e/support/fixtures.ts`
+- Modify: `e2e/support/auth.ts`
 - Modify: `e2e/auth-profile.spec.ts`
 - Modify: `e2e/listing-lifecycle.spec.ts`
 - Modify: `e2e/mvp-journey.spec.ts`
@@ -405,7 +406,7 @@ Rerun the focused spec, then all Chromium E2E tests.
 ### Commit
 
 ```bash
-git add e2e/support/emulator-state.ts e2e/support/emulator-state.spec.ts e2e/support/fixtures.ts e2e/auth-profile.spec.ts e2e/listing-lifecycle.spec.ts e2e/mvp-journey.spec.ts e2e/mobile-forms.spec.ts e2e/contact-disclosure.spec.ts
+git add e2e/support/emulator-state.ts e2e/support/emulator-state.spec.ts e2e/support/fixtures.ts e2e/support/auth.ts e2e/auth-profile.spec.ts e2e/listing-lifecycle.spec.ts e2e/mvp-journey.spec.ts e2e/mobile-forms.spec.ts e2e/contact-disclosure.spec.ts
 git commit -m "test: verify seller contact privacy end to end"
 ```
 
