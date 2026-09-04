@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalHomeHash, getAppRoute, getReportListingId } from './route';
+import {
+  canonicalHomeHash,
+  getAppRoute,
+  getModerationCaseId,
+  getReportListingId,
+} from './route';
 
 describe('app routes', () => {
   it('maps the profile hash to the profile route', () => {
@@ -21,6 +26,25 @@ describe('app routes', () => {
 
   it('maps the private Card Master console hash', () => {
     expect(getAppRoute('#/admin/cards')).toBe('admin-cards');
+  });
+
+  it('maps the exact moderation queue and canonical case hashes', () => {
+    expect(getAppRoute('#/admin/moderation')).toBe('admin-moderation');
+    expect(getAppRoute('#/admin/moderation/report_ABC-123')).toBe('admin-moderation-case');
+    expect(getModerationCaseId('#/admin/moderation/report_ABC-123')).toBe('report_ABC-123');
+  });
+
+  it.each([
+    '#/admin/moderation/',
+    '#/admin/moderation//',
+    '#/admin/moderation/report%2Fchild',
+    '#/admin/moderation/report%20one',
+    '#/admin/moderation/ report-1',
+    `#/admin/moderation/${'x'.repeat(201)}`,
+    '#/admin/moderation/report-1/extra',
+  ])('rejects a noncanonical moderation case hash %s', (hash) => {
+    expect(getModerationCaseId(hash)).toBeNull();
+    expect(getAppRoute(hash)).toBe('marketplace');
   });
 
   it('maps an exact canonical Listing report hash and returns its ID', () => {

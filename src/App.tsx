@@ -4,11 +4,18 @@ import { SellPage } from './features/sell/SellPage';
 import { ListingPage } from './features/listings/ListingPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { ListingEditPage } from './features/listings/ListingEditPage';
-import { canonicalHomeHash, getAppRoute, getReportListingId } from './route';
+import {
+  canonicalHomeHash,
+  getAppRoute,
+  getModerationCaseId,
+  getReportListingId,
+} from './route';
 import { MarketplacePage } from './features/marketplace/MarketplacePage';
 import { NotificationSettingsPage } from './features/notifications/NotificationSettingsPage';
 import { CardMasterAdminPage } from './features/admin/CardMasterAdminPage';
 import { ReportListingPage } from './features/reports/ReportListingPage';
+import { ModerationQueuePage } from './features/admin/ModerationQueuePage';
+import { ModerationCasePage } from './features/admin/ModerationCasePage';
 
 function App() {
   const [hash, setHash] = useState(() => canonicalHomeHash(window.location.hash));
@@ -27,6 +34,8 @@ function App() {
   }, []);
 
   const route = getAppRoute(hash);
+  const moderationCaseId = getModerationCaseId(hash);
+  if (moderationCaseId) return <ModerationCasePage id={moderationCaseId} />;
   const reportListingId = getReportListingId(hash);
   if (reportListingId) return <ReportListingPage id={reportListingId} />;
   const listingEditMatch = hash.match(/^#\/listing\/([^/]+)\/edit$/);
@@ -42,6 +51,7 @@ function App() {
   if (route === 'dashboard') return <DashboardPage />;
   if (route === 'notifications') return <NotificationSettingsPage />;
   if (route === 'admin-cards') return <CardMasterAdminPage />;
+  if (route === 'admin-moderation') return <ModerationQueuePage />;
 
   return <MarketplacePage />;
 }

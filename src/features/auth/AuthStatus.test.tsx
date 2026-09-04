@@ -70,6 +70,8 @@ describe('AuthStatus', () => {
     const view = render(<AuthStatus />);
     expect(screen.getByRole('link', { name: '管理卡片資料' }).getAttribute('href'))
       .toBe('#/admin/cards');
+    expect(screen.getByRole('link', { name: '審查檢舉' }).getAttribute('href'))
+      .toBe('#/admin/moderation');
 
     for (const adminAccessState of [
       { state: 'loading' as const },
@@ -79,8 +81,24 @@ describe('AuthStatus', () => {
       auth.current = { ...activeState(), adminAccessState };
       view.rerender(<AuthStatus />);
       expect(screen.queryByRole('link', { name: '管理卡片資料' })).toBeNull();
+      expect(screen.queryByRole('link', { name: '審查檢舉' })).toBeNull();
       expect(screen.getByRole('link', { name: '我的訂閱' })).toBeTruthy();
     }
+  });
+
+  it('removes both admin links when identity changes before the next claim resolves', () => {
+    auth.current = { ...activeState(), adminAccessState: { state: 'admin' } };
+    const view = render(<AuthStatus />);
+    expect(screen.getByRole('link', { name: '審查檢舉' })).toBeTruthy();
+
+    auth.current = {
+      ...activeState(),
+      user: { uid: 'buyer-2', displayName: 'Next', photoURL: null },
+      adminAccessState: { state: 'loading' },
+    };
+    view.rerender(<AuthStatus />);
+    expect(screen.queryByRole('link', { name: '審查檢舉' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '管理卡片資料' })).toBeNull();
   });
 
   it('fails closed but keeps sign-out when access state is unavailable', () => {

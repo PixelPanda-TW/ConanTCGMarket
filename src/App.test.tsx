@@ -22,6 +22,12 @@ vi.mock('./features/notifications/NotificationSettingsPage', () => ({
 vi.mock('./features/admin/CardMasterAdminPage', () => ({
   CardMasterAdminPage: () => <h1>卡片資料管理</h1>,
 }));
+vi.mock('./features/admin/ModerationQueuePage', () => ({
+  ModerationQueuePage: () => <h1>moderation queue</h1>,
+}));
+vi.mock('./features/admin/ModerationCasePage', () => ({
+  ModerationCasePage: ({ id }: { id: string }) => <h1>moderation case {id}</h1>,
+}));
 
 afterEach(() => {
   window.location.hash = '';
@@ -82,6 +88,30 @@ describe('App routes', () => {
     window.location.hash = '#/admin/cards';
     render(<App />);
     expect(screen.getByRole('heading', { name: '卡片資料管理' })).toBeTruthy();
+  });
+
+  it('renders the moderation queue and exact case before generic routes', () => {
+    window.location.hash = '#/admin/moderation';
+    const queue = render(<App />);
+    expect(screen.getByRole('heading', { name: 'moderation queue' })).toBeTruthy();
+    queue.unmount();
+
+    window.location.hash = '#/admin/moderation/report_ABC-123';
+    render(<App />);
+    expect(screen.getByRole('heading', { name: 'moderation case report_ABC-123' })).toBeTruthy();
+    expect(screen.queryByText(/listing page/u)).toBeNull();
+  });
+
+  it('does not dispatch malformed moderation case hashes', () => {
+    for (const hash of [
+      '#/admin/moderation/report%2Fchild',
+      '#/admin/moderation/report-1/extra',
+    ]) {
+      window.location.hash = hash;
+      const view = render(<App />);
+      expect(screen.getByRole('heading', { name: 'marketplace page' })).toBeTruthy();
+      view.unmount();
+    }
   });
 
 });
