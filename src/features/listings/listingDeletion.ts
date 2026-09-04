@@ -6,9 +6,12 @@ export interface DeletableListing {
 
 export async function deleteListingAndImages(
   listing: DeletableListing,
-  deleteRecord: (listing: DeletableListing) => Promise<void>,
+  deleteRecord: (listing: DeletableListing) => Promise<readonly string[] | void>,
   deleteImages: (sellerId: string, imageUrls: readonly string[]) => Promise<void>,
 ): Promise<void> {
-  await deleteRecord(listing);
-  await deleteImages(listing.sellerId, listing.imageUrls);
+  const storedImageUrls = await deleteRecord(listing);
+  await deleteImages(
+    listing.sellerId,
+    Array.isArray(storedImageUrls) ? storedImageUrls : listing.imageUrls,
+  );
 }

@@ -1,19 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 
 const firestore = vi.hoisted(() => ({
   collection: vi.fn(),
   connectFirestoreEmulator: vi.fn(),
-  doc: vi.fn(),
   getDocs: vi.fn(),
   getFirestore: vi.fn(() => ({ type: 'firestore' })),
   query: vi.fn(),
-  runTransaction: vi.fn(),
   where: vi.fn(),
+}));
+const functions = vi.hoisted(() => ({
+  callable: vi.fn(),
+  httpsCallable: vi.fn(() => functions.callable),
 }));
 const auth = vi.hoisted(() => ({ currentUser: { uid: 'seller-1' as string | null } }));
 
 vi.mock('firebase/firestore', () => firestore);
-vi.mock('../../../lib/firebase/app', () => ({ auth, firebaseApp: { type: 'app' }, firebaseEmulatorConfig: null }));
+vi.mock('firebase/functions', () => functions);
+vi.mock('../../../lib/firebase/app', () => ({
+  auth, firebaseApp: { type: 'app' }, firebaseEmulatorConfig: null,
+  functionsClient: { type: 'functions' },
+}));
 
 import { listSellerSales, recordSale, sellerSalesQueryConstraints } from './saleRepository';
 import { collections } from '../paths';
@@ -29,47 +36,50 @@ describe('sale repository', () => {
     firestore.where.mockImplementation((field, operator, value) => ({ field, operator, value }));
     firestore.query.mockImplementation((source, ...constraints) => ({ source, constraints }));
     auth.currentUser = { uid: 'seller-1' };
+    functions.callable.mockReset();
   });
 
-  it('records a partial sale and decreases remaining inventory atomically', async () => {
-    const listing = { id: 'listing-1', sellerId: 'seller-1', cardId: 'CP-001', listingPrice: 500, remainingQuantity: 5 };
-    const listingRef = { withConverter: vi.fn(function (this: object) { return this; }) };
-    const saleRef = { id: 'sale-1', withConverter: vi.fn(function (this: object) { return this; }) };
-    const transaction = { get: vi.fn().mockResolvedValue({ exists: () => true, data: () => listing }), set: vi.fn(), update: vi.fn() };
-    firestore.doc.mockReturnValueOnce(listingRef).mockReturnValueOnce(saleRef).mockReturnValueOnce(saleRef);
-    firestore.runTransaction.mockImplementation((_db: unknown, operation: (value: typeof transaction) => unknown) => operation(transaction));
+  it('records a Sale through the exact trusted callable and adopts its response', async () => {
+    functions.callable.mockResolvedValue({ data: {
+      sale: {
+        id: 'sale-1', listingId: 'listing-1', sellerId: 'seller-1', cardId: '2200',
+        cardType: 'case', cardName: '封鎖現場', rarity: 'SR', quantity: 2,
+        listingUnitPrice: 500, soldUnitPrice: 450, soldAt: 1788510600000,
+      },
+      listing: { remainingQuantity: 3, status: 'active', updatedAt: 1788510600000 },
+    } });
 
-    await expect(recordSale('listing-1', 2, 450)).resolves.toMatchObject({ quantity: 2, soldUnitPrice: 450, listingUnitPrice: 500 });
-    expect(transaction.update).toHaveBeenCalledWith(listingRef, expect.objectContaining({ remainingQuantity: 3, status: 'active' }));
+    await expect(recordSale('listing-1', 2, 450)).resolves.toEqual({
+      sale: {
+        id: 'sale-1', listingId: 'listing-1', sellerId: 'seller-1', cardId: '2200',
+        cardType: 'case', cardName: '封鎖現場', rarity: 'SR', quantity: 2,
+        listingUnitPrice: 500, soldUnitPrice: 450, soldAt: new Date(1788510600000),
+      },
+      listing: { remainingQuantity: 3, status: 'active', updatedAt: new Date(1788510600000) },
+    });
+    expect(functions.httpsCallable).toHaveBeenCalledWith({ type: 'functions' }, 'recordListingSale');
+    expect(functions.callable).toHaveBeenCalledWith({ listingId: 'listing-1', quantity: 2, soldUnitPrice: 450 });
   });
 
-  it('marks the listing sold out and rejects overselling', async () => {
-    const listing = { id: 'listing-1', sellerId: 'seller-1', cardId: 'CP-001', listingPrice: 500, remainingQuantity: 2 };
-    const listingRef = { withConverter: vi.fn(function (this: object) { return this; }) };
-    const saleRef = { id: 'sale-1', withConverter: vi.fn(function (this: object) { return this; }) };
-    const transaction = { get: vi.fn().mockResolvedValue({ exists: () => true, data: () => listing }), set: vi.fn(), update: vi.fn() };
-    firestore.doc.mockReturnValueOnce(listingRef).mockReturnValueOnce(saleRef).mockReturnValueOnce(saleRef);
-    firestore.runTransaction.mockImplementation((_db: unknown, operation: (value: typeof transaction) => unknown) => operation(transaction));
-
-    await expect(recordSale('listing-1', 2, 500)).resolves.toMatchObject({ quantity: 2 });
-    expect(transaction.update).toHaveBeenCalledWith(listingRef, expect.objectContaining({ remainingQuantity: 0, status: 'sold_out' }));
-    firestore.doc.mockReturnValueOnce(listingRef);
-    await expect(recordSale('listing-1', 3, 500)).rejects.toThrow('Sale quantity exceeds remaining inventory.');
+  it.each([
+    ['extra field', { sale: { extra: true }, listing: {} }],
+    ['legacy Sale response', { sale: { id: 'sale-1' }, listing: {} }],
+    ['invalid availability', {
+      sale: {
+        id: 'sale-1', listingId: 'listing-1', sellerId: 'seller-1', cardId: '2200',
+        cardType: 'case', cardName: '封鎖現場', rarity: 'SR', quantity: 2,
+        listingUnitPrice: 500, soldUnitPrice: 450, soldAt: 1788510600000,
+      },
+      listing: { remainingQuantity: 0, status: 'active', updatedAt: 1788510600000 },
+    }],
+  ])('rejects malformed callable result: %s', async (_name, data) => {
+    functions.callable.mockResolvedValue({ data });
+    await expect(recordSale('listing-1', 2, 450)).rejects.toThrow('invalid sale response');
   });
 
-  it('rejects a sale attempt from a non-owner before writing', async () => {
-    auth.currentUser = { uid: 'seller-2' };
-    const listingRef = { withConverter: vi.fn(function (this: object) { return this; }) };
-    const transaction = {
-      get: vi.fn().mockResolvedValue({ exists: () => true, data: () => ({ sellerId: 'seller-1', remainingQuantity: 2 }) }),
-      set: vi.fn(), update: vi.fn(),
-    };
-    firestore.doc.mockReturnValueOnce(listingRef);
-    firestore.runTransaction.mockImplementation((_db: unknown, operation: (value: typeof transaction) => unknown) => operation(transaction));
-
-    await expect(recordSale('listing-1', 1, 500)).rejects.toThrow('Only the listing owner can record sales.');
-    expect(transaction.set).not.toHaveBeenCalled();
-    expect(transaction.update).not.toHaveBeenCalled();
+  it('contains no direct Sale or Listing mutation dependency', async () => {
+    const source = await readFile(new URL('./saleRepository.ts', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/runTransaction|transaction\.set|transaction\.update|updateDoc|deleteDoc/u);
   });
 
   it('filters seller sale records by sellerId', () => {

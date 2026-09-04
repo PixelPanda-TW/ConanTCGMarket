@@ -13,4 +13,14 @@ describe('deleteListingAndImages', () => {
     await expect(deleteListingAndImages({ id: 'listing-1', sellerId: 'seller-1', imageUrls: ['image-url'] }, async () => { throw new Error('denied'); }, deleteImages)).rejects.toThrow('denied');
     expect(deleteImages).not.toHaveBeenCalled();
   });
+
+  it('cleans only the canonical image URLs returned by trusted deletion', async () => {
+    const deleteImages = vi.fn();
+    await deleteListingAndImages(
+      { id: 'listing-1', sellerId: 'seller-1', imageUrls: ['stale-image-url'] },
+      async () => ['stored-image-url'],
+      deleteImages,
+    );
+    expect(deleteImages).toHaveBeenCalledWith('seller-1', ['stored-image-url']);
+  });
 });
