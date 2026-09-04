@@ -251,7 +251,9 @@ export function validateModerationCaseDetail(value: unknown): void {
   }
   if (value.status === 'confirmed'
     && (!Number.isInteger(value.resultingConfirmedViolationCount)
-      || value.resultingConfirmedViolationCount !== value.account.confirmedViolationCount)) {
+      || (value.resultingConfirmedViolationCount as number) < 1
+      || (value.resultingConfirmedViolationCount as number)
+        > value.account.confirmedViolationCount)) {
     fail('Moderation confirmed count is invalid.');
   }
 }

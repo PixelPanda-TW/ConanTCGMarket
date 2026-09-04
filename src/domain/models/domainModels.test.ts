@@ -88,7 +88,7 @@ describe('domain model validation', () => {
       account: { status: 'active', confirmedViolationCount: 2, suspensionEligible: true },
       rationale: '證據與刊登內容一致證明違規', decidedBy: 'admin-1',
       decidedAt: new Date('2026-09-04T01:00:00.000Z'),
-      resultingConfirmedViolationCount: 2,
+      resultingConfirmedViolationCount: 1,
     };
     expect(() => validateModerationCaseDetail(detail)).not.toThrow();
     for (const extra of ['contactValue', 'email', 'path', 'md5Hash']) {

@@ -89,6 +89,12 @@ export interface ModerationCaseListDependencies {
   getReports(ids: string[]): Promise<Array<{ id: string; data: unknown | null }>>;
 }
 
+export interface ModerationCaseDetailDependencies {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getCase(id: string): Promise<unknown | null>;
+  getReport(id: string): Promise<unknown | null>;
+}
+
 const idPattern = /^[A-Za-z0-9_-]{1,200}$/u;
 const statuses = new Set<string>(['all', ...MODERATION_CASE_STATUSES]);
 const decisions = new Set<string>(MODERATION_DECISIONS);
@@ -215,6 +221,41 @@ function isCanonicalActiveAccess(value: unknown): boolean {
     && isTimestampLike(value.updatedAt);
 }
 
+function accountSummary(value: unknown | null): {
+  status: 'active' | 'suspended';
+  confirmedViolationCount: number;
+  suspensionEligible: boolean;
+} {
+  if (value === null) {
+    return { status: 'active', confirmedViolationCount: 0, suspensionEligible: false };
+  }
+  if (!isRecord(value)) return malformed();
+  const activeFields = ['status', 'confirmedViolationCount', 'updatedAt'];
+  const suspendedFields = [
+    ...activeFields, 'suspensionReason', 'suspendedAt', 'suspendedBy',
+  ];
+  const expected = value.status === 'active' ? activeFields
+    : value.status === 'suspended' ? suspendedFields : [];
+  if (expected.length === 0 || !exact(value, expected)
+    || !Number.isInteger(value.confirmedViolationCount)
+    || (value.confirmedViolationCount as number) < 0 || !isTimestampLike(value.updatedAt)) {
+    return malformed();
+  }
+  if (value.status === 'suspended'
+    && (typeof value.suspensionReason !== 'string' || value.suspensionReason.length < 1
+      || value.suspensionReason.length > 1000
+      || value.suspensionReason !== value.suspensionReason.trim()
+      || typeof value.suspendedBy !== 'string' || value.suspendedBy.length < 1
+      || value.suspendedBy.length > 128 || value.suspendedBy !== value.suspendedBy.trim()
+      || !isTimestampLike(value.suspendedAt))) return malformed();
+  const count = value.confirmedViolationCount as number;
+  return {
+    status: value.status as 'active' | 'suspended',
+    confirmedViolationCount: count,
+    suspensionEligible: count >= 2,
+  };
+}
+
 export async function requireActiveAdmin(
   request: Pick<ModerationAdminCallableRequest, 'authUid' | 'adminClaim'>,
   getAccountAccess: (uid: string) => Promise<unknown | null>,
@@ -324,6 +365,78 @@ export async function listModerationCases(
         ? { openedAt: lastCase.openedAt.toMillis(), key: last.id }
         : null,
     };
+  } catch (error) {
+    if (error instanceof ModerationReviewError) throw error;
+    throw new ModerationReviewError('unavailable', '目前無法載入審查案件。');
+  }
+}
+
+function evidenceSummaries(reportId: string, report: SubmittedModerationReport) {
+  const prefix = `reportEvidence/${report.reporterId}/${reportId}/`;
+  let previousSlot = -1;
+  return report.evidence.map((item) => {
+    if (!item.path.startsWith(prefix)) return malformed();
+    const slotText = item.path.slice(prefix.length);
+    if (!/^[0-2]$/u.test(slotText)) return malformed();
+    const slot = Number(slotText);
+    if (slot <= previousSlot) return malformed();
+    previousSlot = slot;
+    return { slot: slot as 0 | 1 | 2, contentType: item.contentType, size: item.size };
+  });
+}
+
+function detailWire(
+  moderationCase: ModerationCase,
+  report: SubmittedModerationReport,
+  account: ReturnType<typeof accountSummary>,
+) {
+  const common = {
+    reportId: moderationCase.reportId,
+    status: moderationCase.status,
+    category: report.category,
+    description: report.description,
+    reporterId: report.reporterId,
+    targetSellerId: report.targetSellerId,
+    listingSnapshot: listingSnapshotWire(report.listingSnapshot),
+    submittedAt: report.submittedAt.toMillis(),
+    openedAt: moderationCase.openedAt.toMillis(),
+    evidence: evidenceSummaries(moderationCase.reportId, report),
+    account,
+  };
+  if (moderationCase.status === 'open') return common;
+  const decided = {
+    ...common,
+    rationale: moderationCase.rationale,
+    decidedBy: moderationCase.decidedBy,
+    decidedAt: moderationCase.decidedAt.toMillis(),
+  };
+  if (moderationCase.status === 'dismissed') return decided;
+  if (moderationCase.resultingConfirmedViolationCount > account.confirmedViolationCount) {
+    return malformed();
+  }
+  return {
+    ...decided,
+    resultingConfirmedViolationCount: moderationCase.resultingConfirmedViolationCount,
+  };
+}
+
+export async function getModerationCase(
+  request: ModerationAdminCallableRequest,
+  dependencies: ModerationCaseDetailDependencies,
+) {
+  const input = parseGetModerationCaseRequest(request.data);
+  try {
+    await requireActiveAdmin(request, dependencies.getAccountAccess);
+    const [caseData, reportData] = await Promise.all([
+      dependencies.getCase(input.reportId),
+      dependencies.getReport(input.reportId),
+    ]);
+    const pair = readSubmittedPair(
+      { id: input.reportId, data: caseData },
+      { id: input.reportId, data: reportData },
+    );
+    const targetAccess = await dependencies.getAccountAccess(pair.report.targetSellerId);
+    return detailWire(pair.moderationCase, pair.report, accountSummary(targetAccess));
   } catch (error) {
     if (error instanceof ModerationReviewError) throw error;
     throw new ModerationReviewError('unavailable', '目前無法載入審查案件。');

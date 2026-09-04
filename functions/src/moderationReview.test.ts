@@ -9,7 +9,9 @@ import {
   parseListModerationCasesRequest,
   readModerationCase,
   listModerationCases,
+  getModerationCase,
   type ModerationCaseListDependencies,
+  type ModerationCaseDetailDependencies,
 } from './moderationReview.js';
 
 const OPENED_AT = Timestamp.fromDate(new Date('2026-09-04T00:00:00.000Z'));
@@ -225,5 +227,124 @@ describe('list moderation cases', () => {
     await expect(listModerationCases(adminListRequest, dependencies)).rejects.toMatchObject({
       code: 'unavailable', message: '目前無法載入審查案件。',
     });
+  });
+});
+
+function detailHarness(overrides: Partial<ModerationCaseDetailDependencies> = {}) {
+  const report = submittedReport({
+    evidence: [
+      {
+        path: 'reportEvidence/buyer-1/report-1/0', contentType: 'image/png',
+        size: 100, generation: '123', md5Hash: 'private-hash',
+      },
+      {
+        path: 'reportEvidence/buyer-1/report-1/2', contentType: 'image/webp',
+        size: 200, generation: '456',
+      },
+    ],
+  });
+  const moderationCase = {
+    status: 'open', reportId: 'report-1', targetSellerId: 'seller-1', openedAt: OPENED_AT,
+  };
+  const dependencies: ModerationCaseDetailDependencies = {
+    getAccountAccess: vi.fn(async (uid) => (uid === 'seller-1' ? null : {
+      status: 'active', confirmedViolationCount: 0, updatedAt: OPENED_AT,
+    })),
+    getCase: vi.fn(async () => moderationCase),
+    getReport: vi.fn(async () => report),
+    ...overrides,
+  };
+  return { report, moderationCase, dependencies };
+}
+
+const adminDetailRequest = {
+  authUid: 'admin-1', adminClaim: true, data: { reportId: 'report-1' },
+};
+
+describe('get moderation case detail', () => {
+  it('returns exact private detail and only sanitized evidence summaries', async () => {
+    const { dependencies } = detailHarness();
+    const result = await getModerationCase(adminDetailRequest, dependencies);
+
+    expect(result).toEqual({
+      reportId: 'report-1', status: 'open', category: 'listing_mismatch',
+      description: 'private description', reporterId: 'buyer-1', targetSellerId: 'seller-1',
+      listingSnapshot: { ...LISTING_SNAPSHOT, createdAt: LISTING_SNAPSHOT.createdAt.toMillis() },
+      submittedAt: OPENED_AT.toMillis(), openedAt: OPENED_AT.toMillis(),
+      evidence: [
+        { slot: 0, contentType: 'image/png', size: 100 },
+        { slot: 2, contentType: 'image/webp', size: 200 },
+      ],
+      account: { status: 'active', confirmedViolationCount: 0, suspensionEligible: false },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/reportEvidence|generation|md5|contact|email/iu);
+    expect(dependencies.getCase).toHaveBeenCalledWith('report-1');
+    expect(dependencies.getReport).toHaveBeenCalledWith('report-1');
+    expect(dependencies.getAccountAccess).toHaveBeenCalledWith('seller-1');
+  });
+
+  it('projects a confirmed case and canonical suspended target without hiding history', async () => {
+    const confirmedCase = {
+      status: 'confirmed', reportId: 'report-1', targetSellerId: 'seller-1',
+      openedAt: OPENED_AT, rationale: '確認違規', decidedBy: 'admin-1',
+      decidedAt: LATER_AT, resultingConfirmedViolationCount: 3,
+    };
+    const { dependencies } = detailHarness({
+      getCase: vi.fn(async () => confirmedCase),
+      getAccountAccess: vi.fn(async (uid) => (uid === 'admin-1' ? null : {
+        status: 'suspended', confirmedViolationCount: 3, suspensionReason: '重複違規',
+        suspendedAt: OPENED_AT, suspendedBy: 'admin-2', updatedAt: LATER_AT,
+      })),
+    });
+    await expect(getModerationCase(adminDetailRequest, dependencies)).resolves.toMatchObject({
+      status: 'confirmed', rationale: '確認違規', decidedBy: 'admin-1',
+      decidedAt: LATER_AT.toMillis(), resultingConfirmedViolationCount: 3,
+      account: { status: 'suspended', confirmedViolationCount: 3, suspensionEligible: true },
+    });
+  });
+
+  it('returns terminal dismissal rationale without a confirmed result count', async () => {
+    const dismissedCase = {
+      status: 'dismissed', reportId: 'report-1', targetSellerId: 'seller-1',
+      openedAt: OPENED_AT, rationale: '無法證實', decidedBy: 'admin-1', decidedAt: LATER_AT,
+    };
+    const { dependencies } = detailHarness({ getCase: vi.fn(async () => dismissedCase) });
+    const result = await getModerationCase(adminDetailRequest, dependencies);
+    expect(result).toMatchObject({ status: 'dismissed', rationale: '無法證實' });
+    expect(result).not.toHaveProperty('resultingConfirmedViolationCount');
+  });
+
+  it.each([
+    ['missing case', { getCase: vi.fn(async () => null) }],
+    ['draft report', { getReport: vi.fn(async () => ({ ...submittedReport(), status: 'draft' })) }],
+    ['target mismatch', { getCase: vi.fn(async () => ({
+      status: 'open', reportId: 'report-1', targetSellerId: 'other', openedAt: OPENED_AT,
+    })) }],
+    ['malformed target access', { getAccountAccess: vi.fn(async (uid: string) => (
+      uid === 'admin-1' ? null : {
+        status: 'active', confirmedViolationCount: 0, updatedAt: OPENED_AT, email: 'private',
+      }
+    )) }],
+    ['noncanonical evidence path', { getReport: vi.fn(async () => submittedReport({ evidence: [{
+      path: 'reportEvidence/other/report-1/0', contentType: 'image/png', size: 1,
+      generation: '1',
+    }] })) }],
+    ['unsorted evidence slots', { getReport: vi.fn(async () => submittedReport({ evidence: [
+      { path: 'reportEvidence/buyer-1/report-1/2', contentType: 'image/png', size: 1, generation: '2' },
+      { path: 'reportEvidence/buyer-1/report-1/0', contentType: 'image/png', size: 1, generation: '1' },
+    ] })) }],
+  ])('fails closed for %s', async (_label, overrides) => {
+    const { dependencies } = detailHarness(overrides as Partial<ModerationCaseDetailDependencies>);
+    await expect(getModerationCase(adminDetailRequest, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
+  it('denies a non-admin before loading case data', async () => {
+    const { dependencies } = detailHarness();
+    await expect(getModerationCase({
+      ...adminDetailRequest, adminClaim: false,
+    }, dependencies)).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(dependencies.getCase).not.toHaveBeenCalled();
+    expect(dependencies.getReport).not.toHaveBeenCalled();
   });
 });
