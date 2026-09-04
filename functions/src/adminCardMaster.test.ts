@@ -6,11 +6,13 @@ import {
   handleAddCardMasterEntry,
   handleDisableCardMasterEntry,
   handleEditCardMasterEntry,
+  handleListCardMasterArchives,
   handleMergeCardMasterEntries,
   normalizeAdminCard,
   type AdminCardMasterDependencies,
   type AdminCardMasterTransaction,
   type ApprovedCard,
+  type CardMasterArchivePageDependencies,
 } from './adminCardMaster.js';
 
 const NOW = new Date('2026-09-04T09:10:11.000Z');
@@ -221,6 +223,51 @@ describe('admin Card Master domain', () => {
     await expect(handleEditCardMasterEntry(request(editInput(sourceKey, source, {
       rarities: ['CP', 'D'],
     })), dependencies)).resolves.toMatchObject({ card: { key: sourceKey, rarities: ['CP', 'D'] } });
+  });
+
+  it('lists a bounded archive page after active-admin validation', async () => {
+    const archivedCard = card();
+    const key = cardMasterKey(archivedCard);
+    const listArchives = vi.fn(async () => [{ key, data: archived(archivedCard) }]);
+    const dependencies: CardMasterArchivePageDependencies = {
+      runTransaction: async (operation) => operation({
+        getAccountAccess: async () => activeAccess(),
+        listArchives,
+      }),
+    };
+    await expect(handleListCardMasterArchives(request({ limit: 1 }), dependencies))
+      .resolves.toEqual({
+        archives: [{ key, ...archived(archivedCard), actedAt: EARLIER.valueOf() }],
+        nextCursor: { key, actedAt: EARLIER.valueOf() },
+      });
+    expect(listArchives).toHaveBeenCalledWith(null, 1);
+  });
+
+  it.each([
+    [{ extra: true }],
+    [{ limit: 101 }],
+    [{ limit: 0 }],
+    [{ cursor: { actedAt: -1, key: `card_${'0'.repeat(64)}` } }],
+    [{ cursor: { actedAt: 1, key: 'bad' } }],
+    [{ cursor: { actedAt: 1, key: `card_${'0'.repeat(64)}`, extra: true } }],
+  ])('rejects malformed archive page request %#', async (data) => {
+    const dependencies: CardMasterArchivePageDependencies = {
+      runTransaction: vi.fn(),
+    };
+    await expectCode(handleListCardMasterArchives(request(data), dependencies), 'invalid-argument');
+    expect(dependencies.runTransaction).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when an archive page contains malformed stored data', async () => {
+    const archivedCard = card();
+    const key = cardMasterKey(archivedCard);
+    const dependencies: CardMasterArchivePageDependencies = {
+      runTransaction: async (operation) => operation({
+        getAccountAccess: async () => activeAccess(),
+        listArchives: async () => [{ key, data: { ...archived(archivedCard), extra: true } }],
+      }),
+    };
+    await expectCode(handleListCardMasterArchives(request({}), dependencies), 'failed-precondition');
   });
 
   it('edits rarities in place after checking the source fingerprint', async () => {

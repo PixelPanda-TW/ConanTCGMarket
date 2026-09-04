@@ -70,6 +70,25 @@ interface AdminRequest {
   data: unknown;
 }
 
+export interface CardMasterArchiveCursor {
+  actedAt: number;
+  key: string;
+}
+
+export interface CardMasterArchivePageTransaction {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  listArchives(
+    cursor: CardMasterArchiveCursor | null,
+    limit: number,
+  ): Promise<Array<{ key: string; data: Record<string, unknown> }>>;
+}
+
+export interface CardMasterArchivePageDependencies {
+  runTransaction<T>(
+    operation: (transaction: CardMasterArchivePageTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
 const CARD_ID_PATTERN = /^(?:\d{4}|P\d{3})$/u;
 const CARD_KEY_PATTERN = /^card_[0-9a-f]{64}$/u;
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/u;
@@ -185,7 +204,7 @@ function parseFingerprint(value: unknown): string {
   return value;
 }
 
-function requireAdmin(request: AdminRequest): string {
+export function requireCardMasterAdmin(request: AdminRequest): string {
   if (typeof request.authUid !== 'string' || request.authUid.length < 1
     || request.authUid.length > 128 || request.authUid.trim() !== request.authUid) {
     throw new AdminCardMasterError('unauthenticated', '請先使用 Google 登入。');
@@ -211,7 +230,7 @@ function isCanonicalActiveAccess(value: unknown): boolean {
 }
 
 async function requireActiveAdmin(
-  transaction: AdminCardMasterTransaction,
+  transaction: Pick<AdminCardMasterTransaction, 'getAccountAccess'>,
   uid: string,
 ): Promise<void> {
   const access = await transaction.getAccountAccess(uid);
@@ -220,7 +239,10 @@ async function requireActiveAdmin(
   }
 }
 
-function canonicalArchive(raw: Record<string, unknown> | null, key: string): CardMasterArchive | null {
+export function readCardMasterArchive(
+  raw: Record<string, unknown> | null,
+  key: string,
+): CardMasterArchive | null {
   if (!raw) return null;
   const disposition = raw.disposition;
   const requiresReplacement = disposition === 'superseded' || disposition === 'merged';
@@ -248,6 +270,57 @@ function canonicalArchive(raw: Record<string, unknown> | null, key: string): Car
     throw new AdminCardMasterError('failed-precondition', `封存卡片 ${key} 的資料不完整。`);
   }
   return raw as unknown as CardMasterArchive;
+}
+
+function parseArchivePageInput(value: unknown): {
+  cursor: CardMasterArchiveCursor | null;
+  limit: number;
+} {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) invalidArgument();
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => key !== 'cursor' && key !== 'limit')) invalidArgument();
+  const limit = record.limit === undefined ? 50 : record.limit;
+  if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100) {
+    invalidArgument('封存頁面筆數須為 1 到 100。');
+  }
+  let cursor: CardMasterArchiveCursor | null = null;
+  if (record.cursor !== undefined && record.cursor !== null) {
+    const parsed = exactObject(record.cursor, ['actedAt', 'key']);
+    if (!Number.isSafeInteger(parsed.actedAt) || (parsed.actedAt as number) < 0) {
+      invalidArgument('封存頁面游標格式錯誤。');
+    }
+    cursor = { actedAt: parsed.actedAt as number, key: parseCardKey(parsed.key) };
+  }
+  return { cursor, limit: limit as number };
+}
+
+export async function handleListCardMasterArchives(
+  request: AdminRequest,
+  dependencies: CardMasterArchivePageDependencies,
+) {
+  const uid = requireCardMasterAdmin(request);
+  const { cursor, limit } = parseArchivePageInput(request.data);
+  return dependencies.runTransaction(async (transaction) => {
+    await requireActiveAdmin(transaction, uid);
+    const documents = await transaction.listArchives(cursor, limit);
+    if (documents.length > limit) {
+      throw new AdminCardMasterError('unavailable', '管理服務暫時無法使用。');
+    }
+    const archives = documents.map(({ key, data }) => {
+      const archive = readCardMasterArchive(data, key);
+      if (!archive) {
+        throw new AdminCardMasterError('failed-precondition', `封存卡片 ${key} 的資料不完整。`);
+      }
+      return { key, ...archive, actedAt: archive.actedAt.valueOf() };
+    });
+    const last = archives.at(-1);
+    return {
+      archives,
+      nextCursor: documents.length === limit && last
+        ? { actedAt: last.actedAt, key: last.key }
+        : null,
+    };
+  });
 }
 
 function currentTime(dependencies: AdminCardMasterDependencies): Date {
@@ -280,7 +353,7 @@ export async function handleAddCardMasterEntry(
   request: AdminRequest,
   dependencies: AdminCardMasterDependencies,
 ) {
-  const uid = requireAdmin(request);
+  const uid = requireCardMasterAdmin(request);
   const input = exactObject(request.data, [...cardFields, 'rationale']);
   const card = cardFromInput(input);
   const rationale = parseRationale(input.rationale);
@@ -292,7 +365,7 @@ export async function handleAddCardMasterEntry(
     if (await transaction.getCard(key)) {
       throw new AdminCardMasterError('already-exists', '這筆卡片已存在。');
     }
-    if (canonicalArchive(await transaction.getArchive(key), key)) {
+    if (readCardMasterArchive(await transaction.getArchive(key), key)) {
       throw new AdminCardMasterError('already-exists', '這筆卡片已停用或被取代。');
     }
     transaction.setCard(key, card);
@@ -307,7 +380,7 @@ export async function handleEditCardMasterEntry(
   request: AdminRequest,
   dependencies: AdminCardMasterDependencies,
 ) {
-  const uid = requireAdmin(request);
+  const uid = requireCardMasterAdmin(request);
   const input = exactObject(request.data, [
     'sourceCardKey', 'expectedFingerprint', ...cardFields, 'rationale',
   ]);
@@ -328,10 +401,10 @@ export async function handleEditCardMasterEntry(
       if (await transaction.getCard(targetKey)) {
         throw new AdminCardMasterError('already-exists', '修改後的卡片已存在。');
       }
-      if (canonicalArchive(await transaction.getArchive(targetKey), targetKey)) {
+      if (readCardMasterArchive(await transaction.getArchive(targetKey), targetKey)) {
         throw new AdminCardMasterError('already-exists', '修改後的卡片 key 已被封存。');
       }
-      if (canonicalArchive(await transaction.getArchive(sourceKey), sourceKey)) {
+      if (readCardMasterArchive(await transaction.getArchive(sourceKey), sourceKey)) {
         throw new AdminCardMasterError('failed-precondition', '來源卡片已有封存紀錄。');
       }
       transaction.setCard(targetKey, after);
@@ -355,7 +428,7 @@ export async function handleDisableCardMasterEntry(
   request: AdminRequest,
   dependencies: AdminCardMasterDependencies,
 ) {
-  const uid = requireAdmin(request);
+  const uid = requireCardMasterAdmin(request);
   const input = exactObject(request.data, ['sourceCardKey', 'expectedFingerprint', 'rationale']);
   const sourceKey = parseCardKey(input.sourceCardKey);
   const expectedFingerprint = parseFingerprint(input.expectedFingerprint);
@@ -368,7 +441,7 @@ export async function handleDisableCardMasterEntry(
     if (cardFingerprint(before) !== expectedFingerprint) {
       throw new AdminCardMasterError('aborted', '卡片已被更新，請重新載入。');
     }
-    if (canonicalArchive(await transaction.getArchive(sourceKey), sourceKey)) {
+    if (readCardMasterArchive(await transaction.getArchive(sourceKey), sourceKey)) {
       throw new AdminCardMasterError('failed-precondition', '來源卡片已有封存紀錄。');
     }
     const archive: CardMasterArchive = {
@@ -388,7 +461,7 @@ export async function handleMergeCardMasterEntries(
   request: AdminRequest,
   dependencies: AdminCardMasterDependencies,
 ) {
-  const uid = requireAdmin(request);
+  const uid = requireCardMasterAdmin(request);
   const input = exactObject(request.data, [
     'sourceCardKey', 'sourceExpectedFingerprint', 'targetCardKey',
     'targetExpectedFingerprint', 'rationale',
@@ -409,7 +482,7 @@ export async function handleMergeCardMasterEntries(
       || cardFingerprint(target) !== targetExpectedFingerprint) {
       throw new AdminCardMasterError('aborted', '來源或目標卡片已被更新，請重新載入。');
     }
-    if (canonicalArchive(await transaction.getArchive(sourceKey), sourceKey)) {
+    if (readCardMasterArchive(await transaction.getArchive(sourceKey), sourceKey)) {
       throw new AdminCardMasterError('failed-precondition', '來源卡片已有封存紀錄。');
     }
     const after: ApprovedCard = {

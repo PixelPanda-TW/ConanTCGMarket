@@ -1,13 +1,20 @@
 import { readFile } from 'node:fs/promises';
-import { describe, expect, it } from 'vitest';
+import { Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { describe, expect, it, vi } from 'vitest';
 import * as deployedFunctions from './index.js';
+import { cardMasterKey, normalizeAdminCard } from './adminCardMaster.js';
 import { DEFAULT_DAILY_RECIPIENT_CAP } from './dailyDigest.js';
 
 const {
+  addCardMasterEntry,
   captureListingEvent,
   dailyDigestOperator,
+  disableCardMasterEntry,
+  editCardMasterEntry,
   getOwnSellerProfile,
   getSellerContact,
+  listCardMasterArchives,
+  mergeCardMasterEntries,
   recordListingSale,
   saveSellerProfile,
   sendDailyDigest,
@@ -23,16 +30,138 @@ const functionsPackage = JSON.parse(await readFile(
 describe('notification Function deployment contract', () => {
   it('deploys only approved notification and protected seller-profile handlers', () => {
     expect(Object.keys(deployedFunctions).sort()).toStrictEqual([
+      'addCardMasterEntry',
       'captureListingEvent',
       'dailyDigestOperator',
       'deleteUnsoldListing',
+      'disableCardMasterEntry',
+      'editCardMasterEntry',
       'getOwnSellerProfile',
       'getSellerContact',
+      'listCardMasterArchives',
+      'mergeCardMasterEntries',
       'recordListingSale',
       'saveSellerProfile',
       'sendDailyDigest',
       'updateSellerListing',
     ]);
+  });
+
+  it('exposes all Card Master Admin operations only as callable handlers', () => {
+    for (const callable of [
+      listCardMasterArchives,
+      addCardMasterEntry,
+      editCardMasterEntry,
+      disableCardMasterEntry,
+      mergeCardMasterEntries,
+    ]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+    }
+  });
+
+  it('passes the exact admin custom claim into every Card Master handler', async () => {
+    for (const callable of [
+      listCardMasterArchives,
+      addCardMasterEntry,
+      editCardMasterEntry,
+      disableCardMasterEntry,
+      mergeCardMasterEntries,
+    ]) {
+      await expect(callable.run({
+        auth: { uid: 'admin-1', token: { admin: 'true' } },
+        data: {},
+      } as never)).rejects.toMatchObject({ code: 'permission-denied' });
+    }
+  });
+
+  it('preserves domain errors and sanitizes unexpected Admin SDK failures', async () => {
+    await expect(addCardMasterEntry.run({
+      auth: { uid: 'admin-1', token: { admin: true } },
+      data: {},
+    } as never)).rejects.toMatchObject({ code: 'invalid-argument' });
+
+    const transaction = vi.spyOn(getFirestore(), 'runTransaction')
+      .mockRejectedValueOnce(new Error('must not expose rationale=secret'));
+    const failure = addCardMasterEntry.run({
+      auth: { uid: 'admin-1', token: { admin: true } },
+      data: {
+        cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南',
+        rarities: ['P'], rationale: 'secret',
+      },
+    } as never);
+    await expect(failure).rejects.toMatchObject({
+      code: 'unavailable', message: '服務目前無法使用，請稍後再試。',
+    });
+    transaction.mockRestore();
+  });
+
+  it('adapts a successful Card Master mutation to one exact Admin transaction', async () => {
+    const canonical = normalizeAdminCard({
+      cardId: 'P001', cardType: 'partner', cardName: '江戶川柯南', rarities: ['P'],
+    });
+    const key = cardMasterKey(canonical);
+    const writes: Array<{ operation: string; path: string; data?: Record<string, unknown> }> = [];
+    const reads: string[] = [];
+    const fakeTransaction = {
+      async get(reference: { path: string }) {
+        reads.push(reference.path);
+        if (reference.path === 'accountAccess/admin-1') {
+          return {
+            exists: true,
+            data: () => ({
+              status: 'active', confirmedViolationCount: 0,
+              updatedAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z')),
+            }),
+          };
+        }
+        return { exists: false, data: () => undefined };
+      },
+      set(reference: { path: string }, data: Record<string, unknown>) {
+        writes.push({ operation: 'set', path: reference.path, data });
+      },
+      create(reference: { path: string }, data: Record<string, unknown>) {
+        writes.push({ operation: 'create', path: reference.path, data });
+      },
+      delete(reference: { path: string }) {
+        writes.push({ operation: 'delete', path: reference.path });
+      },
+    };
+    const transaction = vi.spyOn(getFirestore(), 'runTransaction')
+      .mockImplementationOnce(async (operation) => operation(fakeTransaction as never));
+
+    await expect(addCardMasterEntry.run({
+      auth: { uid: 'admin-1', token: { admin: true } },
+      data: { ...canonical, rationale: '新增正式資料' },
+    } as never)).resolves.toMatchObject({ card: { key, ...canonical } });
+
+    expect(reads).toEqual([
+      'accountAccess/admin-1',
+      `cards/${key}`,
+      `cardMasterArchives/${key}`,
+    ]);
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toEqual({ operation: 'set', path: `cards/${key}`, data: canonical });
+    expect(writes[1]).toMatchObject({
+      operation: 'create',
+      path: expect.stringMatching(/^cardMasterAuditLogs\//u),
+      data: { action: 'add', actedBy: 'admin-1', rationale: '新增正式資料' },
+    });
+    expect(writes[1].data?.actedAt).toBeInstanceOf(Timestamp);
+    transaction.mockRestore();
+  });
+
+  it('keeps Card Master reads and writes in bounded Admin SDK operations', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain("firestore.collection('cardMasterArchives')");
+    expect(source).toContain("firestore.collection('cardMasterAuditLogs')");
+    expect(source).toContain("orderBy('actedAt', 'desc')");
+    expect(source).toContain('orderBy(FieldPath.documentId())');
+    expect(source).toContain('.limit(limit)');
+    expect(source).toContain('request.auth?.token.admin');
+    expect(source).not.toMatch(/logError\([^\n]*(request\.data|rationale|before|after)/u);
   });
 
   it('exposes trusted listing lifecycle operations only as callable handlers', () => {

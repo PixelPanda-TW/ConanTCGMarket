@@ -12,6 +12,20 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
+  AdminCardMasterError,
+  handleAddCardMasterEntry,
+  handleDisableCardMasterEntry,
+  handleEditCardMasterEntry,
+  handleListCardMasterArchives,
+  handleMergeCardMasterEntries,
+  type AdminCardMasterDependencies,
+  type AdminCardMasterTransaction,
+  type CardMasterArchive,
+  type CardMasterArchivePageDependencies,
+  type CardMasterArchivePageTransaction,
+  type CardMasterAudit,
+} from './adminCardMaster.js';
+import {
   DAILY_DIGEST_SCHEDULE_OPTIONS,
   DEFAULT_DAILY_RECIPIENT_CAP,
   beginDailyDigestSend,
@@ -86,6 +100,92 @@ function storedAudit(audit: ContactAccessAudit): DocumentData {
     createdAt: Timestamp.fromDate(audit.createdAt),
   };
 }
+
+function storedCardMasterArchive(archive: CardMasterArchive): DocumentData {
+  return {
+    ...archive,
+    actedAt: Timestamp.fromDate(archive.actedAt),
+  };
+}
+
+function storedCardMasterAudit(audit: CardMasterAudit): DocumentData {
+  return {
+    ...audit,
+    actedAt: Timestamp.fromDate(audit.actedAt),
+  };
+}
+
+const adminCardMasterDependencies: AdminCardMasterDependencies = {
+  now: () => new Date(),
+  randomId: randomUUID,
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => {
+      const port: AdminCardMasterTransaction = {
+        async getAccountAccess(uid) {
+          const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getCard(key) {
+          const snapshot = await transaction.get(firestore.collection('cards').doc(key));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async getArchive(key) {
+          const snapshot = await transaction.get(
+            firestore.collection('cardMasterArchives').doc(key),
+          );
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        setCard(key, data) {
+          transaction.set(firestore.collection('cards').doc(key), data);
+        },
+        deleteCard(key) {
+          transaction.delete(firestore.collection('cards').doc(key));
+        },
+        createArchive(key, data) {
+          transaction.create(
+            firestore.collection('cardMasterArchives').doc(key),
+            storedCardMasterArchive(data),
+          );
+        },
+        createAudit(key, data) {
+          transaction.create(
+            firestore.collection('cardMasterAuditLogs').doc(key),
+            storedCardMasterAudit(data),
+          );
+        },
+      };
+      return operation(port);
+    });
+  },
+};
+
+const cardMasterArchivePageDependencies: CardMasterArchivePageDependencies = {
+  async runTransaction(operation) {
+    return firestore.runTransaction(async (transaction) => {
+      const port: CardMasterArchivePageTransaction = {
+        async getAccountAccess(uid) {
+          const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+          return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
+        },
+        async listArchives(cursor, limit) {
+          let query = firestore.collection('cardMasterArchives')
+            .orderBy('actedAt', 'desc')
+            .orderBy(FieldPath.documentId())
+            .limit(limit);
+          if (cursor) {
+            query = query.startAfter(Timestamp.fromMillis(cursor.actedAt), cursor.key);
+          }
+          const snapshot = await transaction.get(query);
+          return snapshot.docs.map((document) => ({
+            key: document.id,
+            data: firestoreDataWithDates(document.data()) ?? {},
+          }));
+        },
+      };
+      return operation(port);
+    });
+  },
+};
 
 const secureSellerProfileDependencies: SecureSellerProfileDependencies = {
   now: () => new Date(),
@@ -162,12 +262,76 @@ const secureSellerProfileDependencies: SecureSellerProfileDependencies = {
 };
 
 function throwCallableError(error: unknown, operation: string): never {
-  if (error instanceof SecureSellerProfileError || error instanceof ListingLifecycleError) {
+  if (error instanceof SecureSellerProfileError
+    || error instanceof ListingLifecycleError
+    || error instanceof AdminCardMasterError) {
     throw new HttpsError(error.code, error.message);
   }
-  logError(`${operation} failed.`, error);
+  logError(`${operation} failed.`, {
+    errorName: error instanceof Error ? error.name : 'UnknownError',
+  });
   throw new HttpsError('unavailable', '服務目前無法使用，請稍後再試。');
 }
+
+export const listCardMasterArchives = onCall(async (request) => {
+  try {
+    return await handleListCardMasterArchives({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, cardMasterArchivePageDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Card Master archive list');
+  }
+});
+
+export const addCardMasterEntry = onCall(async (request) => {
+  try {
+    return await handleAddCardMasterEntry({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, adminCardMasterDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Card Master add');
+  }
+});
+
+export const editCardMasterEntry = onCall(async (request) => {
+  try {
+    return await handleEditCardMasterEntry({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, adminCardMasterDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Card Master edit');
+  }
+});
+
+export const disableCardMasterEntry = onCall(async (request) => {
+  try {
+    return await handleDisableCardMasterEntry({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, adminCardMasterDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Card Master disable');
+  }
+});
+
+export const mergeCardMasterEntries = onCall(async (request) => {
+  try {
+    return await handleMergeCardMasterEntries({
+      authUid: request.auth?.uid ?? null,
+      adminClaim: request.auth?.token.admin,
+      data: request.data,
+    }, adminCardMasterDependencies);
+  } catch (error) {
+    throwCallableError(error, 'Card Master merge');
+  }
+});
 
 export const saveSellerProfile = onCall(async (request) => {
   try {
