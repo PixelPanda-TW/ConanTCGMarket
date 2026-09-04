@@ -257,6 +257,7 @@ function submitHarness(report: Record<string, unknown> = { ...draft }) {
   const state = {
     access: null as unknown | null,
     report,
+    moderationCase: null as Record<string, unknown> | null,
     metadata: {
       'reportEvidence/buyer-1/report-1/0': {
         contentType: 'image/png', size: '100', generation: '123', md5Hash: 'abc=',
@@ -270,7 +271,9 @@ function submitHarness(report: Record<string, unknown> = { ...draft }) {
   const transaction: SubmitReportTransaction = {
     getAccountAccess: vi.fn(async () => state.access),
     getReport: vi.fn(async () => state.report),
+    getCase: vi.fn(async () => state.moderationCase),
     setSubmittedReport: vi.fn((_id, value) => { state.report = value; }),
+    createOpenCase: vi.fn((_id, value) => { state.moderationCase = value; }),
   };
   const dependencies: SubmitReportDependencies = {
     now: () => new Date('2026-09-04T12:00:00.000Z'),
@@ -311,6 +314,10 @@ describe('submit report', () => {
       ],
       submittedAt: Timestamp.fromDate(new Date('2026-09-04T12:00:00.000Z')),
     });
+    expect(state.moderationCase).toEqual({
+      status: 'open', reportId: 'report-1', targetSellerId: 'seller-1',
+      openedAt: Timestamp.fromDate(new Date('2026-09-04T12:00:00.000Z')),
+    });
     expect(JSON.stringify(state.report)).not.toMatch(/downloadTokens|contact|email/iu);
   });
 
@@ -327,12 +334,40 @@ describe('submit report', () => {
     const { state, transaction, dependencies } = submitHarness();
     await submitReport(submitRequest, dependencies);
     vi.mocked(transaction.setSubmittedReport).mockClear();
+    vi.mocked(transaction.createOpenCase).mockClear();
     vi.mocked(dependencies.getEvidenceMetadata).mockClear();
 
     await expect(submitReport(submitRequest, dependencies)).resolves.toEqual({ reportId: 'report-1' });
     expect(transaction.setSubmittedReport).not.toHaveBeenCalled();
+    expect(transaction.createOpenCase).not.toHaveBeenCalled();
     expect(dependencies.getEvidenceMetadata).not.toHaveBeenCalled();
     expect(state.report.status).toBe('submitted');
+  });
+
+  it('rejects an identical report retry when its case is missing or incompatible', async () => {
+    const { state, transaction, dependencies } = submitHarness();
+    await submitReport(submitRequest, dependencies);
+    state.moderationCase = null;
+    vi.mocked(transaction.setSubmittedReport).mockClear();
+    await expectCode(submitReport(submitRequest, dependencies), 'aborted');
+    expect(transaction.setSubmittedReport).not.toHaveBeenCalled();
+
+    state.moderationCase = {
+      status: 'open', reportId: 'report-1', targetSellerId: 'other-seller',
+      openedAt: Timestamp.fromDate(new Date('2026-09-04T12:00:00.000Z')),
+    };
+    await expectCode(submitReport(submitRequest, dependencies), 'aborted');
+  });
+
+  it('rejects a pre-existing case before transitioning a draft', async () => {
+    const { state, transaction, dependencies } = submitHarness();
+    state.moderationCase = {
+      status: 'open', reportId: 'report-1', targetSellerId: 'seller-1', openedAt: createdAt,
+    };
+    await expectCode(submitReport(submitRequest, dependencies), 'aborted');
+    expect(transaction.setSubmittedReport).not.toHaveBeenCalled();
+    expect(transaction.createOpenCase).not.toHaveBeenCalled();
+    expect(state.report.status).toBe('draft');
   });
 
   it.each([
@@ -382,6 +417,7 @@ describe('submit report', () => {
     }, dependencies);
     await expectCode(rejection, 'failed-precondition');
     await expect(rejection).rejects.not.toThrow(/pdf|5242881|download/iu);
+    expect(state.moderationCase).toBeNull();
   });
 
   it('rejects a conflicting submitted retry', async () => {

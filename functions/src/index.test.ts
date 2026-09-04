@@ -270,7 +270,7 @@ describe('notification Function deployment contract', () => {
       createdAt: Timestamp.fromDate(new Date(current.valueOf() - 60_000)),
       expiresAt: Timestamp.fromDate(new Date(current.valueOf() + 60_000)),
     };
-    const writes: Record<string, unknown>[] = [];
+    const writes: Array<{ path: string; operation: 'set' | 'create'; data: Record<string, unknown> }> = [];
     const fakeTransaction = {
       async get(reference: { path: string }) {
         if (reference.path === 'moderationReports/report-1') {
@@ -278,7 +278,12 @@ describe('notification Function deployment contract', () => {
         }
         return { exists: false, data: () => undefined };
       },
-      set(_reference: unknown, data: Record<string, unknown>) { writes.push(data); },
+      set(reference: { path: string }, data: Record<string, unknown>) {
+        writes.push({ path: reference.path, operation: 'set', data });
+      },
+      create(reference: { path: string }, data: Record<string, unknown>) {
+        writes.push({ path: reference.path, operation: 'create', data });
+      },
     };
     const transaction = vi.spyOn(getFirestore(), 'runTransaction')
       .mockImplementation(async (operation) => operation(fakeTransaction as never));
@@ -298,11 +303,21 @@ describe('notification Function deployment contract', () => {
       },
     } as never)).resolves.toEqual({ reportId: 'report-1' });
     expect(getMetadata).toHaveBeenCalledOnce();
-    expect(writes).toHaveLength(1);
-    expect(writes[0].evidence).toEqual([{
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toMatchObject({
+      path: 'moderationReports/report-1', operation: 'set', data: { evidence: [{
       path: 'reportEvidence/buyer-1/report-1/0', contentType: 'image/png',
       size: 100, generation: '123', md5Hash: 'abc=',
-    }]);
+      }] },
+    });
+    expect(writes[1]).toEqual({
+      path: 'moderationCases/report-1', operation: 'create',
+      data: {
+        status: 'open', reportId: 'report-1', targetSellerId: 'seller-1',
+        openedAt: expect.any(Timestamp),
+      },
+    });
+    expect(writes[1].data.openedAt).toEqual(writes[0].data.submittedAt);
     expect(JSON.stringify(writes)).not.toMatch(/must-not-copy|downloadTokens/iu);
     bucket.mockRestore();
     transaction.mockRestore();

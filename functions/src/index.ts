@@ -530,8 +530,15 @@ function reportTransactionPort(
       const snapshot = await transaction.get(firestore.collection('moderationReports').doc(id));
       return snapshot.exists ? snapshot.data() ?? null : null;
     },
+    async getCase(id) {
+      const snapshot = await transaction.get(firestore.collection('moderationCases').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
     setSubmittedReport(id, data) {
       transaction.set(firestore.collection('moderationReports').doc(id), data);
+    },
+    createOpenCase(id, data) {
+      transaction.create(firestore.collection('moderationCases').doc(id), data);
     },
   };
 }

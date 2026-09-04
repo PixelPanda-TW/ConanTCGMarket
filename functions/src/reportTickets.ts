@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Timestamp } from 'firebase-admin/firestore';
+import { readModerationCase } from './moderationReview.js';
 
 export const MODERATION_REPORT_CATEGORIES = [
   'suspected_counterfeit',
@@ -99,7 +100,9 @@ export interface CreateReportDraftDependencies {
 export interface SubmitReportTransaction {
   getAccountAccess(uid: string): Promise<unknown | null>;
   getReport(id: string): Promise<unknown | null>;
+  getCase(id: string): Promise<unknown | null>;
   setSubmittedReport(id: string, data: Record<string, unknown>): void;
+  createOpenCase(id: string, data: Record<string, unknown>): void;
 }
 
 export interface SubmitReportDependencies {
@@ -514,6 +517,32 @@ function requireUnexpiredDraft(
   return report;
 }
 
+function assertCompatibleCase(
+  value: unknown | null,
+  reportId: string,
+  report: ModerationReport,
+): void {
+  if (report.status === 'draft') {
+    if (value !== null) {
+      throw new ReportTicketError('aborted', '無法確認檢舉案件狀態。');
+    }
+    return;
+  }
+  if (value === null) {
+    throw new ReportTicketError('aborted', '無法確認檢舉案件狀態。');
+  }
+  try {
+    const moderationCase = readModerationCase(value);
+    if (moderationCase.reportId !== reportId
+      || moderationCase.targetSellerId !== report.targetSellerId
+      || moderationCase.openedAt.toMillis() !== report.submittedAt.toMillis()) {
+      throw new Error('incompatible');
+    }
+  } catch {
+    throw new ReportTicketError('aborted', '無法確認檢舉案件狀態。');
+  }
+}
+
 export async function submitReport(
   request: CallableRequest,
   dependencies: SubmitReportDependencies,
@@ -531,6 +560,7 @@ export async function submitReport(
     const shouldVerifyEvidence = await dependencies.runTransaction(async (transaction) => {
       assertActiveAccount(await transaction.getAccountAccess(uid));
       const report = readOwnedReport(await transaction.getReport(input.reportId), input.reportId, uid);
+      assertCompatibleCase(await transaction.getCase(input.reportId), input.reportId, report);
       return requireUnexpiredDraft(report, input, now) !== null;
     });
     if (!shouldVerifyEvidence) return { reportId: input.reportId };
@@ -545,6 +575,7 @@ export async function submitReport(
     return await dependencies.runTransaction(async (transaction) => {
       assertActiveAccount(await transaction.getAccountAccess(uid));
       const report = readOwnedReport(await transaction.getReport(input.reportId), input.reportId, uid);
+      assertCompatibleCase(await transaction.getCase(input.reportId), input.reportId, report);
       const currentDraft = requireUnexpiredDraft(report, input, now);
       if (currentDraft === null) return { reportId: input.reportId };
       const submitted: SubmittedModerationReport = {
@@ -556,6 +587,10 @@ export async function submitReport(
         submittedAt: now,
       };
       transaction.setSubmittedReport(input.reportId, { ...submitted });
+      transaction.createOpenCase(input.reportId, {
+        status: 'open', reportId: input.reportId,
+        targetSellerId: currentDraft.targetSellerId, openedAt: now,
+      });
       return { reportId: input.reportId };
     });
   } catch (error) {
