@@ -414,8 +414,8 @@ Run the helper spec, then the new browser scenario through the script that start
 
 ```bash
 npm run build:functions
-firebase emulators:exec --project demo-conan-tcg-e2e --only auth,firestore,storage,functions "playwright test --config playwright.config.ts --project chromium e2e/support/emulator-state.spec.ts"
-firebase emulators:exec --project demo-conan-tcg-e2e --only auth,firestore,storage,functions "playwright test --config playwright.config.ts --project chromium e2e/account-access.spec.ts"
+firebase emulators:exec --project demo-conan-tcg-e2e --only auth,firestore,storage,functions "npx playwright test --config playwright.config.ts --project chromium e2e/support/emulator-state.spec.ts"
+firebase emulators:exec --project demo-conan-tcg-e2e --only auth,firestore,storage,functions "npx playwright test --config playwright.config.ts --project chromium e2e/account-access.spec.ts"
 ```
 
 Expected: helper test initially FAIL before seed support, then browser test FAIL before all live UI wiring is correct.
