@@ -11,7 +11,7 @@ import {
 import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { hasKnownCardName } from '../../domain/cardMetadata';
 import { resolveListingMetadata } from '../../domain/listingMetadata';
-import type { Card, Listing, SellerProfile } from '../../domain/models';
+import type { Card, Listing, PublicSellerProfile } from '../../domain/models';
 import { filterListings, validateCardIdQuery } from '../../listingFilters';
 import { cardTypeLabel } from '../../domain/cardType';
 import { AuthStatus } from '../auth/AuthStatus';
@@ -22,8 +22,6 @@ interface MarketplaceListing extends Listing {
   rarity: string;
   seller: string;
 }
-
-type PublicSellerProfile = Pick<SellerProfile, 'displayName' | 'contactType' | 'contactValue'>;
 
 export interface MarketplacePageProps {
   loadListings?: () => Promise<Listing[]>;

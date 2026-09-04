@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Card, Listing, SellerProfile } from '../../domain/models';
+import type { Card, Listing, PublicSellerProfile } from '../../domain/models';
 import { MarketplacePage } from './MarketplacePage';
 
 vi.mock('../auth/AuthStatus', () => ({
@@ -47,11 +47,9 @@ const activeListing: Listing = {
   updatedAt: new Date(),
 };
 
-const seller: SellerProfile = {
+const seller: PublicSellerProfile = {
   uid: 'seller-1',
   displayName: '賣家 A',
-  contactType: 'line',
-  contactValue: 'seller-a',
   createdAt: new Date(),
   updatedAt: new Date(),
 };

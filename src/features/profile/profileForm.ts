@@ -36,6 +36,8 @@ export function validateProfileForm(values: ProfileFormState) {
 
   if (normalizedValues.displayName.length === 0) {
     errors.displayName = '請填寫顯示名稱。';
+  } else if (normalizedValues.displayName.length > 80) {
+    errors.displayName = '顯示名稱最多 80 個字元。';
   }
 
   if (!profileContactTypes.includes(normalizedValues.contactType)) {

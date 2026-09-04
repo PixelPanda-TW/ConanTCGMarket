@@ -6,6 +6,12 @@ import {
 } from './profileForm';
 
 describe('seller profile form', () => {
+  it('rejects a display name longer than 80 characters', () => {
+    expect(validateProfileForm({
+      displayName: '名'.repeat(81), contactType: 'line', contactValue: 'aming',
+    }).errors).toEqual({ displayName: '顯示名稱最多 80 個字元。' });
+  });
+
   it('trims display and contact values before saving', () => {
     expect(
       normalizeProfileForm({

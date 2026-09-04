@@ -240,8 +240,6 @@ export const publicSellerProfileConverter: FirestoreDataConverter<PublicSellerPr
   },
 };
 
-// Transitional public-only alias removed when the repository switches to callables in Task 4.
-export const sellerProfileConverter = publicSellerProfileConverter;
 
 export const saleConverter: FirestoreDataConverter<Sale> = {
   toFirestore(sale) {
