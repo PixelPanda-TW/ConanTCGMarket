@@ -9,11 +9,15 @@ import { PageShell } from '../../components/PageShell';
 import { FieldError, FieldLabel } from '../../components/forms/FormField';
 import {
   addCardMasterEntry,
+  disableCardMasterEntry,
   editCardMasterEntry,
   listCardMasterArchives,
   listCardsFromServer,
+  mergeCardMasterEntries,
   type AddCardMasterEntryInput,
+  type DisableCardMasterEntryInput,
   type EditCardMasterEntryInput,
+  type MergeCardMasterEntriesInput,
 } from '../../data/firestore/repositories';
 import { CARD_TYPES, cardTypeLabel } from '../../domain/cardType';
 import type {
@@ -28,7 +32,9 @@ import {
   cardMasterAdminFormFromCard,
   cardMasterFingerprint,
   emptyCardMasterAdminForm,
+  mergeRarityPreview,
   validateCardMasterAdminForm,
+  validateCardRetirementConfirmation,
   type CardMasterAdminFormErrors,
   type CardMasterAdminFormState,
 } from './cardMasterAdminForm';
@@ -38,6 +44,13 @@ interface CardMasterAdminPageProps {
   loadArchives?: (input: { limit?: number; cursor?: CardMasterArchivePage['nextCursor'] }) => Promise<CardMasterArchivePage>;
   addEntry?: (input: AddCardMasterEntryInput) => Promise<CardMasterMutationResult>;
   editEntry?: (input: EditCardMasterEntryInput) => Promise<CardMasterMutationResult>;
+  disableEntry?: (input: DisableCardMasterEntryInput) => Promise<CardMasterArchive>;
+  mergeEntries?: (input: MergeCardMasterEntriesInput) => Promise<CardMasterMutationResult>;
+}
+
+interface RetirementDialogState {
+  mode: 'disable' | 'merge';
+  source: Card;
 }
 
 function matchesPrefix(card: Card, query: string): boolean {
@@ -169,6 +182,8 @@ export function CardMasterAdminPage({
   loadArchives = listCardMasterArchives,
   addEntry = addCardMasterEntry,
   editEntry = editCardMasterEntry,
+  disableEntry = disableCardMasterEntry,
+  mergeEntries = mergeCardMasterEntries,
 }: CardMasterAdminPageProps) {
   const { accountAccessState, adminAccessState, signIn, user } = useAuth();
   const [cards, setCards] = useState<Card[]>([]);
@@ -188,6 +203,13 @@ export function CardMasterAdminPage({
   const [editIsStale, setEditIsStale] = useState(false);
   const editTriggerRef = useRef<HTMLElement | null>(null);
   const editNameRef = useRef<HTMLInputElement | null>(null);
+  const [retirement, setRetirement] = useState<RetirementDialogState | null>(null);
+  const [retirementTarget, setRetirementTarget] = useState<Card | null>(null);
+  const [retirementTargetSearch, setRetirementTargetSearch] = useState('');
+  const [retirementRationale, setRetirementRationale] = useState('');
+  const [retirementConfirmed, setRetirementConfirmed] = useState(false);
+  const [retirementError, setRetirementError] = useState('');
+  const retirementTriggerRef = useRef<HTMLElement | null>(null);
   const isAdmin = adminAccessState.state === 'admin';
 
   async function reload() {
@@ -251,6 +273,23 @@ export function CardMasterAdminPage({
     setEditErrors({});
     setEditError('');
     setEditIsStale(false);
+  }
+
+  function openRetirement(mode: RetirementDialogState['mode'], source: Card, trigger: HTMLElement) {
+    retirementTriggerRef.current = trigger;
+    setRetirement({ mode, source });
+    setRetirementTarget(null);
+    setRetirementTargetSearch('');
+    setRetirementRationale('');
+    setRetirementConfirmed(false);
+    setRetirementError('');
+  }
+
+  function closeRetirement() {
+    if (pending) return;
+    setRetirement(null);
+    setRetirementError('');
+    requestAnimationFrame(() => retirementTriggerRef.current?.focus());
   }
 
   async function submitAdd(event: FormEvent) {
@@ -324,6 +363,62 @@ export function CardMasterAdminPage({
     }
   }
 
+  async function submitRetirement(event: FormEvent) {
+    event.preventDefault();
+    if (pending || !retirement) return;
+    const confirmation = validateCardRetirementConfirmation({
+      rationale: retirementRationale,
+      confirmed: retirementConfirmed,
+    });
+    if ('error' in confirmation) {
+      setRetirementError(confirmation.error);
+      return;
+    }
+    if (retirement.mode === 'merge' && !retirementTarget) {
+      setRetirementError('請選擇合併目標。');
+      return;
+    }
+
+    setPending(true);
+    setRetirementError('');
+    try {
+      const sourceExpectedFingerprint = await cardMasterFingerprint(retirement.source);
+      if (retirement.mode === 'disable') {
+        const archived = await disableEntry({
+          sourceCardKey: retirement.source.key,
+          expectedFingerprint: sourceExpectedFingerprint,
+          rationale: confirmation.rationale,
+        });
+        setCards((current) => current.filter(({ key }) => key !== retirement.source.key));
+        setArchives((current) => [
+          ...current.filter(({ key }) => key !== archived.key),
+          archived,
+        ]);
+        setFeedback('停用完成');
+      } else {
+        const target = retirementTarget!;
+        const targetExpectedFingerprint = await cardMasterFingerprint(target);
+        await mergeEntries({
+          sourceCardKey: retirement.source.key,
+          sourceExpectedFingerprint,
+          targetCardKey: target.key,
+          targetExpectedFingerprint,
+          rationale: confirmation.rationale,
+        });
+        await reload();
+        setFeedback('合併完成');
+      }
+      setRetirement(null);
+      requestAnimationFrame(() => retirementTriggerRef.current?.focus());
+    } catch (error) {
+      setRetirementError(errorCode(error) === 'aborted'
+        ? '卡片已被其他操作更新，請重新載入後再試。'
+        : `${retirement.mode === 'merge' ? '合併' : '停用'}失敗，請稍後再試。`);
+    } finally {
+      setPending(false);
+    }
+  }
+
   const filteredCards = cards.filter((card) => matchesPrefix(card, search));
   const filteredArchives = archives.filter((card) => matchesPrefix(card, search));
 
@@ -364,7 +459,11 @@ export function CardMasterAdminPage({
             {filteredCards.map((card) => (
               <li key={card.key}>
                 <CardSummary card={card} />
-                <button type="button" aria-label={`編輯${card.cardName}`} onClick={(event) => openEdit(card, event.currentTarget)}>編輯</button>
+                <div className="admin-card-row-actions">
+                  <button type="button" aria-label={`編輯${card.cardName}`} onClick={(event) => openEdit(card, event.currentTarget)}>編輯</button>
+                  <button type="button" aria-label={`合併${card.cardName}`} onClick={(event) => openRetirement('merge', card, event.currentTarget)}>合併</button>
+                  <button type="button" className="danger-button" aria-label={`停用${card.cardName}`} onClick={(event) => openRetirement('disable', card, event.currentTarget)}>停用</button>
+                </div>
               </li>
             ))}
           </ul>
@@ -423,6 +522,99 @@ export function CardMasterAdminPage({
               <div className="admin-card-dialog-actions">
                 <button type="button" className="secondary-button" disabled={pending} onClick={closeEdit}>取消</button>
                 <button type="submit" disabled={pending}>{pending ? '儲存中' : '儲存修改'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {retirement && (
+        <div className="admin-card-dialog-backdrop">
+          <section
+            className="modal admin-card-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-card-retirement-heading"
+            onKeyDown={(event: KeyboardEvent<HTMLElement>) => {
+              if (event.key === 'Escape') closeRetirement();
+            }}
+          >
+            <h2 id="admin-card-retirement-heading">
+              {retirement.mode === 'merge' ? '合併卡片' : '停用卡片'}
+            </h2>
+            <form className="profile-form admin-card-form" noValidate onSubmit={submitRetirement}>
+              <p><strong>來源：{retirement.source.cardName}</strong></p>
+              <CardSummary card={retirement.source} />
+
+              {retirement.mode === 'merge' && (
+                <div className="admin-card-merge-targets">
+                  <label>
+                    <FieldLabel>搜尋合併目標</FieldLabel>
+                    <input
+                      type="search"
+                      aria-label="搜尋合併目標"
+                      value={retirementTargetSearch}
+                      disabled={pending}
+                      onChange={(event) => setRetirementTargetSearch(event.target.value)}
+                    />
+                  </label>
+                  <ul className="admin-card-target-list" aria-label="合併目標清單">
+                    {cards
+                      .filter(({ key }) => key !== retirement.source.key)
+                      .filter((card) => matchesPrefix(card, retirementTargetSearch))
+                      .map((card) => (
+                        <li key={card.key}>
+                          <CardSummary card={card} />
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={pending}
+                            aria-label={`選擇${card.cardName}作為合併目標`}
+                            onClick={() => setRetirementTarget(card)}
+                          >選擇</button>
+                        </li>
+                      ))}
+                  </ul>
+                  {retirementTarget && (
+                    <div className="admin-card-merge-preview">
+                      <p><strong>目標：{retirementTarget.cardName}</strong></p>
+                      <CardSummary card={retirementTarget} />
+                      <p>合併後稀有度：{mergeRarityPreview(
+                        retirement.source.rarities,
+                        retirementTarget.rarities,
+                      ).join(' / ')}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <label htmlFor="admin-card-retirement-rationale">
+                <FieldLabel required>異動原因</FieldLabel>
+                <textarea
+                  id="admin-card-retirement-rationale"
+                  maxLength={500}
+                  value={retirementRationale}
+                  disabled={pending}
+                  onChange={(event) => setRetirementRationale(event.target.value)}
+                />
+              </label>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={retirementConfirmed}
+                  disabled={pending}
+                  onChange={(event) => setRetirementConfirmed(event.target.checked)}
+                />
+                我確認{retirement.mode === 'merge' ? '合併來源卡片，且不改寫歷史刊登與銷售紀錄' : '停用這筆卡片'}
+              </label>
+              {retirementError && <p className="field-error" role="alert">{retirementError}</p>}
+              <div className="admin-card-dialog-actions">
+                <button type="button" className="secondary-button" disabled={pending} onClick={closeRetirement}>取消</button>
+                <button type="submit" className="danger-button" disabled={pending}>
+                  {pending
+                    ? retirement.mode === 'merge' ? '合併中' : '停用中'
+                    : retirement.mode === 'merge' ? '確認合併' : '確認停用'}
+                </button>
               </div>
             </form>
           </section>

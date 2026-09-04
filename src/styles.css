@@ -577,6 +577,46 @@ h1 {
   gap: 10px;
 }
 
+.admin-card-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-card-merge-targets,
+.admin-card-merge-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-card-target-list {
+  display: grid;
+  max-height: 280px;
+  gap: 10px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-card-target-list li,
+.admin-card-merge-preview {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.admin-card-target-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-card-merge-preview {
+  background: hsl(var(--accent) / .5);
+}
+
 .admin-card-page button,
 .admin-card-dialog button {
   min-height: 44px;
@@ -608,6 +648,9 @@ h1 {
 
   .admin-card-list li,
   .admin-card-list button,
+  .admin-card-row-actions,
+  .admin-card-row-actions button,
+  .admin-card-target-list button,
   .admin-card-dialog-actions button {
     width: 100%;
   }

@@ -68,3 +68,24 @@ export async function cardMasterFingerprint(card: Card): Promise<string> {
   const hash = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+
+export function mergeRarityPreview(
+  source: readonly string[],
+  target: readonly string[],
+): string[] {
+  return Array.from(new Set([...target, ...source])).sort();
+}
+
+export function validateCardRetirementConfirmation({
+  rationale,
+  confirmed,
+}: {
+  rationale: string;
+  confirmed: boolean;
+}): { rationale: string } | { error: string } {
+  const normalized = rationale.trim();
+  if (normalized.length < 1) return { error: '請填寫異動原因。' };
+  if (Array.from(normalized).length > 500) return { error: '異動原因須為 1 到 500 字。' };
+  if (!confirmed) return { error: '請勾選確認後再繼續。' };
+  return { rationale: normalized };
+}

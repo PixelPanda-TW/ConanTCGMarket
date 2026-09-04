@@ -9,7 +9,9 @@ import type { AuthState } from '../auth/AuthProvider';
 import type { Card, CardMasterArchive, CardMasterMutationResult } from '../../domain/models';
 import type {
   AddCardMasterEntryInput,
+  DisableCardMasterEntryInput,
   EditCardMasterEntryInput,
+  MergeCardMasterEntriesInput,
 } from '../../data/firestore/repositories';
 
 const auth = vi.hoisted(() => ({ current: {} as AuthState }));
@@ -50,6 +52,12 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     }),
     editEntry: vi.fn(async (_input: EditCardMasterEntryInput): Promise<CardMasterMutationResult> => {
       throw new Error('editEntry is not configured');
+    }),
+    disableEntry: vi.fn(async (_input: DisableCardMasterEntryInput): Promise<CardMasterArchive> => {
+      throw new Error('disableEntry is not configured');
+    }),
+    mergeEntries: vi.fn(async (_input: MergeCardMasterEntriesInput): Promise<CardMasterMutationResult> => {
+      throw new Error('mergeEntries is not configured');
     }),
     ...overrides,
   };
@@ -179,5 +187,121 @@ describe('CardMasterAdminPage', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
     expect(css).toMatch(/\.admin-card[^}]*:focus-visible|\.admin-card[\s\S]*:focus-visible/u);
     expect(css).toMatch(/@media \(max-width: 640px\)[\s\S]*admin-card/u);
+  });
+
+  it('searches merge targets, excludes the source, and previews the union', async () => {
+    const deps = dependencies();
+    render(<CardMasterAdminPage {...deps} />);
+    const trigger = await screen.findByRole('button', { name: '合併黑羽快斗' });
+    trigger.focus();
+    await userEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: '合併卡片' });
+    expect(within(dialog).getByText('來源：黑羽快斗')).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: /選擇黑羽快斗/ })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: /選擇江戶川柯南/ })).toBeTruthy();
+
+    await userEvent.type(within(dialog).getByRole('searchbox', { name: '搜尋合併目標' }), 'P00');
+    await userEvent.click(within(dialog).getByRole('button', { name: /選擇江戶川柯南/ }));
+    expect(within(dialog).getByText('目標：江戶川柯南')).toBeTruthy();
+    expect(within(dialog).getByText('合併後稀有度：P / R / SR')).toBeTruthy();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('requires confirmation, prevents duplicate disable, and adopts the returned archive', async () => {
+    let resolveDisable: ((value: CardMasterArchive) => void) | undefined;
+    const disableEntry = vi.fn(() => new Promise<CardMasterArchive>((resolve) => { resolveDisable = resolve; }));
+    const deps = dependencies({ disableEntry });
+    render(<CardMasterAdminPage {...deps} />);
+    await userEvent.click(await screen.findByRole('button', { name: '停用黑羽快斗' }));
+    const dialog = screen.getByRole('dialog', { name: '停用卡片' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '確認停用' }));
+    expect(within(dialog).getByRole('alert').textContent).toContain('異動原因');
+    await userEvent.type(within(dialog).getByLabelText(/異動原因/), '錯誤資料');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /我確認停用/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: '確認停用' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: '停用中' }));
+    expect(disableEntry).toHaveBeenCalledTimes(1);
+    expect(disableEntry).toHaveBeenCalledWith({
+      sourceCardKey: KEY_A,
+      expectedFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      rationale: '錯誤資料',
+    });
+
+    resolveDisable?.({ ...archive, rationale: '錯誤資料' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(within(screen.getByLabelText('現行卡片清單')).queryByText('黑羽快斗')).toBeNull();
+    expect(within(screen.getByLabelText('封存卡片清單')).getAllByText('黑羽快斗')).toHaveLength(1);
+  });
+
+  it('submits exact merge fingerprints, reloads authoritative archive state, and does not mutate history', async () => {
+    const mergedTarget = { ...cardB, rarities: ['P', 'R', 'SR'] };
+    const mergedArchive: CardMasterArchive = {
+      ...cardA, disposition: 'merged', replacementCardKey: KEY_B,
+      rationale: '合併重複', actedBy: 'admin-1', actedAt: new Date(),
+    };
+    const loadCards = vi.fn()
+      .mockResolvedValueOnce([cardA, cardB])
+      .mockResolvedValueOnce([mergedTarget]);
+    const loadArchives = vi.fn()
+      .mockResolvedValueOnce({ archives: [], nextCursor: null })
+      .mockResolvedValueOnce({ archives: [mergedArchive], nextCursor: null });
+    const mergeEntries = vi.fn(async () => ({
+      card: mergedTarget, fingerprint: '5'.repeat(64), retiredCardKey: KEY_A,
+    }));
+    const deps = dependencies({ loadCards, loadArchives, mergeEntries });
+    render(<CardMasterAdminPage {...deps} />);
+    await userEvent.click(await screen.findByRole('button', { name: '合併黑羽快斗' }));
+    const dialog = screen.getByRole('dialog', { name: '合併卡片' });
+    await userEvent.click(within(dialog).getByRole('button', { name: /選擇江戶川柯南/ }));
+    await userEvent.type(within(dialog).getByLabelText(/異動原因/), '合併重複');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /我確認合併/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: '確認合併' }));
+
+    await waitFor(() => expect(loadCards).toHaveBeenCalledTimes(2));
+    expect(mergeEntries).toHaveBeenCalledWith({
+      sourceCardKey: KEY_A,
+      sourceExpectedFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      targetCardKey: KEY_B,
+      targetExpectedFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      rationale: '合併重複',
+    });
+    expect(await within(screen.getByLabelText('封存卡片清單')).findByText('merged')).toBeTruthy();
+
+    const source = readFileSync(resolve(process.cwd(), 'src/features/admin/CardMasterAdminPage.tsx'), 'utf8');
+    expect(source).not.toMatch(/Listing|Sale|listingRepository|saleRepository/u);
+  });
+
+  it('keeps stale merge and disable sources visible without optimistic removal', async () => {
+    const stale = Object.assign(new Error('stale'), { code: 'functions/aborted' });
+    const deps = dependencies({
+      disableEntry: vi.fn(async () => { throw stale; }),
+      mergeEntries: vi.fn(async () => { throw stale; }),
+    });
+    render(<CardMasterAdminPage {...deps} />);
+    await userEvent.click(await screen.findByRole('button', { name: '停用黑羽快斗' }));
+    let dialog = screen.getByRole('dialog', { name: '停用卡片' });
+    await userEvent.type(within(dialog).getByLabelText(/異動原因/), '錯誤');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /我確認停用/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: '確認停用' }));
+    expect((await within(dialog).findByRole('alert')).textContent).toContain('請重新載入');
+    expect(within(screen.getByLabelText('現行卡片清單')).getByText('黑羽快斗')).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+
+    await userEvent.click(screen.getByRole('button', { name: '合併黑羽快斗' }));
+    dialog = screen.getByRole('dialog', { name: '合併卡片' });
+    await userEvent.click(within(dialog).getByRole('button', { name: /選擇江戶川柯南/ }));
+    await userEvent.type(within(dialog).getByLabelText(/異動原因/), '重複');
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: /我確認合併/ }));
+    await userEvent.click(within(dialog).getByRole('button', { name: '確認合併' }));
+    expect((await within(dialog).findByRole('alert')).textContent).toContain('請重新載入');
+    expect(within(screen.getByLabelText('現行卡片清單')).getByText('黑羽快斗')).toBeTruthy();
+  });
+
+  it('never renders merge or disable controls for non-admin states', () => {
+    auth.current = state({ adminAccessState: { state: 'not-admin' } });
+    render(<CardMasterAdminPage {...dependencies()} />);
+    expect(screen.queryByRole('button', { name: /^(合併|停用)/u })).toBeNull();
   });
 });
