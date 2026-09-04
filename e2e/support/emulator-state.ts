@@ -48,8 +48,26 @@ export interface ScenarioSeed {
   notificationSubscriptions?: readonly NotificationSubscriptionSeed[];
   listingEvents?: readonly ListingEventSeed[];
   moderationReports?: readonly ModerationReportSeed[];
+  moderationCases?: readonly ModerationCaseSeed[];
   moderationReportLimits?: readonly ModerationReportLimitSeed[];
 }
+
+interface ModerationCaseSeedBase {
+  id: string;
+  reportId: string;
+  targetSellerId: string;
+  openedAt: Date;
+}
+
+export type ModerationCaseSeed =
+  | (ModerationCaseSeedBase & { status: 'open' })
+  | (ModerationCaseSeedBase & {
+    status: 'dismissed'; rationale: string; decidedBy: string; decidedAt: Date;
+  })
+  | (ModerationCaseSeedBase & {
+    status: 'confirmed'; rationale: string; decidedBy: string; decidedAt: Date;
+    resultingConfirmedViolationCount: number;
+  });
 
 export interface ModerationReportSeed {
   id: string;
@@ -72,6 +90,13 @@ export interface ModerationReportSeed {
   description?: string;
   evidence?: readonly Record<string, unknown>[];
   submittedAt?: Date;
+}
+
+export interface ModerationEvidenceSeed {
+  path: string;
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp';
+  size: number;
+  generation: string;
 }
 
 export interface ModerationReportLimitSeed {
@@ -327,6 +352,46 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
       } : {}),
     });
   }
+  for (const moderationCase of seed.moderationCases ?? []) {
+    if (!/^[A-Za-z0-9_-]{1,200}$/u.test(moderationCase.id)
+      || moderationCase.reportId !== moderationCase.id
+      || typeof moderationCase.targetSellerId !== 'string'
+      || moderationCase.targetSellerId.length < 1 || moderationCase.targetSellerId.length > 128
+      || !(moderationCase.openedAt instanceof Date)
+      || Number.isNaN(moderationCase.openedAt.valueOf())) {
+      throw new Error('Unsafe moderation case seed.');
+    }
+    const common = {
+      status: moderationCase.status,
+      reportId: moderationCase.reportId,
+      targetSellerId: moderationCase.targetSellerId,
+      openedAt: Timestamp.fromDate(moderationCase.openedAt),
+    };
+    if (moderationCase.status === 'open') {
+      batch.set(firestore.doc(`moderationCases/${moderationCase.id}`), common);
+      continue;
+    }
+    if (moderationCase.rationale.trim() !== moderationCase.rationale
+      || moderationCase.rationale.length < 1 || moderationCase.rationale.length > 1000
+      || moderationCase.decidedBy.trim() !== moderationCase.decidedBy
+      || moderationCase.decidedBy.length < 1 || moderationCase.decidedBy.length > 128
+      || !(moderationCase.decidedAt instanceof Date)
+      || Number.isNaN(moderationCase.decidedAt.valueOf())
+      || (moderationCase.status === 'confirmed'
+        && (!Number.isInteger(moderationCase.resultingConfirmedViolationCount)
+          || moderationCase.resultingConfirmedViolationCount < 1))) {
+      throw new Error('Unsafe moderation case seed.');
+    }
+    batch.set(firestore.doc(`moderationCases/${moderationCase.id}`), {
+      ...common,
+      rationale: moderationCase.rationale,
+      decidedBy: moderationCase.decidedBy,
+      decidedAt: Timestamp.fromDate(moderationCase.decidedAt),
+      ...(moderationCase.status === 'confirmed' ? {
+        resultingConfirmedViolationCount: moderationCase.resultingConfirmedViolationCount,
+      } : {}),
+    });
+  }
   for (const limit of seed.moderationReportLimits ?? []) {
     batch.set(firestore.doc(`moderationReportLimits/${limit.id}`), {
       reporterId: limit.reporterId,
@@ -356,6 +421,35 @@ export async function seedListingImage(path: string, fixturePath: string): Promi
     metadata: { firebaseStorageDownloadTokens: 'e2e-token' },
   });
   return `http://127.0.0.1:9199/v0/b/${encodeURIComponent(E2E_BUCKET)}/o/${encodeURIComponent(path)}?alt=media&token=e2e-token`;
+}
+
+export async function seedModerationEvidence(
+  reporterId: string,
+  reportId: string,
+  slot: 0 | 1 | 2,
+  fixturePath: string,
+  contentType: ModerationEvidenceSeed['contentType'] = 'image/png',
+): Promise<ModerationEvidenceSeed> {
+  assertSafeEmulatorEnvironment();
+  if (!/^[A-Za-z0-9_-]{1,128}$/u.test(reporterId)
+    || !/^[A-Za-z0-9_-]{1,200}$/u.test(reportId)
+    || !Number.isInteger(slot) || slot < 0 || slot > 2
+    || !['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
+    throw new Error('Unsafe moderation evidence seed.');
+  }
+  const bytes = await readFile(fixturePath);
+  if (bytes.length < 1 || bytes.length > 5 * 1024 * 1024) {
+    throw new Error('Unsafe moderation evidence seed.');
+  }
+  const path = `reportEvidence/${reporterId}/${reportId}/${slot}`;
+  const file = adminBucket().file(path);
+  await file.save(bytes, { contentType });
+  const [metadata] = await file.getMetadata();
+  if (typeof metadata.generation !== 'string' || !/^\d+$/u.test(metadata.generation)
+    || Number(metadata.size) !== bytes.length || metadata.contentType !== contentType) {
+    throw new Error('Invalid moderation evidence seed metadata.');
+  }
+  return { path, contentType, size: bytes.length, generation: metadata.generation };
 }
 
 export async function readDocument(
@@ -410,6 +504,21 @@ export async function uploadStorageObjectAsUser(
       headers: { authorization: `Bearer ${idToken}`, 'content-type': contentType },
       body: bytes,
     },
+  );
+  return responseResult(response);
+}
+
+export async function readModerationStorageObjectAsUser(
+  idToken: string,
+  path: string,
+): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!/^reportEvidence\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9_-]{1,200}\/[0-2]$/u.test(path)) {
+    throw new Error('Unsafe moderation evidence read path.');
+  }
+  const response = await fetch(
+    `http://${process.env.FIREBASE_STORAGE_EMULATOR_HOST}/v0/b/${encodeURIComponent(E2E_BUCKET)}/o/${encodeURIComponent(path)}?alt=media`,
+    { headers: { authorization: `Bearer ${idToken}` } },
   );
   return responseResult(response);
 }
@@ -493,7 +602,7 @@ function firestoreFields(data: Record<string, unknown>): Record<string, Record<s
 
 export async function firestoreDocumentRequestAsUser(
   idToken: string,
-  method: 'PATCH' | 'DELETE',
+  method: 'GET' | 'PATCH' | 'DELETE',
   collectionName: string,
   documentId: string,
   data?: Record<string, unknown>,
@@ -502,6 +611,7 @@ export async function firestoreDocumentRequestAsUser(
   if (!/^[A-Za-z][A-Za-z0-9]*$/u.test(collectionName)
     || !/^[A-Za-z0-9_-]+$/u.test(documentId)) throw new Error('Unsafe Firestore path.');
   if (method === 'PATCH' && !data) throw new Error('PATCH requires document data.');
+  if (method !== 'PATCH' && data !== undefined) throw new Error(`${method} forbids document data.`);
   const response = await fetch(
     `http://${process.env.FIRESTORE_EMULATOR_HOST}/v1/projects/${E2E_PROJECT_ID}/databases/(default)/documents/${collectionName}/${documentId}`,
     {

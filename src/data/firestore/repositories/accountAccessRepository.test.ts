@@ -115,4 +115,18 @@ describe('account access repository', () => {
 
     expect(onError).toHaveBeenCalledWith(error);
   });
+
+  it('fails closed through onError when strict snapshot conversion throws', () => {
+    const onValue = vi.fn();
+    const onError = vi.fn();
+    const malformed = new Error('malformed account access');
+    subscribeAccountAccess('buyer-1', onValue, onError);
+
+    expect(() => snapshotValue?.({
+      exists: () => true,
+      data: () => { throw malformed; },
+    })).not.toThrow();
+    expect(onValue).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(malformed);
+  });
 });

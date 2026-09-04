@@ -1,12 +1,13 @@
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 
-import { signInWithMockGoogle } from './support/auth';
+import { setEmulatorAdminClaim, signInWithMockGoogle } from './support/auth';
 import {
   listDocuments,
   listStorageObjects,
   readDocument,
   seedListingImage,
+  seedModerationEvidence,
   seedScenario,
 } from './support/emulator-state';
 import { activeListing, sellerProfile, testCards } from './support/fixtures';
@@ -169,6 +170,43 @@ test('mobile report form keeps all controls reachable without horizontal scrolli
   await expect(page.getByRole('button', { name: '送出檢舉' })).toBeVisible();
   await expectNoHorizontalScroll(page);
   expect(identity.uid).not.toBe('mobile-report-seller');
+});
+
+test('mobile moderation queue, evidence detail, and decision dialog do not overflow', async ({ page }) => {
+  const admin = await signInMobile(page, 'moderation-admin');
+  await setEmulatorAdminClaim(admin.uid, true);
+  await page.reload();
+  const evidence = await seedModerationEvidence('mobile-reporter', 'mobile-case', 0, front);
+  await seedScenario({
+    moderationReports: [{
+      id: 'mobile-case', status: 'submitted', requestKey: 'b'.repeat(64),
+      reporterId: 'mobile-reporter', targetSellerId: 'mobile-target',
+      listingSnapshot: {
+        listingId: 'mobile-listing', cardType: 'character', cardName: '諸伏高明',
+        cardId: '0501', rarity: 'D', listingPrice: 500, createdAt: seededAt,
+      },
+      createdAt: seededAt, expiresAt: new Date('2026-08-28T00:00:00Z'),
+      category: 'other', description: '行動版案件內容', evidence: [evidence], submittedAt: seededAt,
+    }],
+    moderationCases: [{
+      id: 'mobile-case', status: 'open', reportId: 'mobile-case',
+      targetSellerId: 'mobile-target', openedAt: seededAt,
+    }],
+  });
+  await page.goto('#/admin/moderation');
+  await expect(page.getByRole('link', { name: '查看 mobile-case' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await page.getByRole('link', { name: '查看 mobile-case' }).tap();
+  await expect(page.getByText('行動版案件內容')).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await page.getByRole('button', { name: '載入證據 1' }).tap();
+  await expect(page.getByRole('img', { name: '檢舉證據 1' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await page.getByRole('button', { name: '駁回檢舉' }).tap();
+  await expect(page.getByRole('dialog', { name: '駁回檢舉' })).toBeVisible();
+  await expectEditable(page.getByLabel(/裁決理由/u));
+  await expect(page.getByRole('button', { name: '確認駁回' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
 });
 
 test('mobile Profile form', async ({ page }) => {

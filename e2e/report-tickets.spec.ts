@@ -76,6 +76,19 @@ test('guest signs in and an active buyer without Seller Profile submits zero and
   expect((second?.evidence as unknown[])).toHaveLength(3);
   expect(JSON.stringify(reports)).not.toMatch(/email|contact|displayName|imageUrls/iu);
 
+  const cases = await listDocuments('moderationCases');
+  expect(cases).toHaveLength(2);
+  for (const reportId of [firstReportId, secondReportId]) {
+    const moderationCase = cases.find(({ id }) => id === reportId);
+    expect(moderationCase).toEqual({
+      id: reportId,
+      data: {
+        status: 'open', reportId, targetSellerId: sellerId,
+        openedAt: (reports.find(({ id }) => id === reportId)!.data.submittedAt),
+      },
+    });
+  }
+
   const prefix = `reportEvidence/${buyer.uid}/${secondReportId}/`;
   expect(await listStorageObjects(prefix)).toEqual([`${prefix}0`, `${prefix}1`, `${prefix}2`]);
   expect(await readStorageObjectMetadata(`${prefix}0`)).toMatchObject({ contentType: 'image/png' });

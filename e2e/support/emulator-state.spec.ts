@@ -9,6 +9,7 @@ import {
   readDocument,
   resetEmulators,
   seedListingImage,
+  seedModerationEvidence,
   seedScenario,
 } from './emulator-state';
 
@@ -185,6 +186,19 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
         createdAt: fixedDate, expiresAt: new Date('2026-08-28T00:00:00Z'),
         category: 'other', description: '說明', evidence: [], submittedAt: fixedDate,
       }],
+      moderationCases: [{
+        id: 'report-1', status: 'open', reportId: 'report-1',
+        targetSellerId: 'e2e-seller', openedAt: fixedDate,
+      }, {
+        id: 'report-dismissed', status: 'dismissed', reportId: 'report-dismissed',
+        targetSellerId: 'e2e-seller', openedAt: fixedDate,
+        rationale: '證據不足', decidedBy: 'admin-1', decidedAt: fixedDate,
+      }, {
+        id: 'report-confirmed', status: 'confirmed', reportId: 'report-confirmed',
+        targetSellerId: 'e2e-seller', openedAt: fixedDate,
+        rationale: '確認違規', decidedBy: 'admin-1', decidedAt: fixedDate,
+        resultingConfirmedViolationCount: 2,
+      }],
       moderationReportLimits: [{
         id: 'buyer-1_2026-08-27', reporterId: 'buyer-1', utcDate: '2026-08-27',
         count: 1, createdAt: fixedDate, updatedAt: fixedDate,
@@ -203,6 +217,37 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
     });
     expect(await readDocument('moderationReportLimits', 'buyer-1_2026-08-27'))
       .toMatchObject({ reporterId: 'buyer-1', utcDate: '2026-08-27', count: 1 });
+    expect(await readDocument('moderationCases', 'report-1')).toEqual({
+      status: 'open', reportId: 'report-1', targetSellerId: 'e2e-seller',
+      openedAt: Timestamp.fromDate(fixedDate),
+    });
+    expect(await readDocument('moderationCases', 'report-confirmed')).toEqual({
+      status: 'confirmed', reportId: 'report-confirmed', targetSellerId: 'e2e-seller',
+      openedAt: Timestamp.fromDate(fixedDate), rationale: '確認違規', decidedBy: 'admin-1',
+      decidedAt: Timestamp.fromDate(fixedDate), resultingConfirmedViolationCount: 2,
+    });
+  } finally {
+    await resetEmulators();
+  }
+});
+
+test('moderation evidence seeding is canonical, generation-aware, and demo-only', async () => {
+  const fixturePath = new URL('../fixtures/card-front.png', import.meta.url).pathname;
+  await resetEmulators();
+  try {
+    const evidence = await seedModerationEvidence('buyer-1', 'report-1', 0, fixturePath);
+    expect(evidence).toEqual({
+      path: 'reportEvidence/buyer-1/report-1/0',
+      contentType: 'image/png',
+      size: expect.any(Number),
+      generation: expect.stringMatching(/^\d+$/u),
+    });
+    expect(evidence.size).toBeGreaterThan(0);
+    expect(await listStorageObjects('reportEvidence/buyer-1/report-1/')).toEqual([
+      'reportEvidence/buyer-1/report-1/0',
+    ]);
+    await expect(seedModerationEvidence('../buyer', 'report-1', 0, fixturePath))
+      .rejects.toThrow('Unsafe moderation evidence seed');
   } finally {
     await resetEmulators();
   }

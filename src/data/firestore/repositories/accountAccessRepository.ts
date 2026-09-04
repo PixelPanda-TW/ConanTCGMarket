@@ -18,7 +18,13 @@ export function subscribeAccountAccess(
     .withConverter(accountAccessConverter);
   return onSnapshot(
     reference,
-    (snapshot) => onValue(snapshot.exists() ? snapshot.data() : null),
+    (snapshot) => {
+      try {
+        onValue(snapshot.exists() ? snapshot.data() : null);
+      } catch (error) {
+        onError(error instanceof Error ? error : new Error('Account access is unavailable.'));
+      }
+    },
     onError,
   );
 }
