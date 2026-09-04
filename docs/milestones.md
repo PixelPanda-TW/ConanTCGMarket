@@ -106,7 +106,13 @@ contact method.
 
 ## Milestone 4: Minimal Card Master
 
-Status: implemented as an internal application data source. Firestore Card Master records power Marketplace filtering, listing metadata validation, and listing creation; the retired public validation page and development seed fallback have been removed. Card Master mutations remain denied to clients until the admin-only management workflow is implemented.
+Status: the Card Master admin workflow is repository-ready, not production-live.
+Firestore Card Master records power Marketplace filtering, listing metadata
+validation, and listing creation; the retired public validation page and
+development seed fallback have been removed. The private `#/admin/cards`
+console, trusted callable mutations, archive/import suppression, audit records,
+claim gate, Rules isolation, and Emulator acceptance coverage are implemented.
+No production claim, deployment, import, or Card mutation is authorized yet.
 
 ### Goal
 
@@ -119,6 +125,8 @@ Create a searchable card master that supports listing creation without seller-en
 - Controlled Rugia synchronization and deterministic composite-key import.
 - Normalized Card Master search and metadata helpers used inside Marketplace and listing creation.
 - Reusable `CardMetadataSelector` for Card Master-backed application workflows.
+- Active-admin-only management for add, edit/rekey, merge, and disable.
+- Server-only retirement archives and append-only mutation audits.
 
 ### Acceptance Criteria
 
@@ -127,6 +135,9 @@ Create a searchable card master that supports listing creation without seller-en
 - Listing records store immutable `cardId`, `cardType`, `cardName`, and `rarity`
   snapshots selected from Card Master.
 - Each Card Master record has a canonical `cardName` and at least one rarity.
+- Retired identities cannot be reintroduced by the controlled importer.
+- Historical Listing and Sale snapshots remain unchanged after Card Master
+  edits, merges, or disables.
 
 ## Milestone 5: Listing Creation and Storage Upload
 

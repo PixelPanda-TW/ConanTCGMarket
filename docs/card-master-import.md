@@ -30,6 +30,12 @@ identity，避免後續路基亞同步重新建立已停用或已合併的卡片
 `batches`、`keyCollisions=0`、`suppressedCount`，以及有命中時依序列出的
 `suppressedKeys`。Dry run 不會建立 write batch，也不會寫入或刪除任何文件：
 
+This archive suppression boundary means only active `cards` records can return
+to public application workflows. A matching `disabled`, `superseded`, or
+`merged` identity stays retired across later Rugia synchronization and import;
+the importer never treats source reappearance as permission to undo an admin
+decision.
+
 ```sh
 node scripts/import-card-master.mjs --dry-run /tmp/conan-card-master-composite.json
 ```

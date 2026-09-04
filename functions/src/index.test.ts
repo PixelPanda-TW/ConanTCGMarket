@@ -357,4 +357,35 @@ describe('notification Function deployment contract', () => {
     expect(setupGuide).toContain('monitor');
     expect(milestones).toContain('repository-ready, not production-live');
   });
+
+  it('documents the Card Master admin claim boundary and release runbook', async () => {
+    const [setupGuide, importGuide, milestones] = await Promise.all([
+      readFile(new URL('../../docs/firebase-setup.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/card-master-import.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/milestones.md', import.meta.url), 'utf8'),
+    ]);
+
+    for (const callable of [
+      'listCardMasterArchives',
+      'addCardMasterEntry',
+      'editCardMasterEntry',
+      'mergeCardMasterEntries',
+      'disableCardMasterEntry',
+    ]) {
+      expect(setupGuide).toContain(callable);
+    }
+    for (const collection of ['cards', 'cardMasterArchives', 'cardMasterAuditLogs']) {
+      expect(setupGuide).toContain(collection);
+    }
+    expect(setupGuide).toContain('admin === true');
+    expect(setupGuide).toContain('Functions → Rules → frontend');
+    expect(setupGuide).toContain('demo Emulator');
+    expect(setupGuide).toContain('must not add, edit, merge, or disable a production Card');
+    expect(setupGuide).toContain('prohibited until separate explicit approval');
+    expect(setupGuide).toContain('rollback');
+    expect(setupGuide).toContain('permission-denied');
+    expect(setupGuide).toContain('aborted');
+    expect(importGuide).toContain('archive suppression');
+    expect(milestones).toContain('Card Master admin workflow is repository-ready, not production-live');
+  });
 });

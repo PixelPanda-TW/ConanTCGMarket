@@ -44,6 +44,77 @@ approves the exact generated artifact, its successful fail-closed sync report,
 the dry-run result, and that exact command. No Card Master production mutation
 is implied by configuring Firebase, ADC, or `GOOGLE_CLOUD_PROJECT`.
 
+## Card Master admin operations and release
+
+Card Master is an internal database, not an end-user product: there is **no
+standalone public Card Master page**. Active records in `cards` support
+Marketplace search and Listing validation. The private `#/admin/cards` route is
+the only management UI, and it appears only when the signed-in account is active
+and its Firebase custom claim satisfies exact boolean `admin === true`.
+
+All mutations remain server-owned. `listCardMasterArchives`,
+`addCardMasterEntry`, `editCardMasterEntry`, `mergeCardMasterEntries`, and
+`disableCardMasterEntry` are authenticated callable Functions. Firestore Rules
+permit public reads but deny every browser write to `cards`. The server-only
+collection `cardMasterArchives` records disabled, superseded, and merged
+identities; the server-only collection `cardMasterAuditLogs` records every
+admin action. Browsers cannot read or write either collection, even with an
+admin claim. Historical Listing and Sale snapshots are never rewritten by a
+Card Master operation.
+
+### Custom-claim gate
+
+Claim inspection and claim assignment are privileged production operations.
+Both are **prohibited until separate explicit approval** of the exact command,
+target project, operator identity, and intended Firebase UID. Never substitute
+an email address for a UID, never place a real UID in this repository, and never
+run these examples merely to verify a deployment.
+
+The following read-only claim inspection command is an operator template only:
+
+```sh
+ADMIN_UID='<firebase-uid>' GOOGLE_CLOUD_PROJECT='conantcgmarket' node --input-type=module --eval "const {initializeApp}=await import('firebase-admin/app'); const {getAuth}=await import('firebase-admin/auth'); initializeApp(); const user=await getAuth().getUser(process.env.ADMIN_UID); console.log({uid:user.uid,admin:user.customClaims?.admin===true});"
+```
+
+The following claim assignment command is a mutation and needs its own explicit
+approval after inspection confirms the exact UID:
+
+```sh
+ADMIN_UID='<firebase-uid>' GOOGLE_CLOUD_PROJECT='conantcgmarket' node --input-type=module --eval "const {initializeApp}=await import('firebase-admin/app'); const {getAuth}=await import('firebase-admin/auth'); initializeApp(); const auth=getAuth(); const user=await auth.getUser(process.env.ADMIN_UID); await auth.setCustomUserClaims(user.uid,{...(user.customClaims??{}),admin:true});"
+```
+
+Changing or removing that claim is also a separate production mutation. A
+claim change does not prove current account access: the callable repeats the
+canonical `accountAccess` check and rejects suspended or malformed accounts.
+
+### Release order, verification, monitoring, and rollback
+
+Approval of repository code or this guide does not authorize a production
+claim, deploy, import, callable invocation, or Card mutation. After the complete
+local quality, Rules, and Chromium gates pass, the Card Master release order is
+**Functions → Rules → frontend**. Each production stage requires separate
+operator approval. Deploy Functions first so every frontend operation has a
+trusted handler, Rules second to install the explicit server-only collection
+boundaries, and the frontend last.
+
+Interactive mutation smoke testing is allowed only against the fixed local demo Emulator,
+`demo-conan-tcg-e2e`. Production verification is non-invasive:
+inspect the deployed Function manifest, Rules release, frontend asset version,
+custom-claim state after separately approved claim inspection, and aggregate
+Cloud Logging metrics. It **must not add, edit, merge, or disable a production Card**.
+
+Monitor callable success totals and `permission-denied`, `aborted`,
+`failed-precondition`, `already-exists`, and `unavailable` rates. Compare active
+`cards`, archive, and audit counts without reading or exporting user data. A
+rise in stale conflicts or authorization failures pauses the rollout.
+
+For rollback, stop at the first failed stage. Keep the tightened Rules and the
+append-only `cardMasterArchives` / `cardMasterAuditLogs` evidence; do not restore
+a retired Card or rewrite Listing/Sale history. Roll back the frontend first,
+then the Functions release if needed. Investigate and repair forward from audit
+records. Removing an admin claim, restoring a Card, or changing production data
+requires a new explicit approval.
+
 ## Secure seller contact split
 
 Seller presentation and contact data have different trust boundaries:

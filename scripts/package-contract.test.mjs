@@ -49,6 +49,25 @@ test('keeps the Sale snapshot command dry-run by default and documents its apply
   assert.match(guide, /separate[^\n]+approval/iu);
 });
 
+test('documents Card Master as an internal admin-managed database with guarded operations', async () => {
+  const [setupGuide, importGuide, milestones] = await Promise.all([
+    readFile(new URL('docs/firebase-setup.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/card-master-import.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/milestones.md', rootUrl), 'utf8'),
+  ]);
+
+  assert.match(setupGuide, /#\/admin\/cards/u);
+  assert.match(setupGuide, /no\s+standalone public Card Master page/iu);
+  assert.match(setupGuide, /server-only\s+collection `cardMasterArchives`/iu);
+  assert.match(setupGuide, /server-only\s+collection `cardMasterAuditLogs`/iu);
+  assert.match(setupGuide, /claim inspection/iu);
+  assert.match(setupGuide, /claim assignment/iu);
+  assert.doesNotMatch(setupGuide, /admin@example|["']admin-\d+["']/iu);
+  assert.match(importGuide, /disabled[^\n]+superseded[^\n]+merged/iu);
+  assert.match(importGuide, /active `cards` records/iu);
+  assert.match(milestones, /repository-ready, not production-live/iu);
+});
+
 function expectNoImplicitApply(source) {
   assert.doesNotMatch(root.scripts['migrate:sale-snapshots'], /--apply/u);
   assert.doesNotMatch(source, /apply:\s*true/u);
