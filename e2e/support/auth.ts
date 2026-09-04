@@ -32,6 +32,23 @@ export async function lookupAuthEmulatorUid(
   throw new Error(`Expected one Auth Emulator account for ${email}.`);
 }
 
+export async function setEmulatorAdminClaim(uid: string, enabled: boolean): Promise<void> {
+  assertSafeEmulatorEnvironment();
+  if (typeof uid !== 'string' || uid.trim() !== uid || uid.length < 1 || uid.length > 128) {
+    throw new Error('Expected a valid Emulator UID.');
+  }
+  if (typeof enabled !== 'boolean') {
+    throw new Error('Expected the Emulator admin claim flag to be boolean.');
+  }
+
+  const auth = getAuth(getEmulatorAdminApp());
+  const user = await auth.getUser(uid);
+  const claims = { ...(user.customClaims ?? {}) };
+  if (enabled) claims.admin = true;
+  else delete claims.admin;
+  await auth.setCustomUserClaims(uid, claims);
+}
+
 export async function signInWithMockGoogle(
   page: Page,
   identity: MockGoogleIdentity,
