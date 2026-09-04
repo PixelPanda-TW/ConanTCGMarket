@@ -41,9 +41,11 @@ test('CLI import planning partitions deterministic upserts below Firestore batch
     rarities: ['C'],
   })).reverse();
 
-  const plan = planCardMasterImport(input);
+  const { batches: plan, suppressedCount, suppressedKeys } = planCardMasterImport(input);
 
   assert.deepEqual(plan.map((chunk) => chunk.length), [450, 450, 1]);
+  assert.equal(suppressedCount, 0);
+  assert.deepEqual(suppressedKeys, []);
   assert.equal(plan[0][0].cardId, '9000');
   assert.equal(plan[1][0].cardId, '9450');
   assert.equal(plan[2][0].cardId, '9900');
@@ -55,6 +57,23 @@ test('CLI import planning partitions deterministic upserts below Firestore batch
     rarities: ['C'],
   });
   assert.match(plan[0][0].key, /^card_[a-f0-9]{64}$/);
+});
+
+test('CLI import planning omits archived keys and reports only matching suppressions deterministically', () => {
+  const input = [
+    { cardId: '0501', cardType: 'character', cardName: '黑羽快斗', rarities: ['SR'] },
+    { cardId: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] },
+    { cardId: '0982', cardType: 'character', cardName: '中森青子', rarities: ['R'] },
+  ];
+  const keys = input.map((card) => cardMasterImporter.planCardMasterImport([card]).batches[0][0].key);
+
+  const result = planCardMasterImport(input, {
+    suppressedKeys: [keys[2], `card_${'f'.repeat(64)}`, keys[0]],
+  });
+
+  assert.deepEqual(result.batches.flat().map(({ key }) => key), [keys[1]]);
+  assert.deepEqual(result.suppressedKeys, [keys[0], keys[2]].sort());
+  assert.equal(result.suppressedCount, 2);
 });
 
 test('CLI import rejects generated-key collisions before initializing Admin Firestore', async () => {
@@ -130,6 +149,7 @@ test('CLI import commits chunks sequentially and stops after a failed chunk', as
     executeCardMasterImport(input, {
       createKey: (card) => `key_${card.cardId}`,
       initializeFirestore: async () => db,
+      listArchives: async () => [],
     }),
     /network interrupted/,
   );
@@ -147,7 +167,55 @@ test('CLI import commits chunks sequentially and stops after a failed chunk', as
   });
 });
 
-test('CLI dry-run reads and plans the artifact without executing the import', async () => {
+test('CLI import reads and validates archives before creating any Admin write batch', async () => {
+  const calls = [];
+  const card = { cardId: '0501', cardType: 'character', cardName: '黑羽快斗', rarities: ['SR'] };
+  const key = planCardMasterImport([card]).batches[0][0].key;
+  const db = {
+    batch: () => {
+      calls.push('batch');
+      throw new Error('suppressed cards must never reach a batch');
+    },
+    collection: () => ({ doc: (id) => ({ id }) }),
+  };
+
+  const result = await executeCardMasterImport([card], {
+    initializeFirestore: async () => {
+      calls.push('initialize');
+      return db;
+    },
+    listArchives: async (receivedDb) => {
+      assert.equal(receivedDb, db);
+      calls.push('archives');
+      return [{
+        key, ...card, disposition: 'disabled', rationale: '錯誤卡片',
+        actedBy: 'admin-1', actedAt: new Date('2026-09-04T00:00:00Z'),
+      }];
+    },
+  });
+
+  assert.deepEqual(calls, ['initialize', 'archives']);
+  assert.deepEqual(result, { batches: [], suppressedKeys: [key], suppressedCount: 1 });
+});
+
+test('CLI import aborts archive read or validation failures before creating write batches', async () => {
+  const card = { cardId: '0501', cardType: 'character', cardName: '黑羽快斗', rarities: ['SR'] };
+  for (const listArchives of [
+    async () => { throw new Error('archive read failed'); },
+    async () => [{ key: 'bad', ...card, disposition: 'disabled' }],
+  ]) {
+    let batchCalls = 0;
+    await assert.rejects(executeCardMasterImport([card], {
+      initializeFirestore: async () => ({
+        batch: () => { batchCalls += 1; },
+      }),
+      listArchives,
+    }));
+    assert.equal(batchCalls, 0);
+  }
+});
+
+test('CLI dry-run reads live archives and reports suppression without creating writes', async () => {
   const fixturePath = '/fixtures/card-master.json';
   const input = Array.from({ length: 451 }, (_, index) => ({
     cardId: String(4000 + index),
@@ -156,20 +224,23 @@ test('CLI dry-run reads and plans the artifact without executing the import', as
     rarities: ['r'],
   }));
   const logs = [];
-  let executeCalls = 0;
+  const executeCalls = [];
 
   await cardMasterImporter.runCardMasterImportCli(['--dry-run', fixturePath], {
     readJson: async (path) => {
       assert.equal(path, fixturePath);
       return input;
     },
-    executeImport: async () => {
-      executeCalls += 1;
-      throw new Error('Dry-run must not execute the import.');
+    executeImport: async (_input, options) => {
+      executeCalls.push(options);
+      return { batches: [Array.from({ length: 450 }), [{}]], suppressedCount: 1, suppressedKeys: ['card_retired'] };
     },
     log: (message) => logs.push(message),
   });
 
-  assert.equal(executeCalls, 0);
-  assert.deepEqual(logs, ['records=451, batches=2, keyCollisions=0']);
+  assert.deepEqual(executeCalls, [{ dryRun: true }]);
+  assert.deepEqual(logs, [
+    'records=451, batches=2, keyCollisions=0, suppressedCount=1',
+    'suppressedKeys=card_retired',
+  ]);
 });

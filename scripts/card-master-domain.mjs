@@ -6,6 +6,7 @@ export const SOURCE_CARD_ID_CORRECTIONS = new Map([['B0982', '0982']]);
 const approvedCardTypes = new Set(['character', 'event', 'case', 'partner']);
 const artifactFields = new Set(['cardId', 'cardType', 'cardName', 'rarities']);
 const occurrenceFields = new Set(['cardId', 'cardType', 'cardName', 'rarity']);
+const cardKeyPattern = /^card_[a-f0-9]{64}$/;
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -98,6 +99,66 @@ export function aggregateCardMasterRecords(records) {
     || compareText(left.cardType, right.cardType)
     || compareText(left.cardName, right.cardName)
   ));
+}
+
+export function validateCardMasterArchives(records) {
+  if (!Array.isArray(records)) throw new Error('Invalid Card Master archives.');
+  const seen = new Set();
+  const keys = [];
+  for (const record of records) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new Error('Invalid Card Master archive.');
+    }
+    const disposition = record.disposition;
+    const requiresReplacement = disposition === 'superseded' || disposition === 'merged';
+    const expectedFields = new Set([
+      'key', ...artifactFields, 'disposition',
+      ...(requiresReplacement ? ['replacementCardKey'] : []),
+      'rationale', 'actedBy', 'actedAt',
+    ]);
+    if (!['disabled', 'superseded', 'merged'].includes(disposition)
+      || Object.keys(record).length !== expectedFields.size
+      || Object.keys(record).some((field) => !expectedFields.has(field))) {
+      throw new Error('Invalid Card Master archive fields.');
+    }
+    let card;
+    try {
+      [card] = aggregateCardMasterRecords([Object.fromEntries(
+        Array.from(artifactFields, (field) => [field, record[field]]),
+      )]);
+    } catch {
+      throw new Error('Invalid Card Master archive card.');
+    }
+    if (typeof record.key !== 'string' || !cardKeyPattern.test(record.key)
+      || createCardKey(card) !== record.key
+      || JSON.stringify(card) !== JSON.stringify(Object.fromEntries(
+        Array.from(artifactFields, (field) => [field, record[field]]),
+      ))) {
+      throw new Error('Invalid Card Master archive identity.');
+    }
+    if (seen.has(record.key)) throw new Error('Invalid Card Master archive duplicate key.');
+    seen.add(record.key);
+    if (typeof record.rationale !== 'string'
+      || record.rationale.trim() !== record.rationale
+      || Array.from(record.rationale).length < 1
+      || Array.from(record.rationale).length > 500
+      || typeof record.actedBy !== 'string'
+      || record.actedBy.trim() !== record.actedBy
+      || record.actedBy.length < 1
+      || record.actedBy.length > 128
+      || !(record.actedAt instanceof Date)
+      || Number.isNaN(record.actedAt.valueOf())) {
+      throw new Error('Invalid Card Master archive metadata.');
+    }
+    if (requiresReplacement
+      && (typeof record.replacementCardKey !== 'string'
+        || !cardKeyPattern.test(record.replacementCardKey)
+        || record.replacementCardKey === record.key)) {
+      throw new Error('Invalid Card Master archive replacement.');
+    }
+    keys.push(record.key);
+  }
+  return keys.sort(compareText);
 }
 
 export function buildSyncResult(

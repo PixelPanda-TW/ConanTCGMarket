@@ -7,7 +7,20 @@ import {
   canonicalCardTuple,
   createCardKey,
   normalizeSourceCardId,
+  validateCardMasterArchives,
 } from './card-master-domain.mjs';
+
+function archiveRecord(card, overrides = {}) {
+  return {
+    key: createCardKey(card),
+    ...card,
+    disposition: 'disabled',
+    rationale: '錯誤卡片',
+    actedBy: 'admin-1',
+    actedAt: new Date('2026-09-04T00:00:00Z'),
+    ...overrides,
+  };
+}
 
 test('normalizes approved numeric and P-prefixed source card IDs without losing leading zeroes', () => {
   assert.deepEqual(normalizeSourceCardId(' 0001 '), { cardId: '0001', correction: null });
@@ -95,4 +108,40 @@ test('reports a generated-key collision only when one key maps to different tupl
   ], [], { createKey: () => 'card_collision' });
 
   assert.equal(report.keyCollisionCount, 1);
+});
+
+test('validates and deterministically sorts all supported Card Master archive dispositions', () => {
+  const first = { cardId: '0501', cardType: 'character', cardName: '黑羽快斗', rarities: ['SR'] };
+  const second = { cardId: '0590', cardType: 'character', cardName: '諸伏景光', rarities: ['R'] };
+  const replacementCardKey = createCardKey(second);
+
+  assert.deepEqual(validateCardMasterArchives([
+    archiveRecord(second, { disposition: 'merged', replacementCardKey: createCardKey(first) }),
+    archiveRecord(first),
+    archiveRecord({ ...first, cardName: '怪盜基德' }, {
+      disposition: 'superseded', replacementCardKey,
+    }),
+  ]), [
+    createCardKey(first),
+    createCardKey({ ...first, cardName: '怪盜基德' }),
+    createCardKey(second),
+  ].sort());
+  assert.deepEqual(validateCardMasterArchives([]), []);
+});
+
+test('rejects duplicate or malformed Card Master archives', () => {
+  const card = { cardId: '0501', cardType: 'character', cardName: '黑羽快斗', rarities: ['SR'] };
+  const valid = archiveRecord(card);
+  for (const records of [
+    [valid, { ...valid }],
+    [{ ...valid, disposition: 'unknown' }],
+    [{ ...valid, effect: 'forbidden' }],
+    [{ ...valid, key: `card_${'0'.repeat(64)}` }],
+    [{ ...valid, rationale: ' ' }],
+    [{ ...valid, actedAt: '2026-09-04' }],
+    [{ ...valid, disposition: 'merged' }],
+    [{ ...valid, disposition: 'disabled', replacementCardKey: createCardKey(card) }],
+  ]) {
+    assert.throws(() => validateCardMasterArchives(records), /invalid card master archive/i);
+  }
 });
