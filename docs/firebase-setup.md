@@ -123,6 +123,77 @@ documents in both limit collections. Investigate unusual requester/seller
 concentration without exporting contact values. A threshold change is a code
 and review change; never edit counters to silently bypass a limit.
 
+## Trusted Listing lifecycle and Sale history rollout
+
+The browser may create a new canonical Listing, but it cannot update or delete
+an existing Listing and cannot write a Sale. Those mutations are owned by three
+authenticated callable Functions:
+
+- `recordListingSale` validates the active owner and immutable card snapshot,
+  then creates the Sale and decrements inventory in one transaction;
+- `updateSellerListing` changes only photos, price, service options, fees, and
+  note, using `updatedAt` as an optimistic-concurrency version;
+- `deleteUnsoldListing` deletes only an active Listing whose inventory is
+  untouched and which has no Sale, then returns the canonical image URLs for
+  client-side Storage cleanup.
+
+Sold-out Listings stay readable to their owner and remain in the Dashboard,
+while public Marketplace queries expose only active Listings. Sales are
+immutable after creation. Legacy Sales remain readable, but only the exact
+recognized seven-field legacy shape is accepted; no display ID or Card Master
+record is used to guess historical data.
+
+### Sale snapshot audit and migration gate
+
+Approval of designs, code, or this guide does not authorize Sale migration `--apply`,
+deployment, production writes, a real Sale, or deletion. Each
+production operation requires separate explicit operator approval for the exact
+command and reviewed evidence. First take a managed Firestore export, deploy
+only the three lifecycle Functions, and run the read-only audit:
+
+```sh
+npm run migrate:sale-snapshots -- --project conantcgmarket
+```
+
+Review `sourceCount`, `normalizedCount`, `legacyCount`,
+`backfillWriteCount`, every unresolved Sale, and every validation conflict.
+The audit backfills only from the Sale's referenced Listing when that Listing
+already contains a canonical `cardType`, `cardName`, and `rarity` snapshot.
+Missing or legacy-only Listing metadata remains unresolved. Resolve all such
+records without guessing, rerun the dry-run, and retain its exact output.
+
+Only after a separate approval, choose a new local backup path outside the web
+build and run exactly:
+
+```sh
+npm run migrate:sale-snapshots -- --project conantcgmarket --backup ./backups/sale-snapshots-YYYYMMDD.json --apply
+```
+
+Apply mode refuses a pre-existing backup path or any unresolved Sale, writes a
+complete JSON backup before mutation, updates only the three missing snapshot
+fields in batches of at most 400, and reads every changed Sale back before
+reporting success. It never deletes a document or fetches card images/effect
+text.
+
+The lifecycle release sequence is **Functions → separately approved Sale audit/backfill → Rules → frontend**.
+Do not deploy Rules or the frontend merely because the dry-run completed. After
+the separately approved backfill verifies, deploy the Rules that deny browser
+lifecycle writes, then release the callable-backed frontend.
+
+For rollback, stop after the first failed stage and preserve the managed export,
+JSON backup, dry-run output, and logs. Prefer roll-forward repair after Rules are
+tightened; do not re-enable browser Sale or existing-Listing writes. If a
+Function release fails before Rules change, restore the previous Functions and
+repeat the full dry-run before requesting new approval.
+
+Production verification is non-invasive: inspect the deployed Function
+manifest, Rules release, migration counts, callable error rates, and inventory
+versus Sale aggregates. It creates no production Listing or Sale, deletes no
+object, and invokes no lifecycle callable against real user data. Continue to
+monitor `failed-precondition`, `aborted`, and `unavailable` rates after release;
+unexpected inventory or snapshot conflicts stop the rollout and trigger the
+rollback procedure above.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

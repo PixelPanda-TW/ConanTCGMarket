@@ -73,11 +73,18 @@ Status: implemented as model, converter, and repository foundations. Firestore s
 
 ## Milestone 3: Seller Profile
 
-Status: implemented for one preferred seller contact. The `#/profile` route, seller-scoped repository, create/update form, async request guards, and component/browser coverage are in place. LINE and Discord store IDs; Facebook and Threads store validated HTTPS personal-profile links. Authenticated-only contact disclosure remains pending in the account/contact security batches.
+Status: repository-ready, not production-live. The `#/profile` route, protected
+callable repository, create/update form, async request guards, and
+component/browser coverage are in place. LINE and Discord store IDs; Facebook
+and Threads store validated HTTPS personal-profile links. Contact data is split
+from the public profile and disclosed only to authenticated active accounts
+through an audited, rate-limited callable. Production migration and deployment
+still require separate approval.
 
 ### Goal
 
-Allow signed-in sellers to create and manage their public seller identity and contact method.
+Allow signed-in sellers to manage their public display identity and protected
+contact method.
 
 ### Deliverables
 
@@ -93,7 +100,8 @@ Allow signed-in sellers to create and manage their public seller identity and co
 
 - A signed-in seller can create a profile.
 - A signed-in seller can update their profile.
-- Listing pages render LINE as an ID link, Discord as ID text, and Facebook/Threads as validated personal-profile links.
+- For an authenticated active viewer, Listing pages render LINE as an ID link,
+  Discord as ID text, and Facebook/Threads as validated personal-profile links.
 - Google email is not shown as a public contact method.
 
 ## Milestone 4: Minimal Card Master
@@ -116,8 +124,9 @@ Create a searchable card master that supports listing creation without seller-en
 
 - Searching `諸伏` can return multiple cards with different rarities.
 - Seller cannot freely type the final card name for a listing.
-- Listing records store `cardId`, not copied card-name text as the source of truth.
-- Each card has at least one of `nameZh` or `nameJa`.
+- Listing records store immutable `cardId`, `cardType`, `cardName`, and `rarity`
+  snapshots selected from Card Master.
+- Each Card Master record has a canonical `cardName` and at least one rarity.
 
 ## Milestone 5: Listing Creation and Storage Upload
 
@@ -168,6 +177,10 @@ Replace sample listings with real Firestore-backed marketplace browsing.
 
 ## Milestone 7: Listing Detail and Edit
 
+Status: repository-ready, not production-live. Existing Listings are updated or
+deleted only through trusted callable Functions; deployment has not been
+authorized.
+
 ### Goal
 
 Allow buyers to inspect a listing and allow sellers to edit only their own listings.
@@ -177,9 +190,10 @@ Allow buyers to inspect a listing and allow sellers to edit only their own listi
 - `/listing/:id` route.
 - `/listing/:id/edit` route.
 - Listing detail view with 1 to 3 photos.
-- Seller contact display.
+- Authenticated-active-only seller contact reveal.
 - Owner-only edit controls.
-- Edit flow for price, quantity, conditions, note, and photos.
+- Edit flow for price, conditions, note, and photos. Inventory changes only when
+  a Sale is recorded.
 
 ### Acceptance Criteria
 
@@ -191,6 +205,11 @@ Allow buyers to inspect a listing and allow sellers to edit only their own listi
 
 ## Milestone 8: Dashboard and Sale Records
 
+Status: repository-ready, not production-live. Trusted transactional Sale
+creation, immutable card snapshots, complete history UI, legacy read support,
+and Emulator E2E coverage are implemented. The production Sale audit/backfill
+and rollout remain separately authorized operations.
+
 ### Goal
 
 Allow sellers to manage inventory, record external sales, and track cumulative sales totals.
@@ -201,7 +220,7 @@ Allow sellers to manage inventory, record external sales, and track cumulative s
 - Active and sold-out listing sections.
 - Dashboard metrics for active listings, sold quantity, and cumulative sold amount.
 - Register sale modal.
-- Sale record creation.
+- Trusted transactional Sale record creation with immutable card snapshots.
 - Remaining quantity decrement.
 - Automatic sold-out status update.
 
@@ -214,10 +233,15 @@ Allow sellers to manage inventory, record external sales, and track cumulative s
 - When `remainingQuantity === 0`, the listing becomes `sold_out`.
 - Sold-out listings disappear from the public marketplace.
 - Seller dashboard still shows sold-out listings and sale history.
+- Complete history shows Taipei sale time, immutable card identity, quantity,
+  listing and sold unit prices, subtotal, and a Listing link when retained.
 - A suspended seller retains a read-only Dashboard with active/sold-out Listings and Sale totals, with every edit and sale control removed.
 - Cumulative sold amount is computed from `SUM(Sale.quantity * Sale.soldUnitPrice)`.
 
 ## Milestone 9: Firebase Security Rules
+
+Status: repository-ready, not production-live. Emulator tests prove the trusted
+lifecycle boundaries; production Rules deployment has not been authorized.
 
 ### Goal
 
@@ -235,14 +259,17 @@ Enforce ownership and public-read rules at the Firebase layer, not only in the f
 - Public users can read card master data.
 - Public users can read active listings.
 - Unauthenticated users cannot write listings, sales, or seller profiles.
-- Sellers cannot modify listings owned by other sellers.
-- Sellers can read and write only their own sale records.
+- Browser clients cannot update or delete an existing Listing; trusted
+  Functions enforce owner mutation rules.
+- Sellers can read only their own Sale records; browser Sale writes are denied.
 - Storage writes require auth and enforce seller UID in the path.
 - Browser clients can read only their own `accountAccess` document and can never write it.
 - Missing or canonical active account state permits existing owner mutations; suspended or malformed state denies Profile, Listing, Sale, subscription, and Listing-image mutations.
 - Suspended owners retain the approved reads needed for their Listing, Sale, and subscription history.
 
-The trusted admin suspension/restore transaction, automatic Listing hiding, selective republishing, and appeals remain pending. Until that workflow exists, this foundation does not mark any production account suspended. Authenticated-only contact disclosure also remains for a later batch.
+The trusted admin suspension/restore transaction, automatic Listing hiding,
+selective republishing, and appeals remain pending. Until that workflow exists,
+this foundation does not mark any production account suspended.
 
 ## Milestone 10: Card Master Sync Script
 

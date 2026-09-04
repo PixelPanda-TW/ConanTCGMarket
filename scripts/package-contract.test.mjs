@@ -36,3 +36,21 @@ test('pins local E2E tools and exposes the approved commands', async () => {
     access(new URL(`node_modules/.bin/${binary}`, rootUrl), constants.X_OK)
   )));
 });
+
+test('keeps the Sale snapshot command dry-run by default and documents its apply gate', async () => {
+  const [source, guide] = await Promise.all([
+    readFile(new URL('scripts/migrate-sale-snapshots.mjs', rootUrl), 'utf8'),
+    readFile(new URL('docs/firebase-setup.md', rootUrl), 'utf8'),
+  ]);
+  expectNoImplicitApply(source);
+  assert.match(source, /options\.apply === true/u);
+  assert.match(source, /Backup path already exists/u);
+  assert.match(source, /Sale snapshot verification failed/u);
+  assert.match(guide, /separate[^\n]+approval/iu);
+});
+
+function expectNoImplicitApply(source) {
+  assert.doesNotMatch(root.scripts['migrate:sale-snapshots'], /--apply/u);
+  assert.doesNotMatch(source, /apply:\s*true/u);
+  assert.doesNotMatch(source, /\.delete\(/u);
+}

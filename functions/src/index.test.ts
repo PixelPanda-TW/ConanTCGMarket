@@ -199,4 +199,33 @@ describe('notification Function deployment contract', () => {
     expect(setupGuide).toContain('does not authorize migration `--apply`');
     expect(setupGuide).toContain('must not reveal a real seller contact');
   });
+
+  it('documents the trusted Listing lifecycle and separately authorized Sale rollout', async () => {
+    const setupGuide = await readFile(
+      new URL('../../docs/firebase-setup.md', import.meta.url),
+      'utf8',
+    );
+    const milestones = await readFile(
+      new URL('../../docs/milestones.md', import.meta.url),
+      'utf8',
+    );
+    const lines = setupGuide.split(/\r?\n/);
+
+    for (const callable of ['recordListingSale', 'updateSellerListing', 'deleteUnsoldListing']) {
+      expect(setupGuide).toContain(callable);
+    }
+    expect(lines).toContain('npm run migrate:sale-snapshots -- --project conantcgmarket');
+    expect(lines).toContain(
+      'npm run migrate:sale-snapshots -- --project conantcgmarket --backup ./backups/sale-snapshots-YYYYMMDD.json --apply',
+    );
+    expect(setupGuide).toContain(
+      'Functions → separately approved Sale audit/backfill → Rules → frontend',
+    );
+    expect(setupGuide).toContain('Legacy Sales remain readable');
+    expect(setupGuide).toContain('does not authorize Sale migration `--apply`');
+    expect(setupGuide).toContain('creates no production Listing or Sale');
+    expect(setupGuide).toContain('rollback');
+    expect(setupGuide).toContain('monitor');
+    expect(milestones).toContain('repository-ready, not production-live');
+  });
 });
