@@ -453,6 +453,64 @@ h1 {
   h1 { font-size: 34px; white-space: normal; }
 }
 
+.report-page {
+  width: min(680px, 100%);
+  margin: 0 auto;
+}
+
+.report-page > .eyebrow {
+  margin-top: 24px;
+}
+
+.report-listing-summary,
+.report-privacy-note,
+.report-error-summary {
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.report-listing-summary {
+  display: grid;
+  gap: 4px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / .82);
+}
+
+.report-listing-summary span,
+.report-privacy-note,
+.field-hint {
+  color: hsl(var(--muted-foreground));
+}
+
+.report-privacy-note {
+  border-left: 4px solid hsl(var(--info));
+  background: hsl(var(--info) / .1);
+  line-height: 1.6;
+}
+
+.report-form textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.report-error-summary {
+  border: 1px solid hsl(var(--destructive));
+  background: hsl(var(--destructive) / .08);
+  color: hsl(var(--destructive));
+  font-weight: 700;
+}
+
+.report-error-summary:focus-visible {
+  outline: 3px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+.report-state {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+}
+
 /* Private Card Master administration */
 .admin-card-page,
 .admin-card-content,
