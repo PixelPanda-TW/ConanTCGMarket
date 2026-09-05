@@ -890,4 +890,36 @@ describe('notification Function deployment contract', () => {
       'Account moderation is repository-ready, not production-live',
     );
   });
+
+  it('documents account appeal privacy, decisions, and release operations', async () => {
+    const [setupGuide, integrationGuide, milestones] = await Promise.all([
+      readFile(new URL('../../docs/firebase-setup.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/integration-testing.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/milestones.md', import.meta.url), 'utf8'),
+    ]);
+    for (const phrase of [
+      'one appeal per suspension action',
+      'private appeal evidence',
+      'manual immutable decision',
+      'approval reuses the account-restoration invariant',
+      'does not reduce violation counts',
+      'does not republish held Listings',
+      'no appeal email',
+      'no migration',
+      'expired unsubmitted drafts after 24 hours',
+      'Functions → indexes → Rules → frontend',
+      'must not read or decide a production appeal',
+      'must not upload or download production appeal evidence',
+      'monitor',
+      'rollback',
+      'repository-ready, not production-live',
+    ]) expect(setupGuide).toContain(phrase);
+    expect(integrationGuide).toContain('ten account-appeal acceptance criteria');
+    expect(integrationGuide).toContain(
+      'no production appeal, evidence, decision, account restoration, Listing republish, email, deployment, or data mutation',
+    );
+    expect(milestones).toContain(
+      'Account appeals are repository-ready, not production-live',
+    );
+  });
 });

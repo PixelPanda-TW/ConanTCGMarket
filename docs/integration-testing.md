@@ -156,6 +156,7 @@ matrix where a denied action has no user-visible UI.
 | `e2e/auth-profile.spec.ts` | Signed-out guidance, Profile validation, mock sign-in, create/edit/reload persistence, and sign-out. |
 | `e2e/account-access.spec.ts` | Missing-document active compatibility, authenticated read-only suspension, public Marketplace browsing, private held Listings, blocked action routes, and preserved seller history. |
 | `e2e/account-moderation.spec.ts` | Admin suspension, resumable Listing hiding, scheduled reconciliation, Marketplace removal, seller read-only hold, restoration, selective republish, immutable history, and direct Rules denial. |
+| `e2e/account-appeals.spec.ts` | Suspended-owner zero/three-image submission, reload, one-per-action enforcement, private evidence, admin review, dismissal/approval, restoration invariants, and direct Rules denial. |
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
 | `e2e/subscriptions.spec.ts` | Exact-name and seller subscriptions, consent/cancel, persistence/removal, owner/sold/suspended gates, pre-follow exclusion, dual card-and-seller match deduplication, substring coverage, and daily-email preference. |
 | `e2e/report-tickets.spec.ts` | Guest guidance; active reporter draft/submission; zero and three evidence images; reload receipt; ownership, account, Listing, MIME, size, read, count, rate-limit, conflicting-retry, and post-submit denial paths. |
@@ -172,7 +173,8 @@ removes Profile/Sell/edit/subscription/Sale actions, and preserves a read-only
 Dashboard. Firestore and Storage Rules independently deny those mutations, so
 the UI is not the security boundary. Account suspension/restoration, automatic
 Listing hiding, and selective republish are covered separately by
-`e2e/account-moderation.spec.ts`; an appeal workflow remains outside this batch.
+`e2e/account-moderation.spec.ts`; account appeals are covered separately by
+`e2e/account-appeals.spec.ts`.
 
 Seller-subscription E2E uses only the fixed demo project and an in-memory Gmail
 fake. Seed coverage preserves both legacy card-name-only subscriptions and new
@@ -274,6 +276,36 @@ Listing hide/republish, email, deployment, or data mutation**. They invoke only
 demo Emulators and the locally compiled scheduled handler. Production index and
 schedule readiness require a separately approved non-invasive verification.
 In exact gate terms, they perform no production moderation read, suspension/restoration, Listing hide/republish, email, deployment, or data mutation.
+
+Account-appeal E2E maps the **ten account-appeal acceptance criteria** to
+observable boundaries:
+
+1. Only the currently suspended authenticated target can submit an appeal for
+   the exact completed suspension action.
+2. A trimmed 100–2,000-character statement, request identity, draft identity,
+   evidence count, MIME, size, generation, and path are validated consistently.
+3. Zero and three-image submissions work; one appeal per action and exact retry
+   semantics prevent duplicate records and counters.
+4. Firestore appeal/audit collections and submitted Storage evidence deny every
+   direct browser read or write, including owner and admin identities.
+5. Only an active exact-claim non-target admin can reach the bounded queue,
+   detail, and generation-verified evidence response.
+6. Dismissal records one immutable rationale and leaves the target suspension,
+   operation, counts, Listings, Sales, cases, and prior history unchanged.
+7. Approval atomically reuses the exact-action restoration path without reducing
+   confirmed counts or republishing a held Listing.
+8. Malformed, stale, self-review, ordinary-user, conflicting, and concurrent
+   operations fail closed in the callable and pure transaction suites.
+9. Bounded cleanup deletes only expired unsubmitted draft objects after 24 hours
+   and never deletes generation-bound submitted evidence.
+10. Chromium covers submit → private review → dismiss/approve and direct denial;
+    iPhone WebKit proves the suspended-owner form remains usable without
+    horizontal overflow in the fixed demo project.
+
+These tests perform **no production appeal, evidence, decision, account restoration, Listing republish, email, deployment, or data mutation**.
+Scheduler
+execution, deployed indexes, IAM, quotas, and production monitoring require a
+separately approved non-invasive verification.
 
 ## Reliability and evidence
 

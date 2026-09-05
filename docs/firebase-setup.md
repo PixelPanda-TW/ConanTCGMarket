@@ -440,6 +440,54 @@ reports, cases, held Listings, Sales, and operation records. Any repair,
 account change, Listing publication, deployment, or rollback needs separate
 explicit approval.
 
+## Account appeals and release
+
+Status: **repository-ready, not production-live**. A suspended authenticated
+account may submit **one appeal per suspension action** from its Dashboard. The
+appeal requires a trimmed 100–2,000-character statement and may include zero to
+three JPEG, PNG, or WebP images of at most 5 MiB each. Submission does not alter
+the suspension, held Listings, Sales, cases, audit history, or confirmed count.
+
+`accountAppeals`, request keys, rate limits, and appeal audit logs are
+server-only. The **private appeal evidence** uses an owner/action/draft/slot Storage
+path: the exact suspended owner may write the draft, but no browser identity may
+read it. Submission binds generation-checked metadata. The bounded five-minute
+cleanup removes only **expired unsubmitted drafts after 24 hours** and preserves
+every object referenced by a submitted appeal.
+
+Only an active account with the exact boolean `admin === true` claim may use the
+private appeal queue and detail routes. Every dismissal or approval is a
+**manual immutable decision** with a required rationale; approval reuses the account-restoration invariant
+from account moderation: it restores only the
+exact current suspension action. It **does not reduce violation counts** and
+**does not republish held Listings**. Dismissal leaves suspension state
+unchanged. There is **no appeal email** and **no migration**.
+
+### Appeal acceptance, release, monitoring, and rollback
+
+Run all ten account-appeal acceptance criteria in the integration guide under
+Node.js 22. After separate approval, release in the exact order
+**Functions → indexes → Rules → frontend**. Wait for the appeal queue index and
+the cleanup schedule manifest before exposing either seller or admin UI.
+
+Production verification may inspect only deployed versions, manifest and
+schedule presence, index readiness, Rules releases, frontend assets, and
+aggregate sanitized outcomes. It **must not read or decide a production appeal**
+and **must not upload or download production appeal evidence**, restore a
+production account, republish a Listing, or send email as a probe.
+
+Monitor submission and decision outcome counts, stale-action and idempotency
+conflicts, malformed-record failures, evidence metadata/download failures,
+cleanup failures, permission denials, and approval-to-restoration consistency.
+Never log statements, evidence, contact data, email, Storage paths, or URLs.
+
+For rollback, remove frontend entry points first while retaining private Rules,
+callables, cleanup, appeals, evidence, operations, and audit records. Never
+reverse a decision by editing data, decrement a count, delete history, or bulk
+republish held Listings. Prefer a compatible roll-forward. Every deployment,
+rollback, evidence access, appeal decision, account change, or data repair needs
+separate explicit approval.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

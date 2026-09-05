@@ -360,6 +360,27 @@ Monitoring and rollback must retain private Rules, the reconciler, operations,
 audits, cases, held Listings, and counts; rollback never deletes audit records,
 never decrements violation counts, and never bulk republishes Listings.
 
+## Recovery Batch 11: Account Appeals
+
+Status: **Account appeals are repository-ready, not production-live**. A
+currently suspended authenticated owner can submit one private appeal for the
+exact suspension action, with a bounded statement and zero to three private
+evidence images. An active exact-claim non-target admin can review the private
+queue and evidence, then make one immutable dismissal or approval decision.
+
+Dismissal leaves the suspension unchanged. Approval atomically reuses the
+Batch 10 restoration invariants: confirmed-violation counts, held Listings,
+Sales, reports, cases, operations, and audit records are preserved, and no
+Listing is automatically republished. Firestore and Storage remain directly
+unreadable from the browser; stale drafts are removed only by bounded cleanup.
+There is no appeal email and no migration.
+
+Local unit, Rules, Chromium, and iPhone WebKit coverage verifies submission,
+privacy, zero/three evidence, one-per-action behavior, admin denial, dismissal,
+approval, cleanup, and restoration integrity. Production Functions, indexes,
+Rules, frontend release, evidence access, appeal decisions, account restoration,
+deployment, rollback, and data mutation all remain separately authorized.
+
 ## Milestone 11: MVP Acceptance and Launch Cleanup
 
 Status: Seller subscriptions are repository-ready, not production-live. Active
