@@ -97,6 +97,16 @@ export interface RestoreModerationTargetRequest {
   reason: string;
 }
 
+export interface RepublishSuspendedListingRequest {
+  listingId: string;
+  suspensionActionId: string;
+}
+
+export interface AccountOwnerCallableRequest {
+  authUid: string | null;
+  data: unknown;
+}
+
 export interface AccountModerationCallableRequest {
   authUid: string | null;
   adminClaim: unknown;
@@ -168,6 +178,22 @@ export interface AccountRestorationDependencies {
   now(): Date;
   runTransaction<T>(
     operation: (transaction: AccountRestorationTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
+export interface ListingRepublishTransaction {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getOperation(id: string): Promise<unknown | null>;
+  getListing(id: string): Promise<Record<string, unknown> | null>;
+  getAudit(id: string): Promise<unknown | null>;
+  updateListing(id: string, patch: Record<string, unknown>): void;
+  createAudit(id: string, data: Record<string, unknown>): void;
+}
+
+export interface ListingRepublishDependencies {
+  now(): Date;
+  runTransaction<T>(
+    operation: (transaction: ListingRepublishTransaction) => Promise<T>,
   ): Promise<T>;
 }
 
@@ -314,6 +340,16 @@ export function parseRestoreModerationTargetRequest(
   return value as unknown as RestoreModerationTargetRequest;
 }
 
+export function parseRepublishSuspendedListingRequest(
+  value: unknown,
+): RepublishSuspendedListingRequest {
+  if (!isRecord(value) || !exact(value, ['listingId', 'suspensionActionId'])
+    || !identifier(value.listingId, 128)
+    || typeof value.suspensionActionId !== 'string'
+    || !keyPattern.test(value.suspensionActionId)) return invalid();
+  return value as unknown as RepublishSuspendedListingRequest;
+}
+
 interface ActiveStoredAccountAccess {
   status: 'active';
   confirmedViolationCount: number;
@@ -360,6 +396,13 @@ function requirePrincipal(request: AccountModerationCallableRequest): string {
   }
   if (request.adminClaim !== true) {
     throw new AccountModerationError('permission-denied', '無權限執行帳號管理。');
+  }
+  return request.authUid;
+}
+
+function requireOwnerPrincipal(request: AccountOwnerCallableRequest): string {
+  if (!identifier(request.authUid, 128)) {
+    throw new AccountModerationError('unauthenticated', '請先使用 Google 登入。');
   }
   return request.authUid;
 }
@@ -736,5 +779,103 @@ export async function restoreModerationTarget(
   } catch (error) {
     if (error instanceof AccountModerationError) throw error;
     throw new AccountModerationError('unavailable', '目前無法恢復帳號。');
+  }
+}
+
+function republishAuditId(actionId: string, listingId: string): string {
+  return createHash('sha256').update(`republish:${actionId}:${listingId}`, 'utf8').digest('hex');
+}
+
+function assertRepublishRetryAudit(
+  value: unknown,
+  eventId: string,
+  operation: RestoredAccountModerationOperation,
+  uid: string,
+  listingId: string,
+): AccountModerationAuditEvent {
+  const event = readAccountModerationAuditEvent(value);
+  if (event.type !== 'listing_republished' || event.eventId !== eventId
+    || event.targetUid !== uid || event.actorUid !== uid
+    || event.suspensionActionId !== operation.actionId
+    || event.sourceReportId !== operation.sourceReportId
+    || event.listingId !== listingId) return malformed();
+  return event;
+}
+
+export async function republishSuspendedListing(
+  request: AccountOwnerCallableRequest,
+  dependencies: ListingRepublishDependencies,
+) {
+  const input = parseRepublishSuspendedListingRequest(request.data);
+  const uid = requireOwnerPrincipal(request);
+  const eventId = republishAuditId(input.suspensionActionId, input.listingId);
+  const nowDate = dependencies.now();
+  if (!(nowDate instanceof Date) || Number.isNaN(nowDate.valueOf())) {
+    throw new AccountModerationError('unavailable', '目前無法重新上架商品。');
+  }
+  const now = Timestamp.fromDate(nowDate);
+  try {
+    return await dependencies.runTransaction(async (transaction) => {
+      const [accessValue, operationValue, listingValue, auditValue] = await Promise.all([
+        transaction.getAccountAccess(uid),
+        transaction.getOperation(input.suspensionActionId),
+        transaction.getListing(input.listingId),
+        transaction.getAudit(eventId),
+      ]);
+      if (accessValue === null) return malformed();
+      let access: StoredAccountAccess;
+      try {
+        access = readAccountAccess(accessValue);
+      } catch {
+        throw new AccountModerationError('permission-denied', '此帳號目前無法重新上架商品。');
+      }
+      if (access.status !== 'active') {
+        throw new AccountModerationError('permission-denied', '此帳號目前無法重新上架商品。');
+      }
+      const operation = readAccountModerationOperation(operationValue);
+      if (operation.status !== 'restored'
+        || operation.actionId !== input.suspensionActionId
+        || operation.targetUid !== uid) return malformed();
+      const listing = readStoredListing(listingValue);
+      if (!listing) return malformed();
+      if (listing.sellerId !== uid) {
+        throw new AccountModerationError('permission-denied', '只有商品賣家可以重新上架。');
+      }
+
+      if (auditValue !== null) {
+        const audit = assertRepublishRetryAudit(
+          auditValue, eventId, operation, uid, input.listingId,
+        );
+        if (listing.status !== 'active'
+          || listing.suspensionActionId !== undefined
+          || listing.suspendedAt !== undefined) return malformed();
+        return {
+          listingId: input.listingId,
+          status: 'active' as const,
+          updatedAt: audit.at.toMillis(),
+        };
+      }
+
+      if (listing.status !== 'suspended'
+        || listing.suspensionActionId !== input.suspensionActionId
+        || listing.remainingQuantity < 1) return malformed();
+      transaction.updateListing(input.listingId, {
+        status: 'active', suspensionActionId: null, suspendedAt: null, updatedAt: nowDate,
+      });
+      transaction.createAudit(eventId, {
+        eventId,
+        type: 'listing_republished',
+        targetUid: uid,
+        suspensionActionId: operation.actionId,
+        sourceReportId: operation.sourceReportId,
+        actorUid: uid,
+        listingId: input.listingId,
+        at: now,
+      });
+      return { listingId: input.listingId, status: 'active' as const, updatedAt: nowDate.valueOf() };
+    });
+  } catch (error) {
+    if (error instanceof AccountModerationError) throw error;
+    throw new AccountModerationError('unavailable', '目前無法重新上架商品。');
   }
 }

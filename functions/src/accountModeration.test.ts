@@ -6,6 +6,7 @@ import {
   isAccountModerationRequestId,
   parseSuspendModerationTargetRequest,
   parseRestoreModerationTargetRequest,
+  parseRepublishSuspendedListingRequest,
   reconcileAccountModerationOperation,
   drainAccountModerationOperation,
   ACCOUNT_MODERATION_HIDE_PAGE_SIZE,
@@ -14,12 +15,15 @@ import {
   readAccountModerationOperation,
   suspendModerationTarget,
   restoreModerationTarget,
+  republishSuspendedListing,
   type AccountSuspensionDependencies,
   type AccountSuspensionTransaction,
   type AccountModerationReconciliationDependencies,
   type AccountModerationReconciliationTransaction,
   type AccountRestorationDependencies,
   type AccountRestorationTransaction,
+  type ListingRepublishDependencies,
+  type ListingRepublishTransaction,
 } from './accountModeration.js';
 
 const CREATED_AT = Timestamp.fromDate(new Date('2026-09-05T00:00:00.000Z'));
@@ -675,5 +679,146 @@ describe('restore moderated account', () => {
     await expect(restoreModerationTarget({
       ...restorationRequest, authUid: 'seller-1',
     }, self.dependencies)).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+});
+
+function restoredOperation(overrides: Record<string, unknown> = {}) {
+  return {
+    ...completedOperation(), status: 'restored', restoredAt: LATER_AT,
+    restoredBy: 'admin-2', restorationReason: '恢復帳號',
+    restorationRequestKey: 'b'.repeat(64), updatedAt: LATER_AT, ...overrides,
+  };
+}
+
+function heldListing(overrides: Record<string, unknown> = {}) {
+  return activeListing('listing-1', {
+    status: 'suspended', suspensionActionId: requestKey,
+    suspendedAt: CREATED_AT.toDate(), ...overrides,
+  }).data;
+}
+
+interface RepublishState {
+  access: unknown | null;
+  operation: unknown | null;
+  listing: Record<string, unknown> | null;
+  audit: unknown | null;
+  listingWrite?: { id: string; patch: Record<string, unknown> };
+  auditWrite?: { id: string; data: Record<string, unknown> };
+}
+
+function republishHarness(overrides: Partial<RepublishState> = {}) {
+  const state: RepublishState = {
+    access: { status: 'active', confirmedViolationCount: 3, updatedAt: LATER_AT },
+    operation: restoredOperation(), listing: heldListing(), audit: null, ...overrides,
+  };
+  const transaction: ListingRepublishTransaction = {
+    getAccountAccess: vi.fn(async () => state.access),
+    getOperation: vi.fn(async () => state.operation),
+    getListing: vi.fn(async () => state.listing),
+    getAudit: vi.fn(async () => state.audit),
+    updateListing: vi.fn((id, patch) => { state.listingWrite = { id, patch }; }),
+    createAudit: vi.fn((id, data) => { state.auditWrite = { id, data }; }),
+  };
+  const dependencies: ListingRepublishDependencies = {
+    now: () => NOW,
+    runTransaction: async (operation) => operation(transaction),
+  };
+  return { state, transaction, dependencies };
+}
+
+const republishRequest = {
+  authUid: 'seller-1',
+  data: { listingId: 'listing-1', suspensionActionId: requestKey },
+};
+
+describe('republish suspension-held Listing', () => {
+  it('parses only the exact Listing/action request', () => {
+    expect(parseRepublishSuspendedListingRequest(republishRequest.data))
+      .toEqual(republishRequest.data);
+    for (const data of [
+      { ...republishRequest.data, email: 'private@example.test' },
+      { ...republishRequest.data, listingId: ' listing-1' },
+      { ...republishRequest.data, suspensionActionId: 'short' },
+    ]) {
+      expect(() => parseRepublishSuspendedListingRequest(data)).toThrowError(
+        expect.objectContaining({ code: 'invalid-argument' }),
+      );
+    }
+  });
+
+  it('atomically republishes one restored owner Listing and creates one audit', async () => {
+    const { state, dependencies } = republishHarness();
+    const result = await republishSuspendedListing(republishRequest, dependencies);
+    expect(result).toEqual({
+      listingId: 'listing-1', status: 'active', updatedAt: NOW.valueOf(),
+    });
+    expect(state.listingWrite).toEqual({ id: 'listing-1', patch: {
+      status: 'active', suspensionActionId: null, suspendedAt: null, updatedAt: NOW,
+    } });
+    expect(state.auditWrite).toEqual({
+      id: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      data: {
+        eventId: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        type: 'listing_republished', targetUid: 'seller-1',
+        suspensionActionId: requestKey, sourceReportId: 'report-1',
+        actorUid: 'seller-1', listingId: 'listing-1', at: Timestamp.fromDate(NOW),
+      },
+    });
+    expect(state.auditWrite!.id).toBe(state.auditWrite!.data.eventId);
+    expect(JSON.stringify({ result, ...state.auditWrite })).not.toMatch(
+      /email|contact|evidence|description|imageUrl/iu,
+    );
+  });
+
+  it('recognizes an exact retry from its audit without rewriting the Listing', async () => {
+    const first = republishHarness();
+    const result = await republishSuspendedListing(republishRequest, first.dependencies);
+    const retry = republishHarness({
+      listing: { ...heldListing(), status: 'active' },
+      audit: first.state.auditWrite!.data,
+    });
+    delete retry.state.listing!.suspensionActionId;
+    delete retry.state.listing!.suspendedAt;
+    await expect(republishSuspendedListing(republishRequest, retry.dependencies))
+      .resolves.toEqual(result);
+    expect(retry.state.listingWrite).toBeUndefined();
+    expect(retry.state.auditWrite).toBeUndefined();
+  });
+
+  it.each([
+    ['signed out', { request: { ...republishRequest, authUid: null } }],
+    ['suspended owner', { state: { access: {
+      status: 'suspended', confirmedViolationCount: 3, suspensionReason: '原因',
+      suspendedAt: CREATED_AT, suspendedBy: 'admin-1', suspensionActionId: requestKey,
+      updatedAt: CREATED_AT,
+    } } }],
+    ['other owner', { state: { listing: heldListing({ sellerId: 'seller-2' }) } }],
+    ['hiding action', { state: { operation: hidingOperation() } }],
+    ['completed but not restored action', { state: { operation: completedOperation() } }],
+    ['stale hold', { state: { listing: heldListing({ suspensionActionId: 'c'.repeat(64) }) } }],
+    ['sold out', { state: { listing: heldListing({
+      status: 'sold_out', remainingQuantity: 0, suspensionActionId: undefined,
+      suspendedAt: undefined,
+    }) } }],
+    ['malformed Listing', { state: { listing: heldListing({ rarity: undefined }) } }],
+  ])('rejects %s without republishing or auditing', async (_label, override) => {
+    const stateOverride = 'state' in override ? override.state : {};
+    const request = 'request' in override ? override.request : republishRequest;
+    const { state, dependencies } = republishHarness(stateOverride as Partial<RepublishState>);
+    await expect(republishSuspendedListing(request, dependencies)).rejects.toMatchObject({
+      code: expect.stringMatching(/unauthenticated|permission-denied|failed-precondition/),
+    });
+    expect(state.listingWrite).toBeUndefined();
+    expect(state.auditWrite).toBeUndefined();
+  });
+
+  it('rejects an active Listing without the exact audit proof', async () => {
+    const listing = { ...heldListing(), status: 'active' };
+    delete listing.suspensionActionId;
+    delete listing.suspendedAt;
+    const { state, dependencies } = republishHarness({ listing });
+    await expect(republishSuspendedListing(republishRequest, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.listingWrite).toBeUndefined();
   });
 });
