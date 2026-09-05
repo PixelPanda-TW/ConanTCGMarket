@@ -8,3 +8,4 @@ export * from './accountAccessRepository';
 export * from './adminCardMasterRepository';
 export * from './moderationReportRepository';
 export * from './moderationReviewRepository';
+export * from './accountModerationRepository';
