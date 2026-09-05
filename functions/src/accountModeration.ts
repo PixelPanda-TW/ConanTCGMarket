@@ -181,6 +181,50 @@ export interface AccountRestorationDependencies {
   ): Promise<T>;
 }
 
+export interface ApplyAccountRestorationInput {
+  operation: SuspendedAccountModerationOperation;
+  targetAccessValue: unknown;
+  actorUid: string;
+  reason: string;
+  restorationRequestKey: string;
+  at: Timestamp;
+}
+
+export function applyAccountRestoration(
+  transaction: Pick<AccountRestorationTransaction, 'setAccountAccess' | 'updateOperation' | 'createAudit'>,
+  input: ApplyAccountRestorationInput,
+): RestoredAccountModerationOperation {
+  const targetAccess = readAccountAccess(input.targetAccessValue);
+  assertReconciliationAccount(input.operation, targetAccess);
+  const restored: RestoredAccountModerationOperation = {
+    ...input.operation,
+    status: 'restored',
+    restoredAt: input.at,
+    restoredBy: input.actorUid,
+    restorationReason: input.reason,
+    restorationRequestKey: input.restorationRequestKey,
+    updatedAt: input.at,
+  };
+  const eventId = `${input.operation.actionId}_restored`;
+  transaction.setAccountAccess(input.operation.targetUid, {
+    status: 'active',
+    confirmedViolationCount: targetAccess.confirmedViolationCount,
+    updatedAt: input.at,
+  });
+  transaction.updateOperation(input.operation.actionId, {
+    status: 'restored', restoredAt: input.at, restoredBy: input.actorUid,
+    restorationReason: input.reason, restorationRequestKey: input.restorationRequestKey,
+    updatedAt: input.at,
+  });
+  transaction.createAudit(eventId, {
+    eventId, type: 'restored', targetUid: input.operation.targetUid,
+    suspensionActionId: input.operation.actionId,
+    sourceReportId: input.operation.sourceReportId, actorUid: input.actorUid,
+    reason: input.reason, at: input.at,
+  });
+  return restored;
+}
+
 export interface ListingRepublishTransaction {
   getAccountAccess(uid: string): Promise<unknown | null>;
   getOperation(id: string): Promise<unknown | null>;
@@ -741,38 +785,9 @@ export async function restoreModerationTarget(
       if (pair.moderationCase.resultingConfirmedViolationCount
         > targetAccess.confirmedViolationCount) return malformed();
 
-      const restored: RestoredAccountModerationOperation = {
-        ...operation,
-        status: 'restored',
-        restoredAt: now,
-        restoredBy: adminUid,
-        restorationReason: input.reason,
-        restorationRequestKey: restoreKey,
-        updatedAt: now,
-      };
-      const eventId = `${operation.actionId}_restored`;
-      transaction.setAccountAccess(targetUid, {
-        status: 'active',
-        confirmedViolationCount: targetAccess.confirmedViolationCount,
-        updatedAt: now,
-      });
-      transaction.updateOperation(operation.actionId, {
-        status: 'restored',
-        restoredAt: now,
-        restoredBy: adminUid,
-        restorationReason: input.reason,
-        restorationRequestKey: restoreKey,
-        updatedAt: now,
-      });
-      transaction.createAudit(eventId, {
-        eventId,
-        type: 'restored',
-        targetUid,
-        suspensionActionId: operation.actionId,
-        sourceReportId: operation.sourceReportId,
-        actorUid: adminUid,
-        reason: input.reason,
-        at: now,
+      const restored = applyAccountRestoration(transaction, {
+        operation, targetAccessValue: targetAccess, actorUid: adminUid,
+        reason: input.reason, restorationRequestKey: restoreKey, at: now,
       });
       return operationResult(restored);
     });
