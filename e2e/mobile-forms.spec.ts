@@ -259,6 +259,32 @@ test('mobile account restoration dialog and immutable history do not overflow', 
   await expectNoHorizontalScroll(page);
 });
 
+test('mobile suspended seller appeal form remains usable without horizontal overflow', async ({ page }) => {
+  const seller = await signInMobile(page, 'appeal-seller');
+  const mobileActionId = '6'.repeat(64);
+  await seedScenario({
+    accountAccess: [{
+      uid: seller.uid, status: 'suspended', confirmedViolationCount: 2,
+      suspensionReason: '行動版申訴測試', suspendedAt: seededAt,
+      suspendedBy: 'mobile-admin', suspensionActionId: mobileActionId, updatedAt: seededAt,
+    }],
+    accountModerationOperations: [{
+      actionId: mobileActionId, status: 'suspended', targetUid: seller.uid,
+      sourceReportId: 'mobile-appeal-report', requestedBy: 'mobile-admin',
+      reason: '行動版申訴測試', requestKey: mobileActionId,
+      confirmedViolationCount: 2, hiddenListingCount: 0, createdAt: seededAt,
+      updatedAt: seededAt, completedAt: seededAt,
+    }],
+  });
+  await page.reload();
+  await page.goto('#/dashboard');
+  await expect(page.getByRole('heading', { name: '申訴停權' })).toBeVisible();
+  await expectEditable(page.getByLabel('申訴說明'));
+  await expect(page.getByLabel('申訴證據')).toBeEnabled();
+  await expect(page.getByRole('button', { name: '提交申訴' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+});
+
 test('mobile held section and republish confirmation remain reachable', async ({ page }) => {
   const seller = await signInMobile(page, 'held-seller');
   const actionId = '1'.repeat(64);

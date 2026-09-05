@@ -637,6 +637,21 @@ export async function readModerationStorageObjectAsUser(
   return responseResult(response);
 }
 
+export async function readAppealStorageObjectAsUser(
+  idToken: string,
+  path: string,
+): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!/^account-appeal-evidence\/[^/]{1,128}\/[A-Za-z0-9_-]{1,200}\/[0-9a-f-]{36}\/[0-2]$/iu.test(path)) {
+    throw new Error('Unsafe account appeal evidence read path.');
+  }
+  const response = await fetch(
+    `http://${process.env.FIREBASE_STORAGE_EMULATOR_HOST}/v0/b/${encodeURIComponent(E2E_BUCKET)}/o/${encodeURIComponent(path)}?alt=media`,
+    { headers: { authorization: `Bearer ${idToken}` } },
+  );
+  return responseResult(response);
+}
+
 export interface EmulatorHttpResult {
   status: number;
   body: unknown;
