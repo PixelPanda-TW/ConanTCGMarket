@@ -9,8 +9,12 @@ import { PageShell } from '../../components/PageShell';
 import { FieldError, FieldLabel } from '../../components/forms/FormField';
 import {
   decideModerationCase,
+  createAccountModerationRequestId,
   getModerationCase,
   getModerationEvidence,
+  restoreModerationTarget,
+  suspendModerationTarget,
+  type AccountModerationOperationResult,
   type DecideModerationCaseInput,
   type ModerationEvidenceData,
 } from '../../data/firestore/repositories';
@@ -24,12 +28,15 @@ import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 import { useAuth } from '../auth/AuthProvider';
 import { createModerationEvidenceUrl, type ModerationEvidenceUrl } from './moderationEvidence';
 import { validateModerationDecisionForm } from './moderationDecisionForm';
+import { validateAccountModerationForm } from './accountModerationForm';
 
 interface ModerationCasePageProps {
   id: string;
   loadCase?: (id: string) => Promise<ModerationCaseDetail>;
   loadEvidence?: (input: { reportId: string; slot: 0 | 1 | 2 }) => Promise<ModerationEvidenceData>;
   decideCase?: (input: DecideModerationCaseInput) => Promise<ModerationDecisionResult>;
+  suspendAccount?: typeof suspendModerationTarget;
+  restoreAccount?: typeof restoreModerationTarget;
 }
 
 interface EvidenceView {
@@ -54,11 +61,31 @@ function decisionHeading(decision: ModerationDecision): string {
   return decision === 'dismissed' ? '駁回檢舉' : '確認違規';
 }
 
+type AccountAction = 'suspend' | 'restore';
+
+function auditLabel(type: ModerationCaseDetail['accountModeration']['history'][number]['type']) {
+  if (type === 'suspension_requested') return '提出停權';
+  if (type === 'suspension_completed') return '停權完成';
+  if (type === 'restored') return '恢復帳號';
+  return '重新上架商品';
+}
+
+function auditDetail(event: ModerationCaseDetail['accountModeration']['history'][number]) {
+  if (event.type === 'suspension_requested') {
+    return `理由：${event.reason} · 當時累計 ${event.confirmedViolationCount} 次違規`;
+  }
+  if (event.type === 'suspension_completed') return `隱藏 ${event.hiddenListingCount} 筆商品`;
+  if (event.type === 'restored') return `理由：${event.reason}`;
+  return `商品 ${event.listingId}`;
+}
+
 export function ModerationCasePage({
   id,
   loadCase = getModerationCase,
   loadEvidence = getModerationEvidence,
   decideCase = decideModerationCase,
+  suspendAccount = suspendModerationTarget,
+  restoreAccount = restoreModerationTarget,
 }: ModerationCasePageProps) {
   const { accountAccessState, adminAccessState, signIn, user } = useAuth();
   const [detail, setDetail] = useState<ModerationCaseDetail | null>(null);
@@ -76,9 +103,18 @@ export function ModerationCasePage({
   const [decisionPending, setDecisionPending] = useState(false);
   const [decisionResult, setDecisionResult] = useState<ModerationDecisionResult | null>(null);
   const [terminalReloadError, setTerminalReloadError] = useState(false);
+  const [accountAction, setAccountAction] = useState<AccountAction | null>(null);
+  const [accountReason, setAccountReason] = useState('');
+  const [accountReasonError, setAccountReasonError] = useState('');
+  const [accountActionError, setAccountActionError] = useState('');
+  const [accountPending, setAccountPending] = useState(false);
+  const [accountFeedback, setAccountFeedback] = useState('');
+  const accountRequestIdRef = useRef<string | null>(null);
   const scopeRef = useRef(0);
   const decisionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const rationaleRef = useRef<HTMLTextAreaElement | null>(null);
+  const accountReasonRef = useRef<HTMLTextAreaElement | null>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const isAdmin = adminAccessState.state === 'admin';
 
@@ -98,6 +134,13 @@ export function ModerationCasePage({
     setEvidenceError(null);
     setDecision(null);
     setDecisionResult(null);
+    setAccountAction(null);
+    setAccountFeedback('');
+    setAccountPending(false);
+    setAccountReason('');
+    setAccountReasonError('');
+    setAccountActionError('');
+    accountRequestIdRef.current = null;
     setTerminalReloadError(false);
     if (!isAdmin) {
       setDetail(null);
@@ -129,6 +172,10 @@ export function ModerationCasePage({
     if (decision) rationaleRef.current?.focus();
   }, [decision]);
 
+  useEffect(() => {
+    if (accountAction) accountReasonRef.current?.focus();
+  }, [accountAction]);
+
   function openDecision(nextDecision: ModerationDecision, trigger: HTMLButtonElement) {
     decisionTriggerRef.current = trigger;
     setDecision(nextDecision);
@@ -156,6 +203,44 @@ export function ModerationCasePage({
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function openAccountAction(action: AccountAction, trigger: HTMLButtonElement) {
+    accountTriggerRef.current = trigger;
+    accountRequestIdRef.current = createAccountModerationRequestId();
+    setAccountAction(action);
+    setAccountReason('');
+    setAccountReasonError('');
+    setAccountActionError('');
+  }
+
+  function closeAccountAction() {
+    if (accountPending) return;
+    setAccountAction(null);
+    setAccountActionError('');
+    accountRequestIdRef.current = null;
+    requestAnimationFrame(() => accountTriggerRef.current?.focus());
+  }
+
+  function handleAccountDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      closeAccountAction();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), textarea:not(:disabled)',
+    ) ?? []);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
@@ -213,6 +298,49 @@ export function ModerationCasePage({
     }
   }
 
+  async function submitAccountAction(event: FormEvent) {
+    event.preventDefault();
+    if (!accountAction || accountPending || !detail || !user || !accountRequestIdRef.current) return;
+    const checked = validateAccountModerationForm({ action: accountAction, reason: accountReason });
+    setAccountReason(checked.values.reason);
+    setAccountReasonError(checked.errors.reason ?? '');
+    if (checked.errors.reason) return;
+    const scope = scopeRef.current;
+    setAccountPending(true);
+    setAccountActionError('');
+    try {
+      let result: AccountModerationOperationResult;
+      if (accountAction === 'suspend') {
+        result = await suspendAccount({
+          reportId: id, requestId: accountRequestIdRef.current, reason: checked.values.reason,
+        });
+      } else {
+        const operation = detail.accountModeration.operation;
+        if (!operation || operation.status !== 'suspended') return;
+        result = await restoreAccount({
+          reportId: id,
+          suspensionActionId: operation.actionId,
+          requestId: accountRequestIdRef.current,
+          reason: checked.values.reason,
+        });
+      }
+      if (scopeRef.current !== scope) return;
+      setAccountFeedback(result.status === 'restored' ? '帳號已恢復。' : '停權請求已送出。');
+      setAccountAction(null);
+      accountRequestIdRef.current = null;
+      try {
+        const refreshed = await loadCase(id);
+        if (scopeRef.current === scope) setDetail(refreshed);
+      } catch {
+        if (scopeRef.current === scope) setTerminalReloadError(true);
+      }
+    } catch {
+      if (scopeRef.current === scope) setAccountActionError('無法完成帳號操作，請稍後再試。');
+    } finally {
+      if (scopeRef.current === scope) setAccountPending(false);
+    }
+  }
+
   let content;
   if (!user) {
     content = <div className="profile-state"><p>請先使用 Google 登入，才能查看檢舉案件。</p><button type="button" onClick={signIn}>使用 Google 登入</button></div>;
@@ -233,6 +361,16 @@ export function ModerationCasePage({
   } else {
     const listing = detail.listingSnapshot;
     const decisionLocked = decisionResult !== null;
+    const operation = detail.accountModeration.operation;
+    const canSuspend = detail.status === 'confirmed'
+      && detail.account.status === 'active'
+      && detail.account.suspensionEligible
+      && detail.targetSellerId !== user.uid;
+    const canRestore = detail.status === 'confirmed'
+      && detail.account.status === 'suspended'
+      && operation?.status === 'suspended'
+      && operation.sourceReportId === detail.reportId
+      && detail.targetSellerId !== user.uid;
     content = (
       <div className="moderation-case-content">
         {decisionResult && (
@@ -243,6 +381,7 @@ export function ModerationCasePage({
           </p>
         )}
         {terminalReloadError && <p role="alert">裁決已完成，但目前無法重新載入案件終態。</p>}
+        {accountFeedback && <p className="moderation-decision-feedback" role="status">{accountFeedback}</p>}
         <section className="moderation-case-panel" aria-labelledby="moderation-report-heading">
           <h2 id="moderation-report-heading">檢舉內容</h2>
           <dl className="moderation-case-meta">
@@ -265,10 +404,37 @@ export function ModerationCasePage({
         <section className="moderation-case-panel" aria-labelledby="moderation-account-heading">
           <h2 id="moderation-account-heading">帳號狀態</h2>
           <p>{detail.account.status === 'suspended' ? '已停權' : '使用中'} · 累計 {detail.account.confirmedViolationCount} 次確認違規</p>
-          {detail.account.suspensionEligible && (
-            <p className="moderation-eligibility">此帳號符合人工停權條件；停權操作將在後續批次提供。</p>
+          {detail.account.status === 'suspended' && (
+            <p>停權理由：{detail.account.suspensionReason} · {detail.account.suspendedAt.toLocaleString('zh-TW')}</p>
           )}
+          {operation?.status === 'hiding' && (
+            <p className="moderation-eligibility">停權處理中，已隱藏 {operation.hiddenListingCount} 筆商品。</p>
+          )}
+          {operation?.status === 'suspended' && (
+            <p className="moderation-eligibility">停權完成，共隱藏 {operation.hiddenListingCount} 筆商品。</p>
+          )}
+          {operation?.status === 'restored' && (
+            <p className="moderation-eligibility">帳號已恢復；先前隱藏的商品不會自動重新上架。</p>
+          )}
+          <div className="moderation-account-actions">
+            {canSuspend && <button type="button" className="danger-button" onClick={(event) => openAccountAction('suspend', event.currentTarget)}>停權帳號</button>}
+            {canRestore && <button type="button" onClick={(event) => openAccountAction('restore', event.currentTarget)}>恢復帳號</button>}
+          </div>
         </section>
+        {detail.accountModeration.history.length > 0 && (
+          <section className="moderation-case-panel" aria-labelledby="moderation-account-history-heading">
+            <h2 id="moderation-account-history-heading">帳號管理歷史</h2>
+            <ol className="moderation-account-history" aria-label="帳號管理歷史">
+              {detail.accountModeration.history.map((event) => (
+                <li key={event.eventId}>
+                  <strong>{auditLabel(event.type)}</strong>
+                  <span>{event.at.toLocaleString('zh-TW')} · 執行者 {event.actorUid}</span>
+                  <span>{auditDetail(event)}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
         <section className="moderation-case-panel" aria-labelledby="moderation-evidence-heading">
           <h2 id="moderation-evidence-heading">證據</h2>
           {detail.evidence.length === 0 ? <p>未附證據。</p> : (
@@ -342,6 +508,47 @@ export function ModerationCasePage({
                 <button type="submit" className={decision === 'confirmed' ? 'danger-button' : ''} disabled={decisionPending}>
                   {decisionPending ? '處理中' : decision === 'dismissed' ? '確認駁回' : '確認違規裁決'}
                 </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+      {accountAction && (
+        <div className="admin-card-dialog-backdrop">
+          <section
+            ref={dialogRef}
+            className="modal admin-card-dialog moderation-decision-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="account-moderation-dialog-heading"
+            onKeyDown={handleAccountDialogKeyDown}
+          >
+            <h2 id="account-moderation-dialog-heading">
+              {accountAction === 'suspend' ? '停權帳號' : '恢復帳號'}
+            </h2>
+            <p>{accountAction === 'suspend'
+              ? '帳號會立即停止新增或修改商品，現有上架商品將分批隱藏。'
+              : '恢復帳號不會自動重新上架先前隱藏的商品。'}</p>
+            <form className="profile-form" noValidate onSubmit={submitAccountAction}>
+              <label htmlFor="account-moderation-reason"><FieldLabel required>處理理由</FieldLabel></label>
+              <textarea
+                ref={accountReasonRef}
+                id="account-moderation-reason"
+                value={accountReason}
+                maxLength={1000}
+                disabled={accountPending}
+                aria-invalid={Boolean(accountReasonError)}
+                onChange={(event) => setAccountReason(event.target.value)}
+              />
+              <FieldError message={accountReasonError} />
+              {accountActionError && <p role="alert">{accountActionError}</p>}
+              <div className="admin-card-dialog-actions">
+                <button type="button" disabled={accountPending} onClick={closeAccountAction}>取消</button>
+                <button
+                  type="submit"
+                  className={accountAction === 'suspend' ? 'danger-button' : ''}
+                  disabled={accountPending}
+                >{accountPending ? '處理中' : accountAction === 'suspend' ? '確認停權' : '確認恢復'}</button>
               </div>
             </form>
           </section>

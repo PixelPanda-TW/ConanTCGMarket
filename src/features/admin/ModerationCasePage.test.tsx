@@ -9,6 +9,9 @@ import type {
   ModerationDecisionResult,
 } from '../../domain/models';
 import type { ModerationEvidenceData } from '../../data/firestore/repositories';
+import type {
+  AccountModerationOperationResult,
+} from '../../data/firestore/repositories';
 
 const auth = vi.hoisted(() => ({ current: {} as AuthState }));
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => auth.current }));
@@ -55,6 +58,12 @@ function dependencies(overrides: Record<string, unknown> = {}) {
       reportId: 'report-2', status: 'confirmed',
       resultingConfirmedViolationCount: 2, suspensionEligible: true,
     })),
+    suspendAccount: vi.fn(async (): Promise<AccountModerationOperationResult> => ({
+      actionId: 'a'.repeat(64), status: 'hiding', targetUid: 'seller-1', hiddenListingCount: 0,
+    })),
+    restoreAccount: vi.fn(async (): Promise<AccountModerationOperationResult> => ({
+      actionId: 'a'.repeat(64), status: 'restored', targetUid: 'seller-1', hiddenListingCount: 3,
+    })),
     ...overrides,
   };
 }
@@ -88,6 +97,8 @@ describe('ModerationCasePage', () => {
     expect(deps.loadCase).not.toHaveBeenCalled();
     expect(deps.loadEvidence).not.toHaveBeenCalled();
     expect(deps.decideCase).not.toHaveBeenCalled();
+    expect(deps.suspendAccount).not.toHaveBeenCalled();
+    expect(deps.restoreAccount).not.toHaveBeenCalled();
   });
 
   it('renders exact report, listing, account data, and zero evidence controls', async () => {
@@ -218,8 +229,7 @@ describe('ModerationCasePage', () => {
     expect(await screen.findByText('證據與刊登內容不符')).toBeTruthy();
     expect(loadCase).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: '確認違規' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /停權/u })).toBeNull();
-    expect(screen.getByText('此帳號符合人工停權條件；停權操作將在後續批次提供。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '停權帳號' })).toBeTruthy();
   });
 
   it('keeps open controls after a sanitized decision failure', async () => {
@@ -231,6 +241,149 @@ describe('ModerationCasePage', () => {
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(document.body.textContent).not.toContain('private transaction');
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('shows suspension only for an eligible confirmed non-self target', async () => {
+    const first = render(<ModerationCasePage
+      id="report-2"
+      {...dependencies({ loadCase: vi.fn(async () => confirmedDetail) })}
+    />);
+    expect(await screen.findByRole('button', { name: '停權帳號' })).toBeTruthy();
+    first.unmount();
+    auth.current = state({ user: { uid: 'seller-1', displayName: 'Self', photoURL: null } });
+    render(<ModerationCasePage
+      id="report-2"
+      {...dependencies({ loadCase: vi.fn(async () => confirmedDetail) })}
+    />);
+    expect(await screen.findByText('已確認違規')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '停權帳號' })).toBeNull();
+  });
+
+  it('traps account-dialog focus, closes with Escape, and restores the trigger', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValue('550e8400-e29b-41d4-a716-446655440000');
+    render(<ModerationCasePage
+      id="report-2"
+      {...dependencies({ loadCase: vi.fn(async () => confirmedDetail) })}
+    />);
+    const trigger = await screen.findByRole('button', { name: '停權帳號' });
+    trigger.focus();
+    await userEvent.click(trigger);
+    expect(screen.getByLabelText(/處理理由/u)).toBe(document.activeElement);
+    await userEvent.tab({ shift: true });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '確認停權' }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: '停權帳號' })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('keeps the suspension request ID stable across a sanitized retry and reloads durable progress', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValue('550e8400-e29b-41d4-a716-446655440000');
+    const actionId = 'a'.repeat(64);
+    const hiding: ModerationCaseDetail = {
+      ...confirmedDetail,
+      account: {
+        status: 'suspended', confirmedViolationCount: 2, suspensionEligible: true,
+        suspensionReason: '重複違規', suspendedAt: new Date('2026-09-04T06:00:00Z'),
+        suspendedBy: 'admin-1', suspensionActionId: actionId,
+      },
+      accountModeration: {
+        operation: {
+          actionId, status: 'hiding', targetUid: 'seller-1', sourceReportId: 'report-2',
+          requestedBy: 'admin-1', reason: '重複違規', confirmedViolationCount: 2,
+          hiddenListingCount: 100, createdAt: new Date('2026-09-04T06:00:00Z'),
+          updatedAt: new Date('2026-09-04T06:01:00Z'),
+        },
+        history: [{
+          eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+          suspensionActionId: actionId, sourceReportId: 'report-2', actorUid: 'admin-1',
+          at: new Date('2026-09-04T06:00:00Z'), reason: '重複違規',
+          confirmedViolationCount: 2,
+        }],
+      },
+    };
+    const loadCase = vi.fn().mockResolvedValueOnce(confirmedDetail).mockResolvedValueOnce(hiding);
+    const suspendAccount = vi.fn()
+      .mockRejectedValueOnce(new Error('private transaction'))
+      .mockResolvedValueOnce({
+        actionId, status: 'hiding', targetUid: 'seller-1', hiddenListingCount: 100,
+      });
+    render(<ModerationCasePage
+      id="report-2"
+      {...dependencies({ loadCase, suspendAccount })}
+    />);
+    const trigger = await screen.findByRole('button', { name: '停權帳號' });
+    trigger.focus();
+    await userEvent.click(trigger);
+    expect(screen.getByRole('dialog', { name: '停權帳號' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: '確認停權' }));
+    expect(await screen.findByText('請填寫處理理由。')).toBeTruthy();
+    await userEvent.type(screen.getByLabelText(/處理理由/u), '重複違規');
+    await userEvent.click(screen.getByRole('button', { name: '確認停權' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('無法完成帳號操作');
+    expect(document.body.textContent).not.toContain('private transaction');
+    await userEvent.click(screen.getByRole('button', { name: '確認停權' }));
+    expect(await screen.findByText('停權處理中，已隱藏 100 筆商品。')).toBeTruthy();
+    expect(suspendAccount).toHaveBeenCalledTimes(2);
+    expect(suspendAccount.mock.calls[0][0]).toEqual(suspendAccount.mock.calls[1][0]);
+    expect(suspendAccount).toHaveBeenCalledWith({
+      reportId: 'report-2', requestId: '550e8400-e29b-41d4-a716-446655440000',
+      reason: '重複違規',
+    });
+    expect(loadCase).toHaveBeenCalledTimes(2);
+  });
+
+  it('restores only a completed current suspension and renders newest-first audit history', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValue('550e8400-e29b-41d4-a716-446655440000');
+    const actionId = 'a'.repeat(64);
+    const suspended: ModerationCaseDetail = {
+      ...confirmedDetail,
+      account: {
+        status: 'suspended', confirmedViolationCount: 2, suspensionEligible: true,
+        suspensionReason: '重複違規', suspendedAt: new Date('2026-09-04T06:00:00Z'),
+        suspendedBy: 'admin-1', suspensionActionId: actionId,
+      },
+      accountModeration: {
+        operation: {
+          actionId, status: 'suspended', targetUid: 'seller-1', sourceReportId: 'report-2',
+          requestedBy: 'admin-1', reason: '重複違規', confirmedViolationCount: 2,
+          hiddenListingCount: 3, createdAt: new Date('2026-09-04T06:00:00Z'),
+          completedAt: new Date('2026-09-04T06:01:00Z'),
+          updatedAt: new Date('2026-09-04T06:01:00Z'),
+        },
+        history: [{
+          eventId: 'event-2', type: 'suspension_completed', targetUid: 'seller-1',
+          suspensionActionId: actionId, sourceReportId: 'report-2', actorUid: 'admin-1',
+          at: new Date('2026-09-04T06:01:00Z'), hiddenListingCount: 3,
+        }, {
+          eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+          suspensionActionId: actionId, sourceReportId: 'report-2', actorUid: 'admin-1',
+          at: new Date('2026-09-04T06:00:00Z'), reason: '重複違規',
+          confirmedViolationCount: 2,
+        }],
+      },
+    };
+    const restored: ModerationCaseDetail = {
+      ...confirmedDetail,
+      accountModeration: { operation: null, history: [] },
+    };
+    const loadCase = vi.fn().mockResolvedValueOnce(suspended).mockResolvedValueOnce(restored);
+    const deps = dependencies({ loadCase });
+    render(<ModerationCasePage id="report-2" {...deps} />);
+    expect(await screen.findByText('停權完成，共隱藏 3 筆商品。')).toBeTruthy();
+    const history = screen.getByRole('list', { name: '帳號管理歷史' });
+    expect(history.textContent).toContain('停權完成');
+    expect(history.textContent).toContain('提出停權');
+    await userEvent.click(screen.getByRole('button', { name: '恢復帳號' }));
+    await userEvent.type(screen.getByLabelText(/處理理由/u), '申訴成立');
+    await userEvent.click(screen.getByRole('button', { name: '確認恢復' }));
+    expect(deps.restoreAccount).toHaveBeenCalledWith({
+      reportId: 'report-2', suspensionActionId: actionId,
+      requestId: '550e8400-e29b-41d4-a716-446655440000', reason: '申訴成立',
+    });
+    await waitFor(() => expect(loadCase).toHaveBeenCalledTimes(2));
   });
 
   it('ignores stale detail and evidence results after route or identity changes', async () => {

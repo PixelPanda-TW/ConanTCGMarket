@@ -887,7 +887,8 @@ h1 {
 .moderation-case-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 
 .moderation-evidence-controls,
-.moderation-decision-actions {
+.moderation-decision-actions,
+.moderation-account-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -914,6 +915,22 @@ h1 {
 .moderation-decision-dialog form { display: grid; gap: 12px; }
 .moderation-decision-dialog textarea { width: 100%; min-height: 130px; }
 
+.moderation-account-history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.moderation-account-history li { padding-left: 4px; }
+.moderation-account-history strong,
+.moderation-account-history span { display: block; }
+.moderation-account-history span {
+  margin-top: 2px;
+  color: hsl(var(--muted-foreground));
+  font-size: .875rem;
+}
+
 .moderation-case-page button { min-height: 44px; }
 .moderation-case-page button:focus-visible,
 .moderation-case-page a:focus-visible,
@@ -929,7 +946,11 @@ h1 {
   .moderation-case-back,
   .moderation-evidence-controls,
   .moderation-evidence-controls button,
-  .moderation-decision-actions button {
+  .moderation-decision-actions button,
+  .moderation-account-actions,
+  .moderation-account-actions button,
+  .moderation-decision-dialog .admin-card-dialog-actions,
+  .moderation-decision-dialog .admin-card-dialog-actions button {
     width: 100%;
   }
 }
