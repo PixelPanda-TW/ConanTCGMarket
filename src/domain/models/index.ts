@@ -7,3 +7,4 @@ export * from './accountAccess';
 export * from './cardMasterArchive';
 export * from './moderationReport';
 export * from './moderationCase';
+export * from './accountModeration';

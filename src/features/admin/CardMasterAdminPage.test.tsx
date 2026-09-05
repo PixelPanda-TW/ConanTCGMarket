@@ -78,6 +78,7 @@ describe('CardMasterAdminPage', () => {
       accountAccessState: { state: 'suspended', access: {
         uid: 'admin-1', status: 'suspended', confirmedViolationCount: 1,
         suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-2', updatedAt: new Date(),
+        suspensionActionId: 'action-1',
       } },
     }), '帳號目前已停權'],
   ])('renders the protected %s state without loading data', async (_name, authState, text) => {

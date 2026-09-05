@@ -53,6 +53,7 @@ describe('AuthStatus', () => {
         access: {
           uid: 'buyer-1', status: 'suspended', confirmedViolationCount: 1,
           suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+          suspensionActionId: 'action-1',
           updatedAt: new Date(),
         },
       },

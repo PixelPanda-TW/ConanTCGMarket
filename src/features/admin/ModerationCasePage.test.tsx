@@ -76,6 +76,7 @@ describe('ModerationCasePage', () => {
       accountAccessState: { state: 'suspended', access: {
         uid: 'admin-1', status: 'suspended', confirmedViolationCount: 1,
         suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-2', updatedAt: new Date(),
+        suspensionActionId: 'action-1',
       } },
     }), '帳號目前已停權'],
   ])('blocks protected %s state before every private operation', async (_label, authState, text) => {

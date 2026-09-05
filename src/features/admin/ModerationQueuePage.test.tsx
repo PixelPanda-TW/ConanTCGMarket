@@ -58,6 +58,7 @@ describe('ModerationQueuePage', () => {
       accountAccessState: { state: 'suspended', access: {
         uid: 'admin-1', status: 'suspended', confirmedViolationCount: 1,
         suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-2',
+        suspensionActionId: 'action-1',
         updatedAt: new Date(),
       } },
     }), '帳號目前已停權'],

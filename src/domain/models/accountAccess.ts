@@ -11,6 +11,7 @@ export interface ActiveAccountAccess extends AccountAccessBase {
   suspensionReason?: never;
   suspendedAt?: never;
   suspendedBy?: never;
+  suspensionActionId?: never;
 }
 
 export interface SuspendedAccountAccess extends AccountAccessBase {
@@ -18,6 +19,7 @@ export interface SuspendedAccountAccess extends AccountAccessBase {
   suspensionReason: string;
   suspendedAt: Date;
   suspendedBy: string;
+  suspensionActionId: string;
 }
 
 export type AccountAccess = ActiveAccountAccess | SuspendedAccountAccess;
@@ -58,10 +60,23 @@ export function validateAccountAccess(value: unknown): asserts value is AccountA
   if (access.status === 'active') {
     if (access.suspensionReason !== undefined
       || access.suspendedAt !== undefined
-      || access.suspendedBy !== undefined) {
+      || access.suspendedBy !== undefined
+      || access.suspensionActionId !== undefined) {
       throw new Error('Active account access records must omit suspension fields.');
     }
+    if (Object.keys(access).length !== 4) {
+      throw new Error('Active account access records require exact fields.');
+    }
     return;
+  }
+
+  const suspendedFields = [
+    'uid', 'status', 'confirmedViolationCount', 'updatedAt', 'suspensionReason',
+    'suspendedAt', 'suspendedBy', 'suspensionActionId',
+  ];
+  if (Object.keys(access).length !== suspendedFields.length
+    || !suspendedFields.every((field) => field in access)) {
+    throw new Error('Suspended account access records require exact fields.');
   }
 
   if (typeof access.suspensionReason !== 'string'
@@ -74,4 +89,5 @@ export function validateAccountAccess(value: unknown): asserts value is AccountA
   }
   validateDate(access.suspendedAt, 'suspendedAt');
   validateIdentifier(access.suspendedBy, 'suspendedBy');
+  validateIdentifier(access.suspensionActionId, 'suspensionActionId');
 }

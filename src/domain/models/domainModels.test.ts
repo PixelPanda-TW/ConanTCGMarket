@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   validateAccountAccess,
+  validateAccountModerationAuditEvent,
+  validateAccountModerationOperationSummary,
   validateCard,
   validateCardMasterArchive,
   validateListing,
@@ -18,6 +20,8 @@ import {
   type Card,
   type CardMasterArchive,
   type AccountAccess,
+  type AccountModerationAuditEvent,
+  type AccountModerationOperationSummary,
   type Listing,
   type ModerationCaseDetail,
   type ModerationCasePage,
@@ -47,6 +51,72 @@ describe('domain model validation', () => {
     cardName: '諸伏高明', cardId: '0501', rarity: 'D', listingPrice: 500,
     createdAt: new Date('2026-09-01T00:00:00.000Z'),
   };
+
+  it('accepts exact account moderation operation summaries and audit variants', () => {
+    const operation: AccountModerationOperationSummary = {
+      actionId: 'action-1', status: 'suspended', targetUid: 'seller-1',
+      sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '重複違規',
+      confirmedViolationCount: 2, hiddenListingCount: 3,
+      createdAt: new Date('2026-09-05T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-05T00:01:00.000Z'),
+      completedAt: new Date('2026-09-05T00:01:00.000Z'),
+    };
+    expect(() => validateAccountModerationOperationSummary(operation)).not.toThrow();
+
+    const common = {
+      targetUid: 'seller-1', suspensionActionId: 'action-1',
+      sourceReportId: 'report-1', actorUid: 'admin-1',
+      at: new Date('2026-09-05T00:00:00.000Z'),
+    };
+    const events: AccountModerationAuditEvent[] = [
+      {
+        ...common, eventId: 'event-requested', type: 'suspension_requested',
+        reason: '重複違規', confirmedViolationCount: 2,
+      },
+      {
+        ...common, eventId: 'event-completed', type: 'suspension_completed',
+        hiddenListingCount: 3,
+      },
+      {
+        ...common, eventId: 'event-restored', type: 'restored', reason: '申訴確認',
+      },
+      {
+        ...common, eventId: 'event-republished', type: 'listing_republished',
+        actorUid: 'seller-1', listingId: 'listing-1',
+      },
+    ];
+    for (const event of events) {
+      expect(() => validateAccountModerationAuditEvent(event)).not.toThrow();
+    }
+  });
+
+  it.each([
+    ['operation request key', { requestKey: 'private' }],
+    ['operation missing completion', { completedAt: undefined }],
+    ['operation padded reason', { reason: ' 原因' }],
+    ['operation invalid count', { hiddenListingCount: -1 }],
+  ])('rejects malformed account moderation operation: %s', (_label, override) => {
+    expect(() => validateAccountModerationOperationSummary({
+      actionId: 'action-1', status: 'suspended', targetUid: 'seller-1',
+      sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '原因',
+      confirmedViolationCount: 2, hiddenListingCount: 1,
+      createdAt: new Date(), updatedAt: new Date(), completedAt: new Date(),
+      ...override,
+    })).toThrow();
+  });
+
+  it.each([
+    ['private email', { email: 'private@example.test' }],
+    ['private contact', { contactValue: 'private' }],
+    ['report body', { description: 'private report' }],
+    ['evidence', { evidence: [] }],
+  ])('rejects private or extra account audit data: %s', (_label, extra) => {
+    expect(() => validateAccountModerationAuditEvent({
+      eventId: 'event-1', type: 'restored', targetUid: 'seller-1',
+      suspensionActionId: 'action-1', sourceReportId: 'report-1',
+      actorUid: 'admin-1', reason: '恢復原因', at: new Date(), ...extra,
+    })).toThrow('exact fields');
+  });
 
   it('accepts exact open, dismissed, and confirmed moderation summaries', () => {
     const page: ModerationCasePage = {
@@ -186,6 +256,7 @@ describe('domain model validation', () => {
       suspensionReason: 'Repeated marketplace policy violations.',
       suspendedAt: new Date('2026-09-02T00:00:00.000Z'),
       suspendedBy: 'admin-1',
+      suspensionActionId: 'action-1',
     })).not.toThrow();
   });
 
@@ -208,10 +279,11 @@ describe('domain model validation', () => {
 
   it.each([
     {},
-    { suspensionReason: '', suspendedAt: new Date(), suspendedBy: 'admin-1' },
-    { suspensionReason: ' reason', suspendedAt: new Date(), suspendedBy: 'admin-1' },
-    { suspensionReason: 'Reason', suspendedBy: 'admin-1' },
-    { suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: '' },
+    { suspensionReason: '', suspendedAt: new Date(), suspendedBy: 'admin-1', suspensionActionId: 'action-1' },
+    { suspensionReason: ' reason', suspendedAt: new Date(), suspendedBy: 'admin-1', suspensionActionId: 'action-1' },
+    { suspensionReason: 'Reason', suspendedBy: 'admin-1', suspensionActionId: 'action-1' },
+    { suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: '', suspensionActionId: 'action-1' },
+    { suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1' },
   ])('rejects incomplete or noncanonical suspended account fields %#', (fields) => {
     expect(() => validateAccountAccess({
       ...activeAccount,
@@ -231,6 +303,7 @@ describe('domain model validation', () => {
       suspensionReason: 'x'.repeat(1001),
       suspendedAt: new Date(),
       suspendedBy: 'admin-1',
+      suspensionActionId: 'action-1',
     })).toThrow('1 to 1000');
     expect(() => validateAccountAccess({
       ...activeAccount,
@@ -238,6 +311,7 @@ describe('domain model validation', () => {
       suspensionReason: 'Reason',
       suspendedAt: new Date(),
       suspendedBy: 'x'.repeat(129),
+      suspensionActionId: 'action-1',
     })).toThrow('1 to 128');
   });
 

@@ -61,6 +61,7 @@ const suspendedAccountAccessFields = [
   'suspensionReason',
   'suspendedAt',
   'suspendedBy',
+  'suspensionActionId',
 ] as const;
 
 function hasExactAccountAccessFields(data: FirestoreData): boolean {
@@ -86,6 +87,7 @@ export const accountAccessConverter: FirestoreDataConverter<AccountAccess> = {
       data.suspensionReason = access.suspensionReason;
       data.suspendedAt = dateToTimestamp(access.suspendedAt);
       data.suspendedBy = access.suspendedBy;
+      data.suspensionActionId = access.suspensionActionId;
     }
     return data;
   },
@@ -107,6 +109,7 @@ export const accountAccessConverter: FirestoreDataConverter<AccountAccess> = {
           suspensionReason: data.suspensionReason as string,
           suspendedAt: timestampToDate(data.suspendedAt, 'suspendedAt'),
           suspendedBy: data.suspendedBy as string,
+          suspensionActionId: data.suspensionActionId as string,
         }
       : { ...common, status: 'active' };
     validateAccountAccess(access);

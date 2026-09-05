@@ -36,11 +36,12 @@ describe('Firestore converters', () => {
       id: 'seller-1',
       data: () => ({
         status: 'suspended', confirmedViolationCount: 2, suspensionReason: 'Reason',
-        suspendedAt, suspendedBy: 'admin-1', updatedAt,
+        suspendedAt, suspendedBy: 'admin-1', suspensionActionId: 'action-1', updatedAt,
       }),
     } as never)).toEqual({
       uid: 'seller-1', status: 'suspended', confirmedViolationCount: 2,
       suspensionReason: 'Reason', suspendedAt: suspendedAt.toDate(), suspendedBy: 'admin-1',
+      suspensionActionId: 'action-1',
       updatedAt: updatedAt.toDate(),
     });
   });
@@ -49,14 +50,20 @@ describe('Firestore converters', () => {
     expect(accountAccessConverter.toFirestore({
       uid: 'seller-1', status: 'suspended', confirmedViolationCount: 2,
       suspensionReason: 'Reason', suspendedAt: new Date('2026-09-02T00:00:00.000Z'),
-      suspendedBy: 'admin-1', updatedAt: new Date('2026-09-03T00:00:00.000Z'),
-      unknown: 'ignored',
-    } as never)).toEqual({
+      suspendedBy: 'admin-1', suspensionActionId: 'action-1',
+      updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+    })).toEqual({
       status: 'suspended', confirmedViolationCount: 2, suspensionReason: 'Reason',
       suspendedAt: Timestamp.fromDate(new Date('2026-09-02T00:00:00.000Z')),
       suspendedBy: 'admin-1',
+      suspensionActionId: 'action-1',
       updatedAt: Timestamp.fromDate(new Date('2026-09-03T00:00:00.000Z')),
     });
+    expect(() => accountAccessConverter.toFirestore({
+      uid: 'seller-1', status: 'suspended', confirmedViolationCount: 2,
+      suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+      suspensionActionId: 'action-1', updatedAt: new Date(), unknown: 'private',
+    } as never)).toThrow('exact fields');
   });
 
   it.each([

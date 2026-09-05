@@ -15,6 +15,7 @@ describe('AccountAccessNotice', () => {
         suspensionReason: '<img src=x onerror=alert(1)>',
         suspendedAt: new Date('2026-09-02T00:00:00.000Z'),
         suspendedBy: 'admin-1', updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+        suspensionActionId: 'action-1',
       },
     }} />);
 

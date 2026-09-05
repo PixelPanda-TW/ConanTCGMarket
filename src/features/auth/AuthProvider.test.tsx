@@ -122,6 +122,7 @@ describe('AuthProvider', () => {
       uid: 'buyer-1', status: 'suspended', confirmedViolationCount: 1,
       suspensionReason: 'Reason', suspendedAt: new Date('2026-09-02T00:00:00.000Z'),
       suspendedBy: 'admin-1', updatedAt: new Date('2026-09-03T00:00:00.000Z'),
+      suspensionActionId: 'action-1',
     };
     render(<AuthProvider><Consumer /></AuthProvider>);
     act(() => onAuthValue?.({ uid: 'buyer-1', displayName: 'Buyer', photoURL: null }));
@@ -278,6 +279,7 @@ describe('AuthProvider', () => {
     act(() => accessObservers[0]?.onValue({
       uid: 'admin-1', status: 'suspended', confirmedViolationCount: 1,
       suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-2',
+      suspensionActionId: 'action-1',
       updatedAt: new Date(),
     }));
     expect(readState().adminAccessState).toEqual({ state: 'not-admin' });
