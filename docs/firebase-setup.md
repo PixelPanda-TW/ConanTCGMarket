@@ -381,6 +381,65 @@ case with every newly submitted report; never delete a case or decrement a
 count as rollback. Any production release, rollback, repair, evidence access,
 or data mutation requires separate explicit approval.
 
+## Account moderation operations and release
+
+Status: **repository-ready, not production-live**. This is a manual threshold policy:
+two confirmed violations make an account eligible, but only an active,
+exact-claim admin acting from the confirmed case can suspend it. There is no
+automatic suspension.
+
+Suspension is an **authenticated read-only suspension**. It does not disable Firebase Auth
+or revoke the Google session. The first transaction immediately
+blocks privileged buyer and seller actions, then opens one idempotent operation.
+The resumable Listing hiding process handles active Listings in bounded pages; the
+five-minute reconciler finishes interrupted `hiding` operations. Sold-out
+Listings, Sales, images, quantities, violation counts, and seller history do not
+change.
+
+Restoration reactivates only the account. Held Listings stay private until the
+owner performs a selective republish after reviewing each Listing. There is no
+bulk republish. `accountModerationOperations` and `accountModerationAuditLogs`
+are server-only; the admin detail receives an allowlisted projection of the
+private immutable audit. The browser cannot read or write either collection,
+even with an admin claim. This workflow sends **no moderation email** and needs
+**no migration** for existing active or sold-out Listings.
+
+### Acceptance and release gate
+
+The release must satisfy all ten account-moderation acceptance criteria in the
+integration guide. Run the complete Node.js 22 quality, scripts, Functions,
+build, Rules, Chromium, and iPhone WebKit gates locally. A separately approved
+production release has one fixed order: **Functions → indexes → Rules → frontend**.
+Wait for both account-moderation indexes and the five-minute schedule manifest
+before exposing admin actions. Approval of repository work does not authorize
+any stage of deployment.
+
+Verification is non-invasive. It may inspect deployed manifests and versions,
+index readiness, Rules version, schedule presence, frontend asset version, and
+aggregate sanitized metrics. It **must not read a production moderation record**,
+**must not suspend or restore a production account**, **must not hide or republish
+a production Listing**, and must not send email or mutate production data as a
+probe.
+
+In plain operational terms: verification must not suspend or restore a production account
+and must not hide or republish a production Listing.
+
+Monitor the age and count of `hiding` operations, remaining-active Listing
+counts, per-action hidden totals, completion latency, transaction conflicts,
+malformed-state failures, permission denials, restore/republish outcomes, and
+unexpected Marketplace volume changes. A stalled operation is fail-closed:
+retain the account block and operation, inspect sanitized errors, repair the
+incompatible record only with separate approval, and let the reconciler resume
+the exact action.
+
+Rollback removes the frontend actions first, keeps private Rules and the
+reconciler until every started hide completes, and prefers a compatible
+roll-forward. Rollback never deletes audit records, never decrements violation counts,
+and never bulk republishes Listings. It also preserves
+reports, cases, held Listings, Sales, and operation records. Any repair,
+account change, Listing publication, deployment, or rollback needs separate
+explicit approval.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

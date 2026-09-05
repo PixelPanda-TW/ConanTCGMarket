@@ -807,4 +807,36 @@ describe('notification Function deployment contract', () => {
       'Moderation review is repository-ready, not production-live',
     );
   });
+
+  it('documents account moderation safety, recovery, and release operations', async () => {
+    const [setupGuide, integrationGuide, milestones] = await Promise.all([
+      readFile(new URL('../../docs/firebase-setup.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/integration-testing.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/milestones.md', import.meta.url), 'utf8'),
+    ]);
+    for (const phrase of [
+      'manual threshold policy',
+      'authenticated read-only suspension',
+      'resumable Listing hiding',
+      'selective republish',
+      'private immutable audit',
+      'does not disable Firebase Auth',
+      'no moderation email',
+      'no migration',
+      'Functions → indexes → Rules → frontend',
+      'must not suspend or restore a production account',
+      'must not hide or republish a production Listing',
+      'never deletes audit records',
+      'never decrements violation counts',
+      'never bulk republishes Listings',
+      'repository-ready, not production-live',
+    ]) expect(setupGuide).toContain(phrase);
+    expect(integrationGuide).toContain('ten account-moderation acceptance criteria');
+    expect(integrationGuide).toContain(
+      'no production moderation read, suspension/restoration, Listing hide/republish, email, deployment, or data mutation',
+    );
+    expect(milestones).toContain(
+      'Account moderation is repository-ready, not production-live',
+    );
+  });
 });

@@ -337,6 +337,29 @@ data mutation remain separately authorized operations. Manual suspension and
 restoration, Listing hide/republish, audit events, and appeals remain deferred
 to later recovery batches.
 
+## Recovery Batch 10: Account Suspension and Restoration
+
+Status: **Account moderation is repository-ready, not production-live**. An
+active exact-claim admin can manually suspend an eligible non-self target from a
+confirmed case. The operation immediately blocks privileges, hides active
+Listings in bounded resumable pages, and records private immutable audit events.
+The suspended Google session remains authenticated so the seller can inspect a
+read-only Dashboard, sold history, and held Listings.
+
+Restoration preserves violation counts and every held Listing. A restored owner
+may review and selectively republish an individual Listing; nothing is bulk
+republished. Sold-out Listings, Sales, images, inventory, reports, cases, and
+existing Listing events are preserved. No Firebase Auth disablement, moderation
+email, automatic threshold action, or data migration is included.
+
+The required release order is **Functions → indexes → Rules → frontend** after
+separate approval and all local release gates. Repository completion does not
+authorize a production moderation read, suspension/restoration, Listing
+hide/republish, email, deployment, repair, rollback, or other data mutation.
+Monitoring and rollback must retain private Rules, the reconciler, operations,
+audits, cases, held Listings, and counts; rollback never deletes audit records,
+never decrements violation counts, and never bulk republishes Listings.
+
 ## Milestone 11: MVP Acceptance and Launch Cleanup
 
 Status: Seller subscriptions are repository-ready, not production-live. Active

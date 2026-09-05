@@ -154,7 +154,8 @@ matrix where a denied action has no user-visible UI.
 | --- | --- |
 | `e2e/public-marketplace.spec.ts` | Notice acknowledgement; public active-listing browsing, filters, ID search, loading, empty, sold-out exclusion, and error state. |
 | `e2e/auth-profile.spec.ts` | Signed-out guidance, Profile validation, mock sign-in, create/edit/reload persistence, and sign-out. |
-| `e2e/account-access.spec.ts` | Missing-document active compatibility, live suspension, public Marketplace browsing, blocked private/action routes, and read-only seller history. |
+| `e2e/account-access.spec.ts` | Missing-document active compatibility, authenticated read-only suspension, public Marketplace browsing, private held Listings, blocked action routes, and preserved seller history. |
+| `e2e/account-moderation.spec.ts` | Admin suspension, resumable Listing hiding, scheduled reconciliation, Marketplace removal, seller read-only hold, restoration, selective republish, immutable history, and direct Rules denial. |
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
 | `e2e/subscriptions.spec.ts` | Exact-name and seller subscriptions, consent/cancel, persistence/removal, owner/sold/suspended gates, pre-follow exclusion, dual card-and-seller match deduplication, substring coverage, and daily-email preference. |
 | `e2e/report-tickets.spec.ts` | Guest guidance; active reporter draft/submission; zero and three evidence images; reload receipt; ownership, account, Listing, MIME, size, read, count, rate-limit, conflicting-retry, and post-submit denial paths. |
@@ -169,10 +170,9 @@ matrix where a denied action has no user-visible UI.
 Suspended sessions remain authenticated: the UI shows the suspension reason,
 removes Profile/Sell/edit/subscription/Sale actions, and preserves a read-only
 Dashboard. Firestore and Storage Rules independently deny those mutations, so
-the UI is not the security boundary. The admin suspend/restore transaction,
-automatic Listing hide/republish behavior, appeal workflow, and protected
-contact disclosure are deliberately outside this batch and must not be inferred
-from these passing tests.
+the UI is not the security boundary. Account suspension/restoration, automatic
+Listing hiding, and selective republish are covered separately by
+`e2e/account-moderation.spec.ts`; an appeal workflow remains outside this batch.
 
 Seller-subscription E2E uses only the fixed demo project and an in-memory Gmail
 fake. Seed coverage preserves both legacy card-name-only subscriptions and new
@@ -231,8 +231,8 @@ observable boundaries:
    suspended account state exactly once; malformed state causes no writes.
 8. Exact retries are idempotent, conflicting or concurrent decisions fail
    closed, and the UI displays only trusted returned or reloaded state.
-9. Two confirmed violations display manual-suspension eligibility but do not
-   suspend Auth, hide Listings, or expose a suspension action.
+9. Two confirmed violations display manual-suspension eligibility; the separate
+   account-moderation workflow owns any explicit suspension action.
 10. Reload, mobile layout, direct Firestore/Storage denial, error retry, and the
     full queue → detail → evidence → decision path run only in the fixed demo
     Emulator project.
@@ -243,6 +243,37 @@ repository behavior, not deployed index readiness, IAM, quotas, production
 latency, or operational monitoring. Those require a separately approved,
 non-invasive verification that inspects only versions and aggregate sanitized
 signals.
+
+Account-moderation E2E maps the **ten account-moderation acceptance criteria**
+to observable boundaries:
+
+1. Only an active exact-claim admin, acting on a confirmed non-self case whose
+   target has at least two confirmed violations, can request suspension.
+2. The first transaction blocks privileges and creates one admin-bound,
+   idempotent operation plus an immutable request event.
+3. In-request draining and the exact scheduled handler hide active Listings in
+   bounded pages and durably complete an interrupted operation.
+4. Exact retries resume one action; conflicting, concurrent, malformed, stale,
+   and self-target operations fail closed.
+5. Marketplace and direct non-owner reads exclude held Listings while the
+   authenticated suspended owner retains a read-only Dashboard and history.
+6. Sold-out Listings, Sales, images, inventory, existing Listing events, and
+   confirmed-violation counts survive suspension unchanged.
+7. Restoration requires the completed exact action and reactivates only the
+   account; held Listings remain held.
+8. Only the restored owner can edit, delete, or selectively republish one held
+   Listing; republish is idempotent and does not create a Listing event.
+9. Operation and audit collections deny every browser identity, while the admin
+   detail shows only strict, newest-first, bounded history projections.
+10. Chromium and iPhone WebKit cover progress, dialogs, reload persistence,
+    generic errors, history, held sections, confirmation, and Rules denial in the
+    fixed demo project.
+
+These tests perform **no production moderation read, suspension/restoration,
+Listing hide/republish, email, deployment, or data mutation**. They invoke only
+demo Emulators and the locally compiled scheduled handler. Production index and
+schedule readiness require a separately approved non-invasive verification.
+In exact gate terms, they perform no production moderation read, suspension/restoration, Listing hide/republish, email, deployment, or data mutation.
 
 ## Reliability and evidence
 

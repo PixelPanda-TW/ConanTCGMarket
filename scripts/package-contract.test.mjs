@@ -153,6 +153,30 @@ test('documents the private admin moderation workflow and production safety cont
   );
 });
 
+test('documents the account moderation release and rollback contract', async () => {
+  const [setupGuide, integrationGuide, milestones] = await Promise.all([
+    readFile(new URL('docs/firebase-setup.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/integration-testing.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/milestones.md', rootUrl), 'utf8'),
+  ]);
+  assert.match(setupGuide, /manual threshold policy/iu);
+  assert.match(setupGuide, /authenticated read-only suspension/iu);
+  assert.match(setupGuide, /resumable Listing hiding/iu);
+  assert.match(setupGuide, /selective republish/iu);
+  assert.match(setupGuide, /private immutable audit/iu);
+  assert.match(setupGuide, /Functions → indexes → Rules → frontend/u);
+  assert.match(setupGuide, /never deletes audit records/iu);
+  assert.match(setupGuide, /never decrements violation counts/iu);
+  assert.match(setupGuide, /never bulk republishes Listings/iu);
+  assert.match(setupGuide, /repository-ready, not production-live/iu);
+  assert.match(integrationGuide, /ten account-moderation acceptance criteria/iu);
+  assert.match(
+    integrationGuide,
+    /no production moderation read, suspension\/restoration, Listing hide\/republish, email, deployment, or data mutation/iu,
+  );
+  assert.match(milestones, /Account moderation is repository-ready, not production-live/iu);
+});
+
 function expectNoImplicitApply(source) {
   assert.doesNotMatch(root.scripts['migrate:sale-snapshots'], /--apply/u);
   assert.doesNotMatch(source, /apply:\s*true/u);
