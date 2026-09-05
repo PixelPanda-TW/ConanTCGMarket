@@ -142,10 +142,19 @@ service cloud.firestore {
     match /moderationReportLimits/{id} {
       allow read, write: if false;
     }
+    match /accountModerationOperations/{id} {
+      allow read, write: if false;
+    }
+    match /accountModerationAuditLogs/{id} {
+      allow read, write: if false;
+    }
 
     match /listings/{id} {
-      allow read: if resource.data.status == 'active'
-        || (isAuthenticated() && request.auth.uid == resource.data.sellerId);
+      allow read: if resource.data.get('status', '') == 'active'
+        || (isAuthenticated()
+          && request.auth.uid == resource.data.get('sellerId', '')
+          && (resource.data.get('status', '') == 'sold_out'
+            || resource.data.get('status', '') == 'suspended'));
       allow create: if isActiveAccount()
         && isValidNewListing(request.resource.data);
       allow update, delete: if false;

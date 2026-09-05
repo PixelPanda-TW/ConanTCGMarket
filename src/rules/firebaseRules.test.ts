@@ -53,6 +53,7 @@ const suspendedAccountAccess = {
   suspensionReason: 'Confirmed marketplace policy violation.',
   suspendedAt: new Date(),
   suspendedBy: 'admin-1',
+  suspensionActionId: 'a'.repeat(64),
   updatedAt: new Date(),
 };
 
@@ -63,6 +64,13 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'cards', 'card_test_hash'), partnerCardMaster);
     await setDoc(doc(context.firestore(), 'listings', 'active'), activeListing);
     await setDoc(doc(context.firestore(), 'listings', 'sold'), { ...activeListing, status: 'sold_out' });
+    await setDoc(doc(context.firestore(), 'listings', 'held'), {
+      ...activeListing, status: 'suspended', suspensionActionId: 'a'.repeat(64),
+      suspendedAt: new Date(), updatedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'listings', 'unknown-status'), {
+      ...activeListing, status: 'hidden',
+    });
     await setDoc(doc(context.firestore(), 'accountAccess', 'active-user'), activeAccountAccess);
     await setDoc(doc(context.firestore(), 'accountAccess', 'suspended-user'), suspendedAccountAccess);
     await setDoc(doc(context.firestore(), 'accountAccess', 'malformed-active-user'), {
@@ -144,6 +152,17 @@ beforeAll(async () => {
       status: 'open', reportId: 'report-submitted', targetSellerId: 'seller-a',
       openedAt: new Date(),
     });
+    await setDoc(doc(context.firestore(), 'accountModerationOperations', 'a'.repeat(64)), {
+      actionId: 'a'.repeat(64), status: 'suspended', targetUid: 'seller-a',
+      sourceReportId: 'report-submitted', requestedBy: 'admin-user', reason: 'Reason',
+      requestKey: 'a'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 1,
+      createdAt: new Date(), updatedAt: new Date(), completedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'accountModerationAuditLogs', 'event-1'), {
+      eventId: 'event-1', type: 'suspension_completed', targetUid: 'seller-a',
+      suspensionActionId: 'a'.repeat(64), sourceReportId: 'report-submitted',
+      actorUid: 'admin-user', at: new Date(), hiddenListingCount: 1,
+    });
     await uploadBytes(
       ref(context.storage(), 'listings/suspended-user/existing/card.jpg'),
       new Blob(['image'], { type: 'image/jpeg' }),
@@ -153,6 +172,28 @@ beforeAll(async () => {
 afterAll(async () => environment?.cleanup());
 
 describe('Firebase rules', () => {
+  it('denies every browser identity every account moderation state operation', async () => {
+    for (const db of [
+      environment.unauthenticatedContext().firestore(),
+      environment.authenticatedContext('active-user').firestore(),
+      environment.authenticatedContext('admin-user', { admin: true }).firestore(),
+      environment.authenticatedContext('suspended-user', { admin: true }).firestore(),
+      environment.authenticatedContext('malformed-active-user', { admin: true }).firestore(),
+    ]) {
+      for (const [collectionName, id] of [
+        ['accountModerationOperations', 'a'.repeat(64)],
+        ['accountModerationAuditLogs', 'event-1'],
+      ]) {
+        const reference = doc(db, collectionName, id);
+        await assertFails(getDoc(reference));
+        await assertFails(getDocs(collection(db, collectionName)));
+        await assertFails(setDoc(doc(db, collectionName, 'new-record'), { status: 'blocked' }));
+        await assertFails(updateDoc(reference, { status: 'changed' }));
+        await assertFails(deleteDoc(reference));
+      }
+    }
+  });
+
   it('declares moderation cases as an explicit server-only collection', async () => {
     const rules = await readFile('firestore.rules', 'utf8');
     expect(rules).toMatch(/match \/moderationCases\/\{id\} \{\s*allow read, write: if false;/u);
@@ -415,6 +456,27 @@ describe('Firebase rules', () => {
     await assertSucceeds(getDoc(doc(ownerDb, 'listings', 'sold')));
     await assertFails(getDoc(doc(publicDb, 'listings', 'sold')));
     await assertFails(getDoc(doc(otherDb, 'listings', 'sold')));
+  });
+  it('allows only the owner to query held Listings and rejects unknown states', async () => {
+    const publicDb = environment.unauthenticatedContext().firestore();
+    const ownerDb = environment.authenticatedContext('seller-a').firestore();
+    const otherDb = environment.authenticatedContext('seller-b').firestore();
+    await assertSucceeds(getDoc(doc(ownerDb, 'listings', 'held')));
+    for (const status of ['active', 'sold_out', 'suspended']) {
+      await assertSucceeds(getDocs(query(
+        collection(ownerDb, 'listings'),
+        where('sellerId', '==', 'seller-a'),
+        where('status', '==', status),
+      )));
+    }
+    await assertFails(getDoc(doc(publicDb, 'listings', 'held')));
+    await assertFails(getDoc(doc(otherDb, 'listings', 'held')));
+    await assertFails(getDocs(query(
+      collection(publicDb, 'listings'), where('status', '==', 'suspended'),
+    )));
+    await assertFails(getDoc(doc(ownerDb, 'listings', 'unknown-status')));
+    await assertFails(updateDoc(doc(ownerDb, 'listings', 'held'), { listingPrice: 1 }));
+    await assertFails(deleteDoc(doc(ownerDb, 'listings', 'held')));
   });
   it('rejects a seller modifying another seller listing', async () => {
     await assertFails(setDoc(doc(environment.authenticatedContext('seller-b').firestore(), 'listings', 'active'), { ...activeListing, listingPrice: 1 }));

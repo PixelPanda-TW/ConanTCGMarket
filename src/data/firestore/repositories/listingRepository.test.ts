@@ -62,9 +62,10 @@ describe('listing repository', () => {
     ]);
   });
 
-  it('filters seller listings by sellerId', () => {
-    expect(sellerListingsQueryConstraints('seller-1')).toEqual([
+  it('filters seller listings by sellerId and one explicit allowed status', () => {
+    expect(sellerListingsQueryConstraints('seller-1', 'suspended')).toEqual([
       { field: 'sellerId', operator: '==', value: 'seller-1' },
+      { field: 'status', operator: '==', value: 'suspended' },
     ]);
   });
 
@@ -127,16 +128,22 @@ describe('listing repository', () => {
   });
 
   it("lists a seller's listings through the listings converter", async () => {
-    const listing = { id: 'listing-1', sellerId: 'seller-1' };
-    firestore.getDocs.mockResolvedValue({ docs: [{ data: () => listing }] });
+    const listing = { id: 'listing-1', sellerId: 'seller-1', status: 'active' };
+    firestore.getDocs
+      .mockResolvedValueOnce({ docs: [{ data: () => listing }] })
+      .mockResolvedValueOnce({ docs: [] })
+      .mockResolvedValueOnce({ docs: [] });
 
     await expect(listSellerListings('seller-1')).resolves.toEqual([listing]);
 
-    expect(firestore.query).toHaveBeenCalledWith(convertedCollection, {
-      field: 'sellerId',
-      operator: '==',
-      value: 'seller-1',
-    });
+    expect(firestore.query).toHaveBeenCalledTimes(3);
+    for (const status of ['active', 'sold_out', 'suspended']) {
+      expect(firestore.query).toHaveBeenCalledWith(
+        convertedCollection,
+        { field: 'sellerId', operator: '==', value: 'seller-1' },
+        { field: 'status', operator: '==', value: status },
+      );
+    }
   });
 
   it('updates only editable fields through the trusted callable', async () => {

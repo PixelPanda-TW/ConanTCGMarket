@@ -16,8 +16,16 @@ export function activeListingsQueryConstraints(): QueryConstraintDescriptor[] {
   return [{ field: 'status', operator: '==', value: 'active' }];
 }
 
-export function sellerListingsQueryConstraints(sellerId: string): QueryConstraintDescriptor[] {
-  return [{ field: 'sellerId', operator: '==', value: sellerId }];
+type SellerListingStatus = 'active' | 'sold_out' | 'suspended';
+
+export function sellerListingsQueryConstraints(
+  sellerId: string,
+  status: SellerListingStatus,
+): QueryConstraintDescriptor[] {
+  return [
+    { field: 'sellerId', operator: '==', value: sellerId },
+    { field: 'status', operator: '==', value: status },
+  ];
 }
 
 function toFirestoreWhere({ field, operator, value }: QueryConstraintDescriptor): QueryConstraint {
@@ -31,8 +39,11 @@ export function activeListingsQuery() {
   return query(listingCollection(), ...activeListingsQueryConstraints().map(toFirestoreWhere));
 }
 
-export function sellerListingsQuery(sellerId: string) {
-  return query(listingCollection(), ...sellerListingsQueryConstraints(sellerId).map(toFirestoreWhere));
+export function sellerListingsQuery(sellerId: string, status: SellerListingStatus) {
+  return query(
+    listingCollection(),
+    ...sellerListingsQueryConstraints(sellerId, status).map(toFirestoreWhere),
+  );
 }
 
 export async function listActiveListings(): Promise<Listing[]> {
@@ -59,8 +70,11 @@ export async function listActiveListingsFromServer(): Promise<Listing[]> {
 }
 
 export async function listSellerListings(sellerId: string): Promise<Listing[]> {
-  const snapshot = await getDocs(sellerListingsQuery(sellerId));
-  return snapshot.docs.map((doc) => doc.data());
+  const snapshots = await Promise.all(
+    (['active', 'sold_out', 'suspended'] as const)
+      .map((status) => getDocs(sellerListingsQuery(sellerId, status))),
+  );
+  return snapshots.flatMap((snapshot) => snapshot.docs.map((document) => document.data()));
 }
 
 export async function getListing(id: string): Promise<Listing | null> {
