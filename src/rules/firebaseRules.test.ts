@@ -189,6 +189,10 @@ describe('Firebase rules', () => {
       for (const [collectionName, id] of [
         ['accountModerationOperations', 'a'.repeat(64)],
         ['accountModerationAuditLogs', 'event-1'],
+        ['accountAppeals', 'appeal-1'],
+        ['accountAppealAuditLogs', 'appeal-event-1'],
+        ['accountAppealRequestKeys', 'appeal-request-1'],
+        ['accountAppealLimits', 'suspended-user_2099-01-01'],
       ]) {
         const reference = doc(db, collectionName, id);
         await assertFails(getDoc(reference));
@@ -203,6 +207,32 @@ describe('Firebase rules', () => {
   it('declares moderation cases as an explicit server-only collection', async () => {
     const rules = await readFile('firestore.rules', 'utf8');
     expect(rules).toMatch(/match \/moderationCases\/\{id\} \{\s*allow read, write: if false;/u);
+  });
+
+  it('declares appeal state as explicit server-only collections with bounded queue indexes', async () => {
+    const [rules, indexSource] = await Promise.all([
+      readFile('firestore.rules', 'utf8'),
+      readFile('firestore.indexes.json', 'utf8'),
+    ]);
+    for (const collectionName of [
+      'accountAppeals', 'accountAppealAuditLogs',
+      'accountAppealRequestKeys', 'accountAppealLimits',
+    ]) {
+      expect(rules).toMatch(new RegExp(
+        `match /${collectionName}/\\{id\\} \\{\\s*allow read, write: if false;`, 'u',
+      ));
+    }
+    const indexes = JSON.parse(indexSource) as { indexes: Array<Record<string, unknown>> };
+    expect(indexes.indexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        collectionGroup: 'accountAppeals',
+        fields: [
+          { fieldPath: 'status', order: 'ASCENDING' },
+          { fieldPath: 'submittedAt', order: 'DESCENDING' },
+          { fieldPath: '__name__', order: 'DESCENDING' },
+        ],
+      }),
+    ]));
   });
 
   it('denies every browser identity every moderation case operation', async () => {

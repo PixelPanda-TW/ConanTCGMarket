@@ -148,6 +148,18 @@ service cloud.firestore {
     match /accountModerationAuditLogs/{id} {
       allow read, write: if false;
     }
+    match /accountAppeals/{id} {
+      allow read, write: if false;
+    }
+    match /accountAppealAuditLogs/{id} {
+      allow read, write: if false;
+    }
+    match /accountAppealRequestKeys/{id} {
+      allow read, write: if false;
+    }
+    match /accountAppealLimits/{id} {
+      allow read, write: if false;
+    }
 
     match /listings/{id} {
       allow read: if resource.data.get('status', '') == 'active'
