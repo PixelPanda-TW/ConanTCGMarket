@@ -138,6 +138,9 @@ export interface OwnAccountAppealDependencies {
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
+export function accountAppealId(actionId: string): string {
+  return sha256(`appeal\0${actionId}`);
+}
 function readSuspendedAccess(value: unknown, uid: string, actionId: string): void {
   if (!record(value)) throw new AccountAppealError('permission-denied', '此帳號目前無法申訴。');
   try {
@@ -209,7 +212,7 @@ export async function submitAccountAppeal(
   const now = Timestamp.fromDate(nowDate);
   const requestIdHash = sha256(input.requestId);
   const requestKey = sha256(`${uid}\0${input.requestId}`);
-  const appealId = sha256(`appeal\0${input.suspensionActionId}`);
+  const appealId = accountAppealId(input.suspensionActionId);
   try {
     return await dependencies.runTransaction(async (transaction) => {
       readSuspendedAccess(
@@ -281,7 +284,7 @@ export async function getOwnAccountAppeal(
   const uid = request.authUid;
   const actionId = request.data.suspensionActionId;
   readSuspendedAccess(await dependencies.getAccountAccess(uid), uid, actionId);
-  const value = await dependencies.getAppeal(sha256(`appeal\0${actionId}`));
+  const value = await dependencies.getAppeal(accountAppealId(actionId));
   if (value === null) return null;
   const appeal = readStoredAccountAppeal(value);
   if (appeal.targetUid !== uid || appeal.suspensionActionId !== actionId) return malformed();

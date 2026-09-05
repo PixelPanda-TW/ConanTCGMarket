@@ -30,12 +30,17 @@ import {
 } from './accountModeration.js';
 import {
   AccountAppealError,
+  accountAppealId,
   getOwnAccountAppeal as getOwnAccountAppealData,
   submitAccountAppeal as submitAccountAppealData,
   type AccountAppealSubmissionDependencies,
   type AccountAppealSubmissionTransaction,
   type StoredAccountAppeal,
 } from './accountAppeals.js';
+import {
+  cleanupExpiredAppealDrafts as cleanupExpiredAppealDraftsData,
+  type AppealCleanupDependencies,
+} from './appealCleanup.js';
 import {
   AdminCardMasterError,
   handleAddCardMasterEntry,
@@ -1543,6 +1548,54 @@ export const cleanupExpiredReportDrafts = onSchedule(
   async () => {
     const result = await cleanupExpiredReportDraftsData(reportCleanupDependencies);
     logInfo('Expired moderation report cleanup completed.', result);
+  },
+);
+
+const appealCleanupDependencies: AppealCleanupDependencies = {
+  now: () => new Date(),
+  async listExpiredDraftEvidence({ before, after, limit }) {
+    const [files, nextQuery] = await getReportBucket().getFiles({
+      prefix: 'account-appeal-evidence/',
+      maxResults: limit,
+      ...(after ? { pageToken: after } : {}),
+      autoPaginate: false,
+    });
+    return {
+      items: files.flatMap((file) => {
+        const createdAt = new Date(file.metadata.timeCreated ?? '');
+        const generation = String(file.metadata.generation ?? '');
+        return !Number.isNaN(createdAt.valueOf()) && createdAt.valueOf() <= before.valueOf()
+          ? [{ path: file.name, generation, createdAt }]
+          : [];
+      }),
+      nextAfter: typeof nextQuery?.pageToken === 'string' ? nextQuery.pageToken : null,
+    };
+  },
+  async getAppealForAction(actionId) {
+    const snapshot = await firestore.collection('accountAppeals').doc(accountAppealId(actionId)).get();
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  },
+  async deleteEvidence(path, generation) {
+    await getReportBucket().file(path, { generation }).delete({ ignoreNotFound: true });
+  },
+  isObjectNotFound: isStorageObjectNotFound,
+  log(entry) {
+    logInfo('Appeal draft cleanup item.', entry);
+  },
+};
+
+export const cleanupExpiredAppealDrafts = onSchedule(
+  {
+    schedule: '*/5 * * * *',
+    timeZone: 'Asia/Taipei',
+    retryCount: 3,
+    minBackoffSeconds: 60,
+    maxBackoffSeconds: 300,
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const result = await cleanupExpiredAppealDraftsData(appealCleanupDependencies);
+    logInfo('Expired account appeal draft cleanup completed.', result);
   },
 );
 

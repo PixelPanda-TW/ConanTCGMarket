@@ -10,6 +10,7 @@ const {
   addCardMasterEntry,
   captureListingEvent,
   cleanupExpiredReportDrafts,
+  cleanupExpiredAppealDrafts,
   createModerationReportDraft,
   dailyDigestOperator,
   disableCardMasterEntry,
@@ -47,6 +48,7 @@ describe('notification Function deployment contract', () => {
       'addCardMasterEntry',
       'captureListingEvent',
       'cleanupExpiredReportDrafts',
+      'cleanupExpiredAppealDrafts',
       'createModerationReportDraft',
       'dailyDigestOperator',
       'decideModerationCase',
@@ -82,6 +84,14 @@ describe('notification Function deployment contract', () => {
       await expect(callable.run({ auth: null, data: {} } as never))
         .rejects.toMatchObject({ code: 'unauthenticated' });
     }
+  });
+
+  it('exposes appeal draft cleanup only as one bounded schedule', () => {
+    expect(cleanupExpiredAppealDrafts.__endpoint.callableTrigger).toBeUndefined();
+    expect(cleanupExpiredAppealDrafts.__endpoint.httpsTrigger).toBeUndefined();
+    expect(cleanupExpiredAppealDrafts.__endpoint.scheduleTrigger?.schedule).toBe('*/5 * * * *');
+    expect(cleanupExpiredAppealDrafts.__endpoint.scheduleTrigger?.timeZone).toBe('Asia/Taipei');
+    expect(cleanupExpiredAppealDrafts.__endpoint.timeoutSeconds).toBe(540);
   });
 
   it('exposes moderation review operations only as callable handlers', () => {
