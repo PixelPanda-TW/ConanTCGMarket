@@ -43,7 +43,8 @@ describe('account appeal contracts', () => {
   it('reads exact timestamp-backed stored variants and rejects secret fields', () => {
     const value = {
       appealId: 'appeal-1', status: 'submitted', targetUid: 'seller-1',
-      suspensionActionId: 'action-1', statement, evidence: [], requestKey: 'a'.repeat(64),
+      suspensionActionId: 'action-1', draftId: uuid, statement, evidence: [],
+      requestKey: 'a'.repeat(64),
       submittedAt: Timestamp.fromMillis(1), updatedAt: Timestamp.fromMillis(1),
     };
     expect(readStoredAccountAppeal(value).status).toBe('submitted');

@@ -676,13 +676,21 @@ const accountAppealSubmissionDependencies: AccountAppealSubmissionDependencies =
 
 function appealDto(appeal: StoredAccountAppeal | null) {
   if (appeal === null) return null;
-  return {
-    ...appeal,
+  const common = {
+    appealId: appeal.appealId,
+    status: appeal.status,
+    targetUid: appeal.targetUid,
+    suspensionActionId: appeal.suspensionActionId,
+    statement: appeal.statement,
+    evidence: appeal.evidence.map(({ slot, contentType, size }) => ({ slot, contentType, size })),
     submittedAt: appeal.submittedAt.toDate().toISOString(),
     updatedAt: appeal.updatedAt.toDate().toISOString(),
-    ...(appeal.status === 'submitted' ? {} : {
-      decidedAt: appeal.decidedAt.toDate().toISOString(),
-    }),
+  };
+  return appeal.status === 'submitted' ? common : {
+    ...common,
+    decidedAt: appeal.decidedAt.toDate().toISOString(),
+    decidedBy: appeal.decidedBy,
+    decisionRationale: appeal.decisionRationale,
   };
 }
 

@@ -24,7 +24,7 @@ export interface AccountAppealDecisionRequest { appealId: string; requestId: str
   decision: typeof ACCOUNT_APPEAL_DECISIONS[number]; rationale: string }
 
 type StoredBase = { appealId: string; targetUid: string; suspensionActionId: string;
-  statement: string; evidence: AccountAppealEvidenceInput[]; requestKey: string;
+  draftId: string; statement: string; evidence: AccountAppealEvidenceInput[]; requestKey: string;
   submittedAt: Timestamp; updatedAt: Timestamp };
 export type StoredAccountAppeal =
   | (StoredBase & { status: 'submitted' })
@@ -92,12 +92,13 @@ function timestamp(value: unknown): value is Timestamp {
 }
 export function readStoredAccountAppeal(value: unknown): StoredAccountAppeal {
   if (!record(value) || !ACCOUNT_APPEAL_STATUSES.includes(value.status as never)) return malformed();
-  const base = ['appealId', 'status', 'targetUid', 'suspensionActionId', 'statement', 'evidence',
+  const base = ['appealId', 'status', 'targetUid', 'suspensionActionId', 'draftId', 'statement', 'evidence',
     'requestKey', 'submittedAt', 'updatedAt'];
   const extras = value.status === 'submitted' ? []
     : ['decidedAt', 'decidedBy', 'decisionRationale', 'decisionRequestKey'];
   try { exact(value, [...base, ...extras]); } catch { return malformed(); }
   if (!id(value.appealId) || !id(value.targetUid, 128) || !id(value.suspensionActionId)
+    || typeof value.draftId !== 'string' || !uuid.test(value.draftId)
     || !validStatement(value.statement) || !evidence(value.evidence)
     || typeof value.requestKey !== 'string' || !key.test(value.requestKey)
     || !timestamp(value.submittedAt) || !timestamp(value.updatedAt)
@@ -227,7 +228,8 @@ export async function submitAccountAppeal(
           || pointer.requestIdHash !== requestIdHash) return malformed();
         const existing = readStoredAccountAppeal(await transaction.getAppeal(appealId));
         if (existing.targetUid !== uid || existing.suspensionActionId !== input.suspensionActionId
-          || existing.requestKey !== requestKey || existing.statement !== input.statement
+          || existing.requestKey !== requestKey || existing.draftId !== input.draftId
+          || existing.statement !== input.statement
           || JSON.stringify(existing.evidence) !== JSON.stringify(input.evidence)) return malformed();
         return existing;
       }
@@ -242,7 +244,8 @@ export async function submitAccountAppeal(
       }
       const appeal: StoredAccountAppeal = {
         appealId, status: 'submitted', targetUid: uid,
-        suspensionActionId: input.suspensionActionId, statement: input.statement,
+        suspensionActionId: input.suspensionActionId, draftId: input.draftId,
+        statement: input.statement,
         evidence: input.evidence, requestKey, submittedAt: now, updatedAt: now,
       };
       transaction.createAppeal(appealId, { ...appeal });
