@@ -10,6 +10,7 @@ import { PageShell } from '../../components/PageShell';
 import { AccountAccessNotice } from '../auth/AccountAccessNotice';
 import { useAuth } from '../auth/AuthProvider';
 import { ListingMetadata } from '../listings/ListingMetadata';
+import { AccountAppealPanel } from '../appeals/AccountAppealPanel';
 import { summarizeDashboard } from './dashboardSummary';
 import { cardTypeLabel } from '../../domain/cardType';
 import {
@@ -129,6 +130,13 @@ export function DashboardPage() {
         <p className="eyebrow">Seller dashboard</p>
         <h1>賣家管理</h1>
         {!isActiveAccount && <AccountAccessNotice state={accountAccessState} />}
+        {accountAccessState.state === 'suspended'
+          && typeof accountAccessState.access.suspensionActionId === 'string' && (
+          <AccountAppealPanel
+            uid={user.uid}
+            suspensionActionId={accountAccessState.access.suspensionActionId}
+          />
+        )}
         {isDataLoading ? (
           <p role="status">賣家資料載入中</p>
         ) : (

@@ -10,7 +10,10 @@ const repositories = vi.hoisted(() => ({
   listSellerListings: vi.fn(),
   listSellerSales: vi.fn(),
   recordSale: vi.fn(),
+  getOwnAccountAppeal: vi.fn(),
+  submitAccountAppeal: vi.fn(),
 }));
+vi.mock('../../data/storage/storageService', () => ({ uploadAccountAppealEvidence: vi.fn() }));
 const authState = vi.hoisted(() => ({
   current: {
     user: { uid: 'seller-1' } as { uid: string } | null,
@@ -52,6 +55,7 @@ describe('DashboardPage', () => {
     repositories.listSellerListings.mockResolvedValue([]);
     repositories.listSellerSales.mockResolvedValue([]);
     repositories.listCards.mockResolvedValue([]);
+    repositories.getOwnAccountAppeal.mockResolvedValue(null);
   });
 
   it('keeps suspended seller history readable without mutation controls', async () => {
@@ -60,7 +64,7 @@ describe('DashboardPage', () => {
       access: {
         uid: 'seller-1', status: 'suspended', confirmedViolationCount: 1,
         suspensionReason: 'Confirmed reason', suspendedAt: new Date(),
-        suspendedBy: 'admin-1', updatedAt: new Date(),
+        suspendedBy: 'admin-1', suspensionActionId: 'a'.repeat(64), updatedAt: new Date(),
       },
     };
     authState.current.isActiveAccount = false;
@@ -82,6 +86,7 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('link', { name: '編輯' })).toBeNull();
     expect(screen.queryByRole('button', { name: '登記成交' })).toBeNull();
     expect(screen.queryByRole('dialog', { name: '登記成交' })).toBeNull();
+    expect(await screen.findByRole('heading', { name: '申訴停權' })).toBeTruthy();
   });
 
   it('does not load private dashboard data when access state is unavailable', () => {
