@@ -109,6 +109,29 @@ describe('Firestore converters', () => {
     });
   });
 
+  it('round-trips only the exact suspension-held Listing fields', () => {
+    const suspendedAt = Timestamp.fromDate(new Date('2026-09-05T00:00:00.000Z'));
+    const createdAt = Timestamp.fromDate(new Date('2026-09-01T00:00:00.000Z'));
+    const raw = {
+      sellerId: 'seller-1', cardId: '2200', cardType: 'case', cardName: '封鎖現場',
+      rarity: 'SR', imageUrls: ['https://example.com/card.jpg'], listingPrice: 500,
+      originalQuantity: 5, remainingQuantity: 5, hasSleeve: false,
+      supportsMyShip: false, status: 'suspended', suspensionActionId: 'action-1',
+      suspendedAt, createdAt, updatedAt: suspendedAt,
+    };
+    const listing = listingConverter.fromFirestore({
+      id: 'listing-held', data: () => raw,
+    } as never);
+    expect(listing).toMatchObject({
+      id: 'listing-held', status: 'suspended', suspensionActionId: 'action-1',
+      suspendedAt: suspendedAt.toDate(),
+    });
+    expect(listingConverter.toFirestore(listing)).toEqual(raw);
+    expect(() => listingConverter.fromFirestore({
+      id: 'listing-held', data: () => ({ ...raw, email: 'private@example.test' }),
+    } as never)).toThrow();
+  });
+
   it('converts a composite-key Card Master document to the normalized shape', () => {
     const snapshot = {
       id: 'card_abc',

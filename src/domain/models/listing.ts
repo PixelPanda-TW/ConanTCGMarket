@@ -1,7 +1,7 @@
 import { isCardType, type CardType } from '../cardType';
 import { isCompleteCardId } from '../cardId';
 
-export type ListingStatus = 'active' | 'sold_out';
+export type ListingStatus = 'active' | 'sold_out' | 'suspended';
 
 export interface Listing {
   id: string;
@@ -21,6 +21,8 @@ export interface Listing {
   myShipFee?: number;
   note?: string;
   status: ListingStatus;
+  suspensionActionId?: string;
+  suspendedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -97,8 +99,22 @@ export function validateListing(listing: Listing, allowLegacyCardMetadata = fals
     throw new Error('Listing note must be a string when provided.');
   }
 
-  if (listing.status !== 'active' && listing.status !== 'sold_out') {
-    throw new Error('Listing status must be active or sold_out.');
+  if (!['active', 'sold_out', 'suspended'].includes(listing.status)) {
+    throw new Error('Listing status must be active, sold_out, or suspended.');
+  }
+
+  if (listing.status === 'suspended') {
+    if (listing.remainingQuantity < 1
+      || typeof listing.suspensionActionId !== 'string'
+      || listing.suspensionActionId.length < 1
+      || listing.suspensionActionId.length > 200
+      || listing.suspensionActionId !== listing.suspensionActionId.trim()
+      || !(listing.suspendedAt instanceof Date)
+      || Number.isNaN(listing.suspendedAt.valueOf())) {
+      throw new Error('Suspended Listing requires canonical hold fields and remaining inventory.');
+    }
+  } else if (listing.suspensionActionId !== undefined || listing.suspendedAt !== undefined) {
+    throw new Error('Active and sold_out Listings must omit suspension hold fields.');
   }
 
   if (!(listing.createdAt instanceof Date) || Number.isNaN(listing.createdAt.valueOf())) {
@@ -107,5 +123,8 @@ export function validateListing(listing: Listing, allowLegacyCardMetadata = fals
 
   if (!(listing.updatedAt instanceof Date) || Number.isNaN(listing.updatedAt.valueOf())) {
     throw new Error('Listing requires a valid updatedAt date.');
+  }
+  if (listing.status === 'suspended' && listing.suspendedAt!.valueOf() > listing.updatedAt.valueOf()) {
+    throw new Error('Listing suspension time cannot follow updatedAt.');
   }
 }

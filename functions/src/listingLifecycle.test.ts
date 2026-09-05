@@ -198,6 +198,33 @@ describe('trusted listing lifecycle', () => {
     expect(state.updatedListing?.patch).not.toHaveProperty('status');
   });
 
+  it('edits a held Listing without making it active or changing its hold', async () => {
+    const held = listing({
+      status: 'suspended', suspensionActionId: 'action-1', suspendedAt: EARLIER,
+    });
+    const { state, dependencies } = harness({ listings: { 'listing-1': held } });
+    await expect(handleUpdateSellerListing({
+      authUid: 'seller-1', data: updateInput({ listingPrice: 475 }),
+    }, dependencies)).resolves.toMatchObject({
+      status: 'suspended', suspensionActionId: 'action-1', suspendedAt: EARLIER.valueOf(),
+      listingPrice: 475,
+    });
+    expect(state.updatedListing?.patch).not.toHaveProperty('status');
+    expect(state.updatedListing?.patch).not.toHaveProperty('suspensionActionId');
+    expect(state.updatedListing?.patch).not.toHaveProperty('suspendedAt');
+  });
+
+  it('never records a Sale for a held Listing', async () => {
+    const { state, dependencies } = harness({ listings: { 'listing-1': listing({
+      status: 'suspended', suspensionActionId: 'action-1', suspendedAt: EARLIER,
+    }) } });
+    await expectCode(handleRecordListingSale({
+      authUid: 'seller-1', data: { listingId: 'listing-1', quantity: 1, soldUnitPrice: 500 },
+    }, dependencies), 'failed-precondition');
+    expect(state.createdSale).toBeUndefined();
+    expect(state.updatedListing).toBeUndefined();
+  });
+
   it('updates mutable fields on a recognized legacy Listing without persisting guessed identity', async () => {
     const legacy = listing({
       cardType: undefined, cardName: undefined, rarity: undefined,
@@ -251,6 +278,31 @@ describe('trusted listing lifecycle', () => {
     }, dependencies)).resolves.toEqual({ imageUrls: ['https://example.com/card.jpg'] });
     expect(transaction.hasSaleForListing).toHaveBeenCalledWith('listing-1');
     expect(state.deletedListingId).toBe('listing-1');
+  });
+
+  it('deletes an unsold held Listing only while its owner account is active', async () => {
+    const { state, dependencies } = harness({ listings: { 'listing-1': listing({
+      status: 'suspended', suspensionActionId: 'action-1', suspendedAt: EARLIER,
+    }) } });
+    await expect(handleDeleteUnsoldListing({
+      authUid: 'seller-1',
+      data: { listingId: 'listing-1', expectedUpdatedAt: EARLIER.valueOf() },
+    }, dependencies)).resolves.toEqual({ imageUrls: ['https://example.com/card.jpg'] });
+    expect(state.deletedListingId).toBe('listing-1');
+  });
+
+  it.each([
+    ['missing action', { status: 'suspended', suspendedAt: EARLIER }],
+    ['missing time', { status: 'suspended', suspensionActionId: 'action-1' }],
+    ['hold on active', { status: 'active', suspensionActionId: 'action-1', suspendedAt: EARLIER }],
+  ])('rejects malformed Listing hold: %s', async (_label, override) => {
+    const { state, dependencies } = harness({
+      listings: { 'listing-1': listing(override) },
+    });
+    await expectCode(handleUpdateSellerListing({
+      authUid: 'seller-1', data: updateInput(),
+    }, dependencies), 'failed-precondition');
+    expect(state.updatedListing).toBeUndefined();
   });
 
   it('allows an unsold recognized legacy Listing to be deleted without identity migration', async () => {

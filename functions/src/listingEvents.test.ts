@@ -229,6 +229,19 @@ describe('captureListingEvent', () => {
 
     expect(deps.events.create).not.toHaveBeenCalled();
   });
+
+  it('never captures a new-Listing event from a suspension-held snapshot', async () => {
+    const deps = createDependencies();
+    await expect(captureListingEvent({
+      params: { listingId: 'listing-held' },
+      data: {
+        ...listing, status: 'suspended', suspensionActionId: 'action-1', suspendedAt: now,
+      },
+    }, deps)).resolves.toEqual({
+      status: 'invalid', reason: expect.stringMatching(/status/iu),
+    });
+    expect(deps.events.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('reserveDiscordDeliveryAttempt', () => {

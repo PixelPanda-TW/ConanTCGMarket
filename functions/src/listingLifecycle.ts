@@ -1,5 +1,5 @@
 type CardType = 'character' | 'event' | 'case' | 'partner';
-type ListingStatus = 'active' | 'sold_out';
+type ListingStatus = 'active' | 'sold_out' | 'suspended';
 type ErrorCode =
   | 'unauthenticated'
   | 'permission-denied'
@@ -33,6 +33,8 @@ interface StoredListing {
   myShipFee?: number;
   note?: string;
   status: ListingStatus;
+  suspensionActionId?: string;
+  suspendedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -102,6 +104,7 @@ const requiredListingFields = [
 ] as const;
 const optionalListingFields = new Set([
   'cardType', 'cardName', 'characterName', 'rarity', 'sleeveFee', 'myShipFee', 'note',
+  'suspensionActionId', 'suspendedAt',
 ]);
 
 function invalidArgument(message = '請檢查輸入資料。'): never {
@@ -188,6 +191,16 @@ function readStoredListing(value: Record<string, unknown> | null): StoredListing
   const sleeveFee = readOptionalFee(value.sleeveFee);
   const myShipFee = readOptionalFee(value.myShipFee);
   const hasNormalizedMetadata = value.cardType !== undefined || value.cardName !== undefined;
+  const validStatus = value.remainingQuantity === 0
+    ? value.status === 'sold_out'
+      && value.suspensionActionId === undefined && value.suspendedAt === undefined
+    : value.status === 'active'
+      ? value.suspensionActionId === undefined && value.suspendedAt === undefined
+      : value.status === 'suspended'
+        && hasTrimmedText(value.suspensionActionId, 200)
+        && isValidDate(value.suspendedAt)
+        && isValidDate(value.updatedAt)
+        && (value.suspendedAt as Date).valueOf() <= (value.updatedAt as Date).valueOf();
   if (!hasTrimmedText(value.sellerId, 128)
     || !hasTrimmedText(value.cardId, 32)
     || !imageUrls
@@ -197,7 +210,7 @@ function readStoredListing(value: Record<string, unknown> | null): StoredListing
     || (value.remainingQuantity as number) > (value.originalQuantity as number)
     || typeof value.hasSleeve !== 'boolean'
     || typeof value.supportsMyShip !== 'boolean'
-    || value.status !== ((value.remainingQuantity as number) === 0 ? 'sold_out' : 'active')
+    || !validStatus
     || !isValidDate(value.createdAt) || !isValidDate(value.updatedAt)
     || sleeveFee === null || myShipFee === null
     || (!value.hasSleeve && sleeveFee !== undefined)
@@ -237,6 +250,7 @@ async function readOwnedActiveListing(
   transaction: ListingLifecycleTransaction,
   listingId: string,
   uid: string,
+  allowHeld = false,
 ): Promise<StoredListing> {
   const raw = await transaction.getListing(listingId);
   if (raw === null) throw new ListingLifecycleError('not-found', '找不到商品。');
@@ -245,7 +259,9 @@ async function readOwnedActiveListing(
   if (listing.sellerId !== uid) {
     throw new ListingLifecycleError('permission-denied', '只有商品賣家可以執行這項操作。');
   }
-  if (listing.status !== 'active' || listing.remainingQuantity < 1) {
+  if ((!allowHeld && listing.status !== 'active')
+    || !['active', 'suspended'].includes(listing.status)
+    || listing.remainingQuantity < 1) {
     throw new ListingLifecycleError('failed-precondition', '已售罄商品僅供查看。');
   }
   return listing;
@@ -256,12 +272,15 @@ function saleWire(id: string, sale: StoredSale) {
 }
 
 function listingWire(id: string, listing: StoredListing) {
-  return {
+  const wire = {
     id,
     ...listing,
     createdAt: listing.createdAt.valueOf(),
     updatedAt: listing.updatedAt.valueOf(),
   };
+  return listing.status === 'suspended'
+    ? { ...wire, suspendedAt: listing.suspendedAt!.valueOf() }
+    : wire;
 }
 
 export async function handleRecordListingSale(
@@ -360,7 +379,7 @@ export async function handleUpdateSellerListing(
   const now = dependencies.now();
   return dependencies.runTransaction(async (transaction) => {
     await requireActiveAccount(transaction, uid);
-    const storedListing = await readOwnedActiveListing(transaction, input.listingId, uid);
+    const storedListing = await readOwnedActiveListing(transaction, input.listingId, uid, true);
     if (storedListing.updatedAt.valueOf() !== input.expectedUpdatedAt) {
       throw new ListingLifecycleError('aborted', '商品已被更新，請重新載入後再試。');
     }
@@ -403,7 +422,7 @@ export async function handleDeleteUnsoldListing(
   const expectedUpdatedAt = parseExpectedUpdatedAt(input.expectedUpdatedAt);
   return dependencies.runTransaction(async (transaction) => {
     await requireActiveAccount(transaction, uid);
-    const storedListing = await readOwnedActiveListing(transaction, listingId, uid);
+    const storedListing = await readOwnedActiveListing(transaction, listingId, uid, true);
     if (storedListing.updatedAt.valueOf() !== expectedUpdatedAt) {
       throw new ListingLifecycleError('aborted', '商品已被更新，請重新載入後再試。');
     }

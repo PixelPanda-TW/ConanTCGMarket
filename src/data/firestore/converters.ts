@@ -172,11 +172,24 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
     }
     if (listingData.sleeveFee !== undefined) data.sleeveFee = listingData.sleeveFee;
     if (listingData.myShipFee !== undefined) data.myShipFee = listingData.myShipFee;
+    if (listingData.status === 'suspended') {
+      data.suspensionActionId = listingData.suspensionActionId;
+      data.suspendedAt = dateToTimestamp(listingData.suspendedAt!);
+    }
 
     return data;
   },
   fromFirestore(snapshot, options) {
     const data = readData(snapshot, options);
+    const allowedFields = new Set([
+      'sellerId', 'cardId', 'cardType', 'cardName', 'characterName', 'rarity',
+      'imageUrls', 'listingPrice', 'originalQuantity', 'remainingQuantity',
+      'hasSleeve', 'sleeveFee', 'supportsMyShip', 'myShipFee', 'note', 'status',
+      'suspensionActionId', 'suspendedAt', 'createdAt', 'updatedAt',
+    ]);
+    if (Object.keys(data).some((field) => !allowedFields.has(field))) {
+      throw new Error('Listing document contains unsupported fields.');
+    }
     const hasNormalizedMetadata = data.cardType !== undefined || data.cardName !== undefined;
     const listing: Listing = {
       id: snapshot.id,
@@ -196,6 +209,9 @@ export const listingConverter: FirestoreDataConverter<Listing> = {
       myShipFee: data.myShipFee as number | undefined,
       note: data.note as string | undefined,
       status: data.status as Listing['status'],
+      suspensionActionId: data.suspensionActionId as string | undefined,
+      suspendedAt: data.suspendedAt === undefined
+        ? undefined : timestampToDate(data.suspendedAt, 'suspendedAt'),
       createdAt: timestampToDate(data.createdAt, 'createdAt'),
       updatedAt: timestampToDate(data.updatedAt, 'updatedAt'),
     };

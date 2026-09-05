@@ -552,6 +552,41 @@ describe('domain model validation', () => {
     expect(() => validateListing(listing)).not.toThrow();
   });
 
+  it('accepts only the exact suspension-held Listing variant', () => {
+    const held = {
+      id: 'listing-held', sellerId: 'seller-1', cardId: '2200', cardType: 'case',
+      cardName: '封鎖現場', rarity: 'SR', imageUrls: ['https://example.com/card.jpg'],
+      listingPrice: 500, originalQuantity: 5, remainingQuantity: 5,
+      hasSleeve: false, supportsMyShip: false, status: 'suspended',
+      suspensionActionId: 'action-1',
+      suspendedAt: new Date('2026-09-05T00:00:00.000Z'),
+      createdAt: new Date('2026-09-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-05T00:00:00.000Z'),
+    } as unknown as Listing;
+    expect(() => validateListing(held)).not.toThrow();
+    expect(() => validateListing({ ...held, suspensionActionId: undefined })).toThrow();
+    expect(() => validateListing({ ...held, suspendedAt: undefined })).toThrow();
+    expect(() => validateListing({ ...held, suspensionActionId: ' action-1' })).toThrow();
+    expect(() => validateListing({ ...held, remainingQuantity: 0 })).toThrow();
+  });
+
+  it('rejects hold fields on active and sold-out Listings', () => {
+    const common = {
+      id: 'listing-1', sellerId: 'seller-1', cardId: '2200', cardType: 'case' as const,
+      cardName: '封鎖現場', rarity: 'SR', imageUrls: ['https://example.com/card.jpg'],
+      listingPrice: 500, originalQuantity: 5, remainingQuantity: 5,
+      hasSleeve: false, supportsMyShip: false, status: 'active' as const,
+      createdAt: new Date(), updatedAt: new Date(),
+    };
+    expect(() => validateListing({
+      ...common, suspensionActionId: 'action-1', suspendedAt: new Date(),
+    } as never)).toThrow();
+    expect(() => validateListing({
+      ...common, status: 'sold_out', remainingQuantity: 0,
+      suspensionActionId: 'action-1', suspendedAt: new Date(),
+    } as never)).toThrow();
+  });
+
   it('accepts an event listing without a character snapshot', () => {
     const eventListing: Listing = {
       id: 'listing-event', sellerId: 'seller-1', cardId: '1100', cardType: 'event', cardName: '追跡開始', rarity: 'C',
