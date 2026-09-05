@@ -5,11 +5,17 @@ import {
   ACCOUNT_MODERATION_OPERATION_STATUSES,
   isAccountModerationRequestId,
   parseSuspendModerationTargetRequest,
+  reconcileAccountModerationOperation,
+  drainAccountModerationOperation,
+  ACCOUNT_MODERATION_HIDE_PAGE_SIZE,
+  ACCOUNT_MODERATION_MAX_DRAIN_PAGES,
   readAccountModerationAuditEvent,
   readAccountModerationOperation,
   suspendModerationTarget,
   type AccountSuspensionDependencies,
   type AccountSuspensionTransaction,
+  type AccountModerationReconciliationDependencies,
+  type AccountModerationReconciliationTransaction,
 } from './accountModeration.js';
 
 const CREATED_AT = Timestamp.fromDate(new Date('2026-09-05T00:00:00.000Z'));
@@ -311,5 +317,187 @@ describe('open account suspension', () => {
     expect(retry.state.operationWrite).toBeUndefined();
     expect(retry.state.accessWrite).toBeUndefined();
     expect(retry.state.auditWrite).toBeUndefined();
+  });
+});
+
+function activeListing(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    data: {
+      sellerId: 'seller-1', cardId: '2200', cardType: 'case', cardName: '封鎖現場',
+      rarity: 'SR', imageUrls: [`https://example.com/${id}.jpg`], listingPrice: 500,
+      originalQuantity: 5, remainingQuantity: 5, hasSleeve: false,
+      supportsMyShip: false, status: 'active', createdAt: CREATED_AT.toDate(),
+      updatedAt: CREATED_AT.toDate(), ...overrides,
+    },
+  };
+}
+
+function hidingOperation(overrides: Record<string, unknown> = {}) {
+  return {
+    status: 'hiding', ...commonOperation, actionId: requestKey, requestKey,
+    targetUid: 'seller-1', sourceReportId: 'report-1', hiddenListingCount: 0,
+    ...overrides,
+  };
+}
+
+interface ReconciliationState {
+  operation: unknown | null;
+  access: unknown | null;
+  listings: Array<{ id: string; data: unknown }>;
+  listingWrites: Array<{ id: string; patch: Record<string, unknown> }>;
+  operationWrites: Array<{ id: string; patch: Record<string, unknown> }>;
+  auditWrites: Array<{ id: string; data: Record<string, unknown> }>;
+}
+
+function reconciliationHarness(overrides: Partial<ReconciliationState> = {}) {
+  const state: ReconciliationState = {
+    operation: hidingOperation(),
+    access: {
+      status: 'suspended', confirmedViolationCount: 2, suspensionReason: '重複違規',
+      suspendedAt: CREATED_AT, suspendedBy: 'admin-1', suspensionActionId: requestKey,
+      updatedAt: CREATED_AT,
+    },
+    listings: [activeListing('listing-1'), activeListing('listing-2')],
+    listingWrites: [], operationWrites: [], auditWrites: [], ...overrides,
+  };
+  const transaction: AccountModerationReconciliationTransaction = {
+    getOperation: vi.fn(async () => state.operation),
+    getAccountAccess: vi.fn(async () => state.access),
+    listActiveListings: vi.fn(async (_uid, _limit) => state.listings),
+    updateListing: vi.fn((id, patch) => { state.listingWrites.push({ id, patch }); }),
+    updateOperation: vi.fn((id, patch) => { state.operationWrites.push({ id, patch }); }),
+    createAudit: vi.fn((id, data) => { state.auditWrites.push({ id, data }); }),
+  };
+  const dependencies: AccountModerationReconciliationDependencies = {
+    now: () => NOW,
+    runTransaction: async (operation) => operation(transaction),
+  };
+  return { state, transaction, dependencies };
+}
+
+describe('reconcile account suspension Listings', () => {
+  it('uses fixed bounded reconciliation limits', () => {
+    expect(ACCOUNT_MODERATION_HIDE_PAGE_SIZE).toBe(100);
+    expect(ACCOUNT_MODERATION_MAX_DRAIN_PAGES).toBe(5);
+  });
+
+  it('holds one deterministic bounded page and advances the trusted count', async () => {
+    const { state, transaction, dependencies } = reconciliationHarness();
+    await expect(reconcileAccountModerationOperation(requestKey, dependencies)).resolves.toEqual({
+      actionId: requestKey, status: 'hiding', targetUid: 'seller-1', hiddenListingCount: 2,
+    });
+    expect(transaction.listActiveListings).toHaveBeenCalledWith(
+      'seller-1', ACCOUNT_MODERATION_HIDE_PAGE_SIZE,
+    );
+    expect(state.listingWrites).toEqual([
+      { id: 'listing-1', patch: {
+        status: 'suspended', suspensionActionId: requestKey,
+        suspendedAt: CREATED_AT.toDate(), updatedAt: NOW,
+      } },
+      { id: 'listing-2', patch: {
+        status: 'suspended', suspensionActionId: requestKey,
+        suspendedAt: CREATED_AT.toDate(), updatedAt: NOW,
+      } },
+    ]);
+    expect(state.operationWrites).toEqual([{ id: requestKey, patch: {
+      hiddenListingCount: 2, updatedAt: Timestamp.fromDate(NOW),
+    } }]);
+    expect(state.auditWrites).toEqual([]);
+  });
+
+  it('completes only after an empty page and writes one deterministic audit', async () => {
+    const { state, dependencies } = reconciliationHarness({
+      operation: hidingOperation({ hiddenListingCount: 3 }), listings: [],
+    });
+    await expect(reconcileAccountModerationOperation(requestKey, dependencies)).resolves.toEqual({
+      actionId: requestKey, status: 'suspended', targetUid: 'seller-1', hiddenListingCount: 3,
+    });
+    expect(state.listingWrites).toEqual([]);
+    expect(state.operationWrites).toEqual([{ id: requestKey, patch: {
+      status: 'suspended', completedAt: Timestamp.fromDate(NOW), updatedAt: Timestamp.fromDate(NOW),
+    } }]);
+    expect(state.auditWrites).toEqual([{ id: `${requestKey}_completed`, data: {
+      eventId: `${requestKey}_completed`, type: 'suspension_completed',
+      targetUid: 'seller-1', suspensionActionId: requestKey,
+      sourceReportId: 'report-1', actorUid: 'admin-1', hiddenListingCount: 3,
+      at: Timestamp.fromDate(NOW),
+    } }]);
+  });
+
+  it('returns a completed or restored operation without querying or writing Listings', async () => {
+    const suspended = reconciliationHarness({
+      operation: {
+        ...hidingOperation({ hiddenListingCount: 2 }), status: 'suspended', completedAt: LATER_AT,
+        updatedAt: LATER_AT,
+      },
+    });
+    await expect(reconcileAccountModerationOperation(requestKey, suspended.dependencies))
+      .resolves.toMatchObject({ status: 'suspended', hiddenListingCount: 2 });
+    expect(suspended.transaction.listActiveListings).not.toHaveBeenCalled();
+    expect(suspended.state.operationWrites).toEqual([]);
+  });
+
+  it.each([
+    ['wrong account action', {
+      access: {
+        status: 'suspended', confirmedViolationCount: 2, suspensionReason: '原因',
+        suspendedAt: CREATED_AT, suspendedBy: 'admin-1', suspensionActionId: 'other-action',
+        updatedAt: CREATED_AT,
+      },
+    }],
+    ['active account', { access: { status: 'active', confirmedViolationCount: 2, updatedAt: CREATED_AT } }],
+    ['malformed Listing', { listings: [activeListing('listing-1', { rarity: undefined })] }],
+    ['wrong seller Listing', { listings: [activeListing('listing-1', { sellerId: 'seller-2' })] }],
+    ['already held query result', { listings: [activeListing('listing-1', {
+      status: 'suspended', suspensionActionId: requestKey, suspendedAt: CREATED_AT.toDate(),
+    })] }],
+  ])('fails closed without writes for %s', async (_label, override) => {
+    const { state, dependencies } = reconciliationHarness(override as Partial<ReconciliationState>);
+    await expect(reconcileAccountModerationOperation(requestKey, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.listingWrites).toEqual([]);
+    expect(state.operationWrites).toEqual([]);
+    expect(state.auditWrites).toEqual([]);
+  });
+
+  it('rejects an oversized or unsorted query page before writes', async () => {
+    const oversized = Array.from(
+      { length: ACCOUNT_MODERATION_HIDE_PAGE_SIZE + 1 },
+      (_, index) => activeListing(`listing-${String(index).padStart(3, '0')}`),
+    );
+    const first = reconciliationHarness({ listings: oversized });
+    await expect(reconcileAccountModerationOperation(requestKey, first.dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(first.state.listingWrites).toEqual([]);
+
+    const unsorted = reconciliationHarness({
+      listings: [activeListing('listing-2'), activeListing('listing-1')],
+    });
+    await expect(reconcileAccountModerationOperation(requestKey, unsorted.dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(unsorted.state.listingWrites).toEqual([]);
+  });
+
+  it('drains at most five pages and stops immediately at completion', async () => {
+    const results = [
+      { actionId: requestKey, status: 'hiding' as const, targetUid: 'seller-1', hiddenListingCount: 100 },
+      { actionId: requestKey, status: 'hiding' as const, targetUid: 'seller-1', hiddenListingCount: 200 },
+      { actionId: requestKey, status: 'suspended' as const, targetUid: 'seller-1', hiddenListingCount: 200 },
+    ];
+    const reconcile = vi.fn(async () => results.shift()!);
+    await expect(drainAccountModerationOperation(requestKey, reconcile)).resolves.toMatchObject({
+      status: 'suspended', hiddenListingCount: 200,
+    });
+    expect(reconcile).toHaveBeenCalledTimes(3);
+
+    const stillHiding = vi.fn(async () => ({
+      actionId: requestKey, status: 'hiding' as const,
+      targetUid: 'seller-1', hiddenListingCount: 100,
+    }));
+    await expect(drainAccountModerationOperation(requestKey, stillHiding)).resolves.toMatchObject({
+      status: 'hiding', hiddenListingCount: 100,
+    });
+    expect(stillHiding).toHaveBeenCalledTimes(ACCOUNT_MODERATION_MAX_DRAIN_PAGES);
   });
 });

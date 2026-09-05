@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { createHash } from 'node:crypto';
 import { readModerationCase, type ConfirmedModerationCase } from './moderationReview.js';
 import { readModerationReport, type SubmittedModerationReport } from './reportTickets.js';
+import { readStoredListing } from './listingLifecycle.js';
 
 export const ACCOUNT_MODERATION_OPERATION_STATUSES = ['hiding', 'suspended', 'restored'] as const;
 export const ACCOUNT_MODERATION_AUDIT_TYPES = [
@@ -110,6 +111,40 @@ export interface AccountSuspensionDependencies {
   runTransaction<T>(
     operation: (transaction: AccountSuspensionTransaction) => Promise<T>,
   ): Promise<T>;
+}
+
+export const ACCOUNT_MODERATION_HIDE_PAGE_SIZE = 100;
+export const ACCOUNT_MODERATION_MAX_DRAIN_PAGES = 5;
+
+export interface AccountModerationListingRecord {
+  id: string;
+  data: Record<string, unknown> | null;
+}
+
+export interface AccountModerationReconciliationTransaction {
+  getOperation(id: string): Promise<unknown | null>;
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  listActiveListings(
+    targetUid: string,
+    limit: number,
+  ): Promise<AccountModerationListingRecord[]>;
+  updateListing(id: string, patch: Record<string, unknown>): void;
+  updateOperation(id: string, patch: Record<string, unknown>): void;
+  createAudit(id: string, data: Record<string, unknown>): void;
+}
+
+export interface AccountModerationReconciliationDependencies {
+  now(): Date;
+  runTransaction<T>(
+    operation: (transaction: AccountModerationReconciliationTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
+export interface AccountModerationOperationResult {
+  actionId: string;
+  status: AccountModerationOperationStatus;
+  targetUid: string;
+  hiddenListingCount: number;
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -324,7 +359,7 @@ function suspensionActionId(adminUid: string, requestId: string): string {
   return createHash('sha256').update(`suspension:${adminUid}:${requestId}`, 'utf8').digest('hex');
 }
 
-function operationResult(operation: AccountModerationOperation) {
+function operationResult(operation: AccountModerationOperation): AccountModerationOperationResult {
   return {
     actionId: operation.actionId,
     status: operation.status,
@@ -439,4 +474,125 @@ export async function suspendModerationTarget(
     if (error instanceof AccountModerationError) throw error;
     throw new AccountModerationError('unavailable', '目前無法停權帳號。');
   }
+}
+
+function assertReconciliationAccount(
+  operation: AccountModerationOperation,
+  value: unknown | null,
+): StoredAccountAccess {
+  if (value === null) return malformed();
+  const access = readAccountAccess(value);
+  if (operation.status === 'restored') {
+    if (access.status !== 'active'
+      || access.confirmedViolationCount < operation.confirmedViolationCount) return malformed();
+    return access;
+  }
+  if (access.status !== 'suspended'
+    || access.suspensionActionId !== operation.actionId
+    || access.suspensionReason !== operation.reason
+    || access.suspendedBy !== operation.requestedBy
+    || access.suspendedAt.toMillis() !== operation.createdAt.toMillis()
+    || access.confirmedViolationCount < operation.confirmedViolationCount) return malformed();
+  return access;
+}
+
+function readActiveListingPage(
+  records: AccountModerationListingRecord[],
+  targetUid: string,
+) {
+  if (records.length > ACCOUNT_MODERATION_HIDE_PAGE_SIZE) return malformed();
+  let previousId: string | null = null;
+  return records.map((record) => {
+    if (!identifier(record.id, 128)
+      || (previousId !== null && previousId.localeCompare(record.id) >= 0)) return malformed();
+    previousId = record.id;
+    const listing = readStoredListing(record.data);
+    if (!listing || listing.sellerId !== targetUid || listing.status !== 'active'
+      || listing.remainingQuantity < 1) return malformed();
+    return { id: record.id, listing };
+  });
+}
+
+export async function reconcileAccountModerationOperation(
+  actionId: string,
+  dependencies: AccountModerationReconciliationDependencies,
+): Promise<AccountModerationOperationResult> {
+  if (!keyPattern.test(actionId)) return malformed();
+  const nowDate = dependencies.now();
+  if (!(nowDate instanceof Date) || Number.isNaN(nowDate.valueOf())) {
+    throw new AccountModerationError('unavailable', '目前無法完成商品隱藏。');
+  }
+  const now = Timestamp.fromDate(nowDate);
+  try {
+    return await dependencies.runTransaction(async (transaction) => {
+      const operationValue = await transaction.getOperation(actionId);
+      const operation = readAccountModerationOperation(operationValue);
+      if (operation.actionId !== actionId || operation.requestKey !== actionId) return malformed();
+      const accessValue = await transaction.getAccountAccess(operation.targetUid);
+      assertReconciliationAccount(operation, accessValue);
+      if (operation.status !== 'hiding') return operationResult(operation);
+
+      const page = readActiveListingPage(
+        await transaction.listActiveListings(
+          operation.targetUid,
+          ACCOUNT_MODERATION_HIDE_PAGE_SIZE,
+        ),
+        operation.targetUid,
+      );
+      if (page.length === 0) {
+        const completed: SuspendedAccountModerationOperation = {
+          ...operation,
+          status: 'suspended',
+          completedAt: now,
+          updatedAt: now,
+        };
+        const eventId = `${actionId}_completed`;
+        transaction.updateOperation(actionId, {
+          status: 'suspended', completedAt: now, updatedAt: now,
+        });
+        transaction.createAudit(eventId, {
+          eventId,
+          type: 'suspension_completed',
+          targetUid: operation.targetUid,
+          suspensionActionId: actionId,
+          sourceReportId: operation.sourceReportId,
+          actorUid: operation.requestedBy,
+          hiddenListingCount: operation.hiddenListingCount,
+          at: now,
+        });
+        return operationResult(completed);
+      }
+
+      const hiddenListingCount = operation.hiddenListingCount + page.length;
+      if (!Number.isSafeInteger(hiddenListingCount)) return malformed();
+      for (const record of page) {
+        transaction.updateListing(record.id, {
+          status: 'suspended',
+          suspensionActionId: actionId,
+          suspendedAt: operation.createdAt.toDate(),
+          updatedAt: nowDate,
+        });
+      }
+      transaction.updateOperation(actionId, { hiddenListingCount, updatedAt: now });
+      return operationResult({ ...operation, hiddenListingCount, updatedAt: now });
+    });
+  } catch (error) {
+    if (error instanceof AccountModerationError) throw error;
+    throw new AccountModerationError('unavailable', '目前無法完成商品隱藏。');
+  }
+}
+
+export async function drainAccountModerationOperation(
+  actionId: string,
+  reconcile: (actionId: string) => Promise<AccountModerationOperationResult>,
+): Promise<AccountModerationOperationResult> {
+  let result: AccountModerationOperationResult | null = null;
+  for (let page = 0; page < ACCOUNT_MODERATION_MAX_DRAIN_PAGES; page += 1) {
+    result = await reconcile(actionId);
+    if (result.actionId !== actionId || result.status !== 'hiding') return result;
+  }
+  if (!result) {
+    throw new AccountModerationError('unavailable', '目前無法完成商品隱藏。');
+  }
+  return result;
 }

@@ -16,7 +16,7 @@ export class ListingLifecycleError extends Error {
   }
 }
 
-interface StoredListing {
+export interface StoredListing {
   sellerId: string;
   cardId: string;
   cardType?: CardType;
@@ -181,7 +181,7 @@ function readOptionalFee(value: unknown): number | undefined | null {
   return isNonNegativeNumber(value) ? value : null;
 }
 
-function readStoredListing(value: Record<string, unknown> | null): StoredListing | null {
+export function readStoredListing(value: Record<string, unknown> | null): StoredListing | null {
   if (!value) return null;
   const keys = Object.keys(value);
   if (!requiredListingFields.every((field) => keys.includes(field))
