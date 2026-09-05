@@ -129,6 +129,10 @@ export interface AccountAppealSubmissionDependencies {
     operation: (transaction: AccountAppealSubmissionTransaction) => Promise<T>,
   ): Promise<T>;
 }
+export interface OwnAccountAppealDependencies {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getAppeal(id: string): Promise<unknown | null>;
+}
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -259,4 +263,24 @@ export async function submitAccountAppeal(
     if (error instanceof AccountAppealError) throw error;
     throw new AccountAppealError('unavailable', '目前無法提交申訴。');
   }
+}
+
+export async function getOwnAccountAppeal(
+  request: AccountAppealCallableRequest,
+  dependencies: OwnAccountAppealDependencies,
+): Promise<StoredAccountAppeal | null> {
+  if (!id(request.authUid, 128)) {
+    throw new AccountAppealError('unauthenticated', '請先登入。');
+  }
+  if (!record(request.data)) return invalid();
+  exact(request.data, ['suspensionActionId']);
+  if (!id(request.data.suspensionActionId)) return invalid();
+  const uid = request.authUid;
+  const actionId = request.data.suspensionActionId;
+  readSuspendedAccess(await dependencies.getAccountAccess(uid), uid, actionId);
+  const value = await dependencies.getAppeal(sha256(`appeal\0${actionId}`));
+  if (value === null) return null;
+  const appeal = readStoredAccountAppeal(value);
+  if (appeal.targetUid !== uid || appeal.suspensionActionId !== actionId) return malformed();
+  return appeal;
 }

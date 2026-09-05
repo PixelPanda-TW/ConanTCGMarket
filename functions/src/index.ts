@@ -29,6 +29,14 @@ import {
   type ListingRepublishTransaction,
 } from './accountModeration.js';
 import {
+  AccountAppealError,
+  getOwnAccountAppeal as getOwnAccountAppealData,
+  submitAccountAppeal as submitAccountAppealData,
+  type AccountAppealSubmissionDependencies,
+  type AccountAppealSubmissionTransaction,
+  type StoredAccountAppeal,
+} from './accountAppeals.js';
+import {
   AdminCardMasterError,
   handleAddCardMasterEntry,
   handleDisableCardMasterEntry,
@@ -310,7 +318,8 @@ function throwCallableError(error: unknown, operation: string): never {
     || error instanceof AdminCardMasterError
     || error instanceof ReportTicketError
     || error instanceof ModerationReviewError
-    || error instanceof AccountModerationError) {
+    || error instanceof AccountModerationError
+    || error instanceof AccountAppealError) {
     throw new HttpsError(error.code, error.message);
   }
   logError(`${operation} failed.`, {
@@ -611,6 +620,102 @@ export const submitModerationReport = onCall(async (request) => {
     }, submitReportDependencies);
   } catch (error) {
     throwCallableError(error, 'Moderation report submission');
+  }
+});
+
+function accountAppealSubmissionPort(
+  transaction: FirebaseFirestore.Transaction,
+): AccountAppealSubmissionTransaction {
+  const read = async (collectionName: string, id: string) => {
+    const snapshot = await transaction.get(firestore.collection(collectionName).doc(id));
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  };
+  return {
+    getAccountAccess: (uid) => read('accountAccess', uid),
+    getOperation: (id) => read('accountModerationOperations', id),
+    getAppeal: (id) => read('accountAppeals', id),
+    getRequestPointer: (id) => read('accountAppealRequestKeys', id),
+    getDailyLimit: (id) => read('accountAppealLimits', id),
+    createAppeal(id, data) {
+      transaction.create(firestore.collection('accountAppeals').doc(id), data);
+    },
+    createRequestPointer(id, data) {
+      transaction.create(firestore.collection('accountAppealRequestKeys').doc(id), data);
+    },
+    setDailyLimit(id, data) {
+      transaction.set(firestore.collection('accountAppealLimits').doc(id), data);
+    },
+    createAudit(id, data) {
+      transaction.create(firestore.collection('accountAppealAuditLogs').doc(id), data);
+    },
+  };
+}
+
+const accountAppealSubmissionDependencies: AccountAppealSubmissionDependencies = {
+  now: () => new Date(),
+  async getEvidenceMetadata(path) {
+    try {
+      const [metadata] = await getReportBucket().file(path).getMetadata();
+      const size = Number(metadata.size);
+      return {
+        generation: metadata.generation,
+        contentType: metadata.contentType,
+        size,
+      };
+    } catch (error) {
+      if (isStorageObjectNotFound(error)) return null;
+      throw error;
+    }
+  },
+  async runTransaction(operation) {
+    return firestore.runTransaction(
+      (transaction) => operation(accountAppealSubmissionPort(transaction)),
+    );
+  },
+};
+
+function appealDto(appeal: StoredAccountAppeal | null) {
+  if (appeal === null) return null;
+  return {
+    ...appeal,
+    submittedAt: appeal.submittedAt.toDate().toISOString(),
+    updatedAt: appeal.updatedAt.toDate().toISOString(),
+    ...(appeal.status === 'submitted' ? {} : {
+      decidedAt: appeal.decidedAt.toDate().toISOString(),
+    }),
+  };
+}
+
+export const getOwnAccountAppeal = onCall(async (request) => {
+  try {
+    const result = await getOwnAccountAppealData({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, {
+      async getAccountAccess(uid) {
+        const snapshot = await firestore.collection('accountAccess').doc(uid).get();
+        return snapshot.exists ? snapshot.data() ?? null : null;
+      },
+      async getAppeal(id) {
+        const snapshot = await firestore.collection('accountAppeals').doc(id).get();
+        return snapshot.exists ? snapshot.data() ?? null : null;
+      },
+    });
+    return { appeal: appealDto(result) };
+  } catch (error) {
+    throwCallableError(error, 'Own account appeal read');
+  }
+});
+
+export const submitAccountAppeal = onCall(async (request) => {
+  try {
+    const result = await submitAccountAppealData({
+      authUid: request.auth?.uid ?? null,
+      data: request.data,
+    }, accountAppealSubmissionDependencies);
+    return { appeal: appealDto(result) };
+  } catch (error) {
+    throwCallableError(error, 'Account appeal submission');
   }
 });
 

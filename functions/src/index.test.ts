@@ -18,6 +18,7 @@ const {
   getModerationEvidence,
   getOwnSellerProfile,
   getSellerContact,
+  getOwnAccountAppeal,
   listCardMasterArchives,
   listModerationCases,
   mergeCardMasterEntries,
@@ -25,6 +26,7 @@ const {
   saveSellerProfile,
   sendDailyDigest,
   submitModerationReport,
+  submitAccountAppeal,
   decideModerationCase,
   suspendModerationTarget,
   restoreModerationTarget,
@@ -54,6 +56,7 @@ describe('notification Function deployment contract', () => {
       'getModerationCase',
       'getModerationEvidence',
       'getOwnSellerProfile',
+      'getOwnAccountAppeal',
       'getSellerContact',
       'listCardMasterArchives',
       'listModerationCases',
@@ -63,11 +66,22 @@ describe('notification Function deployment contract', () => {
       'sendDailyDigest',
       'suspendModerationTarget',
       'submitModerationReport',
+      'submitAccountAppeal',
       'updateSellerListing',
       'restoreModerationTarget',
       'republishSuspendedListing',
       'reconcileAccountModerationOperations',
     ].sort());
+  });
+
+  it('exposes seller appeal operations only as authenticated callable handlers', async () => {
+    for (const callable of [getOwnAccountAppeal, submitAccountAppeal]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+      await expect(callable.run({ auth: null, data: {} } as never))
+        .rejects.toMatchObject({ code: 'unauthenticated' });
+    }
   });
 
   it('exposes moderation review operations only as callable handlers', () => {

@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AccountAppealError,
+  getOwnAccountAppeal,
   parseAccountAppealDecisionRequest,
   parseAccountAppealSubmissionRequest,
   readStoredAccountAppeal,
@@ -147,6 +148,40 @@ describe('submitAccountAppeal', () => {
       await expect(submitAccountAppeal(mutate(fixture), fixture.dependencies))
         .rejects.toBeInstanceOf(AccountAppealError);
       expect(fixture.transaction.createAppeal).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('getOwnAccountAppeal', () => {
+  it('returns only the current suspended owner appeal and supports empty state', async () => {
+    const fixture = submissionHarness();
+    expect(await getOwnAccountAppeal(
+      { authUid: 'seller-1', data: { suspensionActionId: 'action-1' } },
+      { getAccountAccess: fixture.transaction.getAccountAccess, getAppeal: async () => null },
+    )).toBeNull();
+    const created = await submitAccountAppeal(
+      { authUid: 'seller-1', data: fixture.data }, fixture.dependencies,
+    );
+    expect(await getOwnAccountAppeal(
+      { authUid: 'seller-1', data: { suspensionActionId: 'action-1' } },
+      { getAccountAccess: fixture.transaction.getAccountAccess, getAppeal: async () => created },
+    )).toEqual(created);
+  });
+
+  it('rejects signed-out, active, stale-action, and mismatched appeal access', async () => {
+    const fixture = submissionHarness();
+    for (const [authUid, actionId, access, appeal] of [
+      [null, 'action-1', fixture.state.access, null],
+      ['seller-1', 'action-1', null, null],
+      ['seller-1', 'old-action', fixture.state.access, null],
+      ['seller-1', 'action-1', fixture.state.access, {
+        appealId: 'bad', targetUid: 'other', suspensionActionId: 'action-1',
+      }],
+    ] as const) {
+      await expect(getOwnAccountAppeal(
+        { authUid, data: { suspensionActionId: actionId } },
+        { getAccountAccess: async () => access, getAppeal: async () => appeal },
+      )).rejects.toBeInstanceOf(AccountAppealError);
     }
   });
 });
