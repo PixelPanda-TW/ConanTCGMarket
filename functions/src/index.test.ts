@@ -26,6 +26,10 @@ const {
   sendDailyDigest,
   submitModerationReport,
   decideModerationCase,
+  suspendModerationTarget,
+  restoreModerationTarget,
+  republishSuspendedListing,
+  reconcileAccountModerationOperations,
   updateSellerListing,
   deleteUnsoldListing,
 } = deployedFunctions;
@@ -57,9 +61,13 @@ describe('notification Function deployment contract', () => {
       'recordListingSale',
       'saveSellerProfile',
       'sendDailyDigest',
+      'suspendModerationTarget',
       'submitModerationReport',
       'updateSellerListing',
-    ]);
+      'restoreModerationTarget',
+      'republishSuspendedListing',
+      'reconcileAccountModerationOperations',
+    ].sort());
   });
 
   it('exposes moderation review operations only as callable handlers', () => {
@@ -80,12 +88,52 @@ describe('notification Function deployment contract', () => {
       [decideModerationCase, {
         reportId: 'report-1', decision: 'dismissed', rationale: '無法證實',
       }],
+      [suspendModerationTarget, {
+        reportId: 'report-1', requestId: '550e8400-e29b-41d4-a716-446655440000',
+        reason: '重複違規',
+      }],
+      [restoreModerationTarget, {
+        reportId: 'report-1', suspensionActionId: 'a'.repeat(64),
+        requestId: '550e8400-e29b-41d4-a716-446655440000', reason: '申訴成立',
+      }],
     ] as const;
     for (const [callable, data] of calls) {
       await expect(callable.run({
         auth: { uid: 'admin-1', token: { admin: 'true' } }, data,
       } as never)).rejects.toMatchObject({ code: 'permission-denied' });
     }
+  });
+
+  it('exposes account moderation as callable-only actions and one bounded schedule', () => {
+    for (const callable of [
+      suspendModerationTarget, restoreModerationTarget, republishSuspendedListing,
+    ]) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.invoker).toBeUndefined();
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+    }
+    expect(reconcileAccountModerationOperations.__endpoint.callableTrigger).toBeUndefined();
+    expect(reconcileAccountModerationOperations.__endpoint.httpsTrigger).toBeUndefined();
+    expect(reconcileAccountModerationOperations.__endpoint.scheduleTrigger?.schedule)
+      .toBe('*/5 * * * *');
+    expect(reconcileAccountModerationOperations.__endpoint.scheduleTrigger?.timeZone)
+      .toBe('Asia/Taipei');
+    expect(reconcileAccountModerationOperations.__endpoint.scheduleTrigger?.retryConfig?.retryCount)
+      .toBe(3);
+  });
+
+  it('keeps account moderation reads and writes bounded and server-only', async () => {
+    const source = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+    expect(source).toContain("firestore.collection('accountModerationOperations')");
+    expect(source).toContain("firestore.collection('accountModerationAuditLogs')");
+    expect(source).toContain("where('sellerId', '==', targetUid)");
+    expect(source).toContain("where('status', '==', 'active')");
+    expect(source).toContain("where('status', '==', 'hiding')");
+    expect(source).toContain("orderBy('createdAt', 'asc')");
+    expect(source).toContain('ACCOUNT_MODERATION_RECONCILE_LIMIT');
+    expect(source).not.toMatch(
+      /log(?:Error|Info)\([^\n]*(reason|reportId|targetUid|listingId|request\.data)/u,
+    );
   });
 
   it('uses bounded Admin moderation queries, transactions, and generation-pinned downloads', async () => {

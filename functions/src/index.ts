@@ -13,6 +13,22 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import {
+  AccountModerationError,
+  drainAccountModerationOperation,
+  reconcileAccountModerationOperation,
+  republishSuspendedListing as republishSuspendedListingData,
+  restoreModerationTarget as restoreModerationTargetData,
+  suspendModerationTarget as suspendModerationTargetData,
+  type AccountModerationReconciliationDependencies,
+  type AccountModerationReconciliationTransaction,
+  type AccountRestorationDependencies,
+  type AccountRestorationTransaction,
+  type AccountSuspensionDependencies,
+  type AccountSuspensionTransaction,
+  type ListingRepublishDependencies,
+  type ListingRepublishTransaction,
+} from './accountModeration.js';
+import {
   AdminCardMasterError,
   handleAddCardMasterEntry,
   handleDisableCardMasterEntry,
@@ -293,7 +309,8 @@ function throwCallableError(error: unknown, operation: string): never {
     || error instanceof ListingLifecycleError
     || error instanceof AdminCardMasterError
     || error instanceof ReportTicketError
-    || error instanceof ModerationReviewError) {
+    || error instanceof ModerationReviewError
+    || error instanceof AccountModerationError) {
     throw new HttpsError(error.code, error.message);
   }
   logError(`${operation} failed.`, {
@@ -706,6 +723,162 @@ const moderationDecisionDependencies: ModerationDecisionDependencies = {
   },
 };
 
+function accountSuspensionPort(
+  transaction: FirebaseFirestore.Transaction,
+): AccountSuspensionTransaction {
+  return {
+    async getAccountAccess(uid) {
+      const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getCase(id) {
+      const snapshot = await transaction.get(firestore.collection('moderationCases').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getReport(id) {
+      const snapshot = await transaction.get(firestore.collection('moderationReports').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getOperation(id) {
+      const snapshot = await transaction.get(
+        firestore.collection('accountModerationOperations').doc(id),
+      );
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    createOperation(id, data) {
+      transaction.create(firestore.collection('accountModerationOperations').doc(id), data);
+    },
+    setAccountAccess(uid, data) {
+      transaction.set(firestore.collection('accountAccess').doc(uid), data);
+    },
+    createAudit(id, data) {
+      transaction.create(firestore.collection('accountModerationAuditLogs').doc(id), data);
+    },
+  };
+}
+
+const accountSuspensionDependencies: AccountSuspensionDependencies = {
+  now: () => new Date(),
+  async runTransaction(operation) {
+    return firestore.runTransaction((transaction) => operation(accountSuspensionPort(transaction)));
+  },
+};
+
+function accountReconciliationPort(
+  transaction: FirebaseFirestore.Transaction,
+): AccountModerationReconciliationTransaction {
+  return {
+    async getOperation(id) {
+      const snapshot = await transaction.get(
+        firestore.collection('accountModerationOperations').doc(id),
+      );
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getAccountAccess(uid) {
+      const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async listActiveListings(targetUid, limit) {
+      const query = firestore.collection('listings')
+        .where('sellerId', '==', targetUid)
+        .where('status', '==', 'active')
+        .orderBy(FieldPath.documentId(), 'asc')
+        .limit(limit);
+      const snapshot = await transaction.get(query);
+      return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }));
+    },
+    updateListing(id, patch) {
+      transaction.update(firestore.collection('listings').doc(id), patch);
+    },
+    updateOperation(id, patch) {
+      transaction.update(firestore.collection('accountModerationOperations').doc(id), patch);
+    },
+    createAudit(id, data) {
+      transaction.create(firestore.collection('accountModerationAuditLogs').doc(id), data);
+    },
+  };
+}
+
+const accountReconciliationDependencies: AccountModerationReconciliationDependencies = {
+  now: () => new Date(),
+  async runTransaction(operation) {
+    return firestore.runTransaction(
+      (transaction) => operation(accountReconciliationPort(transaction)),
+    );
+  },
+};
+
+function accountRestorationPort(
+  transaction: FirebaseFirestore.Transaction,
+): AccountRestorationTransaction {
+  const suspension = accountSuspensionPort(transaction);
+  return {
+    getAccountAccess: suspension.getAccountAccess,
+    getCase: suspension.getCase,
+    getReport: suspension.getReport,
+    getOperation: suspension.getOperation,
+    setAccountAccess: suspension.setAccountAccess,
+    updateOperation(id, patch) {
+      transaction.update(firestore.collection('accountModerationOperations').doc(id), patch);
+    },
+    createAudit: suspension.createAudit,
+  };
+}
+
+const accountRestorationDependencies: AccountRestorationDependencies = {
+  now: () => new Date(),
+  async runTransaction(operation) {
+    return firestore.runTransaction((transaction) => operation(accountRestorationPort(transaction)));
+  },
+};
+
+function listingRepublishPort(
+  transaction: FirebaseFirestore.Transaction,
+): ListingRepublishTransaction {
+  return {
+    async getAccountAccess(uid) {
+      const snapshot = await transaction.get(firestore.collection('accountAccess').doc(uid));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getOperation(id) {
+      const snapshot = await transaction.get(
+        firestore.collection('accountModerationOperations').doc(id),
+      );
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getListing(id) {
+      const snapshot = await transaction.get(firestore.collection('listings').doc(id));
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    async getAudit(id) {
+      const snapshot = await transaction.get(
+        firestore.collection('accountModerationAuditLogs').doc(id),
+      );
+      return snapshot.exists ? snapshot.data() ?? null : null;
+    },
+    updateListing(id, patch) {
+      transaction.update(
+        firestore.collection('listings').doc(id),
+        Object.fromEntries(Object.entries(patch).map(([key, value]) => [
+          key, value === null ? FieldValue.delete() : value,
+        ])),
+      );
+    },
+    createAudit(id, data) {
+      transaction.create(firestore.collection('accountModerationAuditLogs').doc(id), data);
+    },
+  };
+}
+
+const listingRepublishDependencies: ListingRepublishDependencies = {
+  now: () => new Date(),
+  async runTransaction(operation) {
+    return firestore.runTransaction((transaction) => operation(listingRepublishPort(transaction)));
+  },
+};
+
+const ACCOUNT_MODERATION_RECONCILE_LIMIT = 10;
+
 export const listModerationCases = onCall(async (request) => {
   try {
     return await listModerationCasesData({
@@ -756,6 +929,56 @@ export const decideModerationCase = onCall(async (request) => {
     throwCallableError(error, 'Moderation case decision');
   }
 });
+
+export const suspendModerationTarget = onCall(
+  { timeoutSeconds: 540, maxInstances: 5 },
+  async (request) => {
+    try {
+      const opened = await suspendModerationTargetData({
+        authUid: request.auth?.uid ?? null,
+        adminClaim: request.auth?.token.admin,
+        data: request.data,
+      }, accountSuspensionDependencies);
+      return await drainAccountModerationOperation(
+        opened.actionId,
+        (actionId) => reconcileAccountModerationOperation(
+          actionId, accountReconciliationDependencies,
+        ),
+      );
+    } catch (error) {
+      throwCallableError(error, 'Account suspension');
+    }
+  },
+);
+
+export const restoreModerationTarget = onCall(
+  { timeoutSeconds: 60, maxInstances: 5 },
+  async (request) => {
+    try {
+      return await restoreModerationTargetData({
+        authUid: request.auth?.uid ?? null,
+        adminClaim: request.auth?.token.admin,
+        data: request.data,
+      }, accountRestorationDependencies);
+    } catch (error) {
+      throwCallableError(error, 'Account restoration');
+    }
+  },
+);
+
+export const republishSuspendedListing = onCall(
+  { timeoutSeconds: 60, maxInstances: 5 },
+  async (request) => {
+    try {
+      return await republishSuspendedListingData({
+        authUid: request.auth?.uid ?? null,
+        data: request.data,
+      }, listingRepublishDependencies);
+    } catch (error) {
+      throwCallableError(error, 'Held Listing republish');
+    }
+  },
+);
 
 const reportCleanupDependencies: ReportCleanupDependencies = {
   now: () => new Date(),
@@ -1203,5 +1426,38 @@ export const cleanupExpiredReportDrafts = onSchedule(
   async () => {
     const result = await cleanupExpiredReportDraftsData(reportCleanupDependencies);
     logInfo('Expired moderation report cleanup completed.', result);
+  },
+);
+
+export const reconcileAccountModerationOperations = onSchedule(
+  {
+    schedule: '*/5 * * * *',
+    timeZone: 'Asia/Taipei',
+    retryCount: 3,
+    minBackoffSeconds: 60,
+    maxBackoffSeconds: 300,
+    timeoutSeconds: 540,
+    maxInstances: 1,
+  },
+  async () => {
+    const snapshot = await firestore.collection('accountModerationOperations')
+      .where('status', '==', 'hiding')
+      .orderBy('createdAt', 'asc')
+      .orderBy(FieldPath.documentId(), 'asc')
+      .limit(ACCOUNT_MODERATION_RECONCILE_LIMIT)
+      .get();
+    const results = [];
+    for (const document of snapshot.docs) {
+      results.push(await drainAccountModerationOperation(
+        document.id,
+        (actionId) => reconcileAccountModerationOperation(
+          actionId, accountReconciliationDependencies,
+        ),
+      ));
+    }
+    logInfo('Account moderation reconciliation completed.', {
+      processedCount: results.length,
+      pendingCount: results.filter(({ status }) => status === 'hiding').length,
+    });
   },
 );

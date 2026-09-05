@@ -70,4 +70,27 @@ describe('Firestore deployment configuration', () => {
       ],
     });
   });
+
+  it('deploys exact account moderation reconciliation and history indexes', async () => {
+    const indexes = await readJson('../../firestore.indexes.json') as { indexes?: unknown[] };
+    expect(indexes.indexes).toEqual(expect.arrayContaining([{
+      collectionGroup: 'listings', queryScope: 'COLLECTION', fields: [
+        { fieldPath: 'sellerId', order: 'ASCENDING' },
+        { fieldPath: 'status', order: 'ASCENDING' },
+        { fieldPath: '__name__', order: 'ASCENDING' },
+      ],
+    }, {
+      collectionGroup: 'accountModerationOperations', queryScope: 'COLLECTION', fields: [
+        { fieldPath: 'status', order: 'ASCENDING' },
+        { fieldPath: 'createdAt', order: 'ASCENDING' },
+        { fieldPath: '__name__', order: 'ASCENDING' },
+      ],
+    }, {
+      collectionGroup: 'accountModerationAuditLogs', queryScope: 'COLLECTION', fields: [
+        { fieldPath: 'targetUid', order: 'ASCENDING' },
+        { fieldPath: 'at', order: 'DESCENDING' },
+        { fieldPath: '__name__', order: 'DESCENDING' },
+      ],
+    }]));
+  });
 });
