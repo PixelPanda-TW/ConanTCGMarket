@@ -1,4 +1,7 @@
 import { Timestamp } from 'firebase-admin/firestore';
+import { createHash } from 'node:crypto';
+import { readModerationCase, type ConfirmedModerationCase } from './moderationReview.js';
+import { readModerationReport, type SubmittedModerationReport } from './reportTickets.js';
 
 export const ACCOUNT_MODERATION_OPERATION_STATUSES = ['hiding', 'suspended', 'restored'] as const;
 export const ACCOUNT_MODERATION_AUDIT_TYPES = [
@@ -80,6 +83,35 @@ export type AccountModerationAuditEvent =
   | (StoredAuditBase & { type: 'restored'; reason: string })
   | (StoredAuditBase & { type: 'listing_republished'; listingId: string });
 
+export interface SuspendModerationTargetRequest {
+  reportId: string;
+  requestId: string;
+  reason: string;
+}
+
+export interface AccountModerationCallableRequest {
+  authUid: string | null;
+  adminClaim: unknown;
+  data: unknown;
+}
+
+export interface AccountSuspensionTransaction {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getCase(id: string): Promise<unknown | null>;
+  getReport(id: string): Promise<unknown | null>;
+  getOperation(id: string): Promise<unknown | null>;
+  createOperation(id: string, data: Record<string, unknown>): void;
+  setAccountAccess(uid: string, data: Record<string, unknown>): void;
+  createAudit(id: string, data: Record<string, unknown>): void;
+}
+
+export interface AccountSuspensionDependencies {
+  now(): Date;
+  runTransaction<T>(
+    operation: (transaction: AccountSuspensionTransaction) => Promise<T>,
+  ): Promise<T>;
+}
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const keyPattern = /^[0-9a-f]{64}$/u;
 
@@ -98,6 +130,10 @@ function exact(value: Record<string, unknown>, fields: readonly string[]): boole
 
 function malformed(): never {
   throw new AccountModerationError('failed-precondition', '帳號管理記錄無法使用。');
+}
+
+function invalid(): never {
+  throw new AccountModerationError('invalid-argument', '請檢查停權資料。');
 }
 
 function identifier(value: unknown, maximum = 200): value is string {
@@ -194,4 +230,213 @@ export function readAccountModerationAuditEvent(value: unknown): AccountModerati
   }
   if (value.type === 'listing_republished' && !identifier(value.listingId)) return malformed();
   return value as unknown as AccountModerationAuditEvent;
+}
+
+export function parseSuspendModerationTargetRequest(
+  value: unknown,
+): SuspendModerationTargetRequest {
+  if (!isRecord(value) || !exact(value, ['reportId', 'requestId', 'reason'])
+    || !identifier(value.reportId)
+    || !isAccountModerationRequestId(value.requestId)
+    || !reason(value.reason)) return invalid();
+  return value as unknown as SuspendModerationTargetRequest;
+}
+
+interface ActiveStoredAccountAccess {
+  status: 'active';
+  confirmedViolationCount: number;
+  updatedAt: Timestamp;
+}
+
+interface SuspendedStoredAccountAccess {
+  status: 'suspended';
+  confirmedViolationCount: number;
+  suspensionReason: string;
+  suspendedAt: Timestamp;
+  suspendedBy: string;
+  suspensionActionId: string;
+  updatedAt: Timestamp;
+}
+
+type StoredAccountAccess = ActiveStoredAccountAccess | SuspendedStoredAccountAccess;
+
+function readAccountAccess(value: unknown): StoredAccountAccess {
+  if (!isRecord(value)) return malformed();
+  if (value.status === 'active') {
+    if (!exact(value, ['status', 'confirmedViolationCount', 'updatedAt'])
+      || !count(value.confirmedViolationCount) || !timestamp(value.updatedAt)) return malformed();
+    return value as unknown as ActiveStoredAccountAccess;
+  }
+  if (value.status === 'suspended') {
+    if (!exact(value, [
+      'status', 'confirmedViolationCount', 'suspensionReason', 'suspendedAt',
+      'suspendedBy', 'suspensionActionId', 'updatedAt',
+    ]) || !count(value.confirmedViolationCount)
+      || !reason(value.suspensionReason)
+      || !timestamp(value.suspendedAt)
+      || !identifier(value.suspendedBy, 128)
+      || !identifier(value.suspensionActionId)
+      || !timestamp(value.updatedAt)) return malformed();
+    return value as unknown as SuspendedStoredAccountAccess;
+  }
+  return malformed();
+}
+
+function requirePrincipal(request: AccountModerationCallableRequest): string {
+  if (!identifier(request.authUid, 128)) {
+    throw new AccountModerationError('unauthenticated', '請先使用 Google 登入。');
+  }
+  if (request.adminClaim !== true) {
+    throw new AccountModerationError('permission-denied', '無權限執行帳號管理。');
+  }
+  return request.authUid;
+}
+
+function requireActiveAdminAccess(value: unknown | null): void {
+  if (value === null) return;
+  try {
+    if (readAccountAccess(value).status === 'active') return;
+  } catch {
+    // Admin account state is intentionally mapped to the same authorization result.
+  }
+  throw new AccountModerationError('permission-denied', '無權限執行帳號管理。');
+}
+
+function readConfirmedPair(
+  reportId: string,
+  caseValue: unknown | null,
+  reportValue: unknown | null,
+): { moderationCase: ConfirmedModerationCase; report: SubmittedModerationReport } {
+  try {
+    const moderationCase = readModerationCase(caseValue);
+    const report = readModerationReport(reportValue);
+    if (moderationCase.status !== 'confirmed' || report.status !== 'submitted'
+      || moderationCase.reportId !== reportId
+      || moderationCase.targetSellerId !== report.targetSellerId
+      || moderationCase.openedAt.toMillis() !== report.submittedAt.toMillis()) return malformed();
+    return { moderationCase, report };
+  } catch {
+    return malformed();
+  }
+}
+
+function suspensionActionId(adminUid: string, requestId: string): string {
+  return createHash('sha256').update(`suspension:${adminUid}:${requestId}`, 'utf8').digest('hex');
+}
+
+function operationResult(operation: AccountModerationOperation) {
+  return {
+    actionId: operation.actionId,
+    status: operation.status,
+    targetUid: operation.targetUid,
+    hiddenListingCount: operation.hiddenListingCount,
+  };
+}
+
+function assertCompatibleRetry(
+  operation: AccountModerationOperation,
+  input: SuspendModerationTargetRequest,
+  adminUid: string,
+  targetUid: string,
+  actionId: string,
+  targetAccess: StoredAccountAccess,
+): void {
+  if (operation.actionId !== actionId || operation.requestKey !== actionId
+    || operation.requestedBy !== adminUid || operation.targetUid !== targetUid
+    || operation.sourceReportId !== input.reportId || operation.reason !== input.reason) {
+    return malformed();
+  }
+  if (operation.status === 'restored') {
+    if (targetAccess.status !== 'active'
+      || targetAccess.confirmedViolationCount < operation.confirmedViolationCount) return malformed();
+    return;
+  }
+  if (targetAccess.status !== 'suspended'
+    || targetAccess.suspensionActionId !== actionId
+    || targetAccess.confirmedViolationCount < operation.confirmedViolationCount) return malformed();
+}
+
+export async function suspendModerationTarget(
+  request: AccountModerationCallableRequest,
+  dependencies: AccountSuspensionDependencies,
+) {
+  const input = parseSuspendModerationTargetRequest(request.data);
+  const adminUid = requirePrincipal(request);
+  const actionId = suspensionActionId(adminUid, input.requestId);
+  const nowDate = dependencies.now();
+  if (!(nowDate instanceof Date) || Number.isNaN(nowDate.valueOf())) {
+    throw new AccountModerationError('unavailable', '目前無法停權帳號。');
+  }
+  const now = Timestamp.fromDate(nowDate);
+  try {
+    return await dependencies.runTransaction(async (transaction) => {
+      const [adminAccessValue, caseValue, reportValue, operationValue] = await Promise.all([
+        transaction.getAccountAccess(adminUid),
+        transaction.getCase(input.reportId),
+        transaction.getReport(input.reportId),
+        transaction.getOperation(actionId),
+      ]);
+      requireActiveAdminAccess(adminAccessValue);
+      const pair = readConfirmedPair(input.reportId, caseValue, reportValue);
+      const targetUid = pair.report.targetSellerId;
+      if (targetUid === adminUid) {
+        throw new AccountModerationError('permission-denied', '管理員不能停權自己的帳號。');
+      }
+      const targetValue = await transaction.getAccountAccess(targetUid);
+      const targetAccess: StoredAccountAccess = targetValue === null
+        ? { status: 'active', confirmedViolationCount: 0, updatedAt: now }
+        : readAccountAccess(targetValue);
+      if (operationValue !== null) {
+        const operation = readAccountModerationOperation(operationValue);
+        assertCompatibleRetry(
+          operation, input, adminUid, targetUid, actionId, targetAccess,
+        );
+        return operationResult(operation);
+      }
+      if (targetAccess.status !== 'active'
+        || targetAccess.confirmedViolationCount < 2
+        || pair.moderationCase.resultingConfirmedViolationCount
+          > targetAccess.confirmedViolationCount) return malformed();
+
+      const operation: HidingAccountModerationOperation = {
+        actionId,
+        status: 'hiding',
+        targetUid,
+        sourceReportId: input.reportId,
+        requestedBy: adminUid,
+        reason: input.reason,
+        requestKey: actionId,
+        confirmedViolationCount: targetAccess.confirmedViolationCount,
+        hiddenListingCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const requestedEventId = `${actionId}_requested`;
+      transaction.createOperation(actionId, operation as unknown as Record<string, unknown>);
+      transaction.setAccountAccess(targetUid, {
+        status: 'suspended',
+        confirmedViolationCount: targetAccess.confirmedViolationCount,
+        suspensionReason: input.reason,
+        suspendedAt: now,
+        suspendedBy: adminUid,
+        suspensionActionId: actionId,
+        updatedAt: now,
+      });
+      transaction.createAudit(requestedEventId, {
+        eventId: requestedEventId,
+        type: 'suspension_requested',
+        targetUid,
+        suspensionActionId: actionId,
+        sourceReportId: input.reportId,
+        actorUid: adminUid,
+        reason: input.reason,
+        confirmedViolationCount: targetAccess.confirmedViolationCount,
+        at: now,
+      });
+      return operationResult(operation);
+    });
+  } catch (error) {
+    if (error instanceof AccountModerationError) throw error;
+    throw new AccountModerationError('unavailable', '目前無法停權帳號。');
+  }
 }
