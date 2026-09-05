@@ -55,20 +55,24 @@ function exact(value: Record<string, unknown>, fields: readonly string[]): boole
   const keys = Object.keys(value);
   return keys.length === fields.length && fields.every((field) => keys.includes(field));
 }
-function requireAdmin(request: AccountAppealAdminRequest, access: unknown | null): string {
+function requireAdminIdentity(request: AccountAppealAdminRequest): string {
   if (typeof request.authUid !== 'string' || request.authUid.length < 1) {
     throw new AccountAppealError('unauthenticated', '請先登入。');
   }
   if (request.adminClaim !== true) {
     throw new AccountAppealError('permission-denied', '無法執行申訴審核。');
   }
+  return request.authUid;
+}
+function requireAdmin(request: AccountAppealAdminRequest, access: unknown | null): string {
+  const uid = requireAdminIdentity(request);
   if (access !== null && (!record(access)
     || !exact(access, ['status', 'confirmedViolationCount', 'updatedAt'])
     || access.status !== 'active' || !Number.isSafeInteger(access.confirmedViolationCount)
     || (access.confirmedViolationCount as number) < 0 || !(access.updatedAt instanceof Timestamp))) {
     throw new AccountAppealError('permission-denied', '無法執行申訴審核。');
   }
-  return request.authUid;
+  return uid;
 }
 function result(appealId: string, status: 'dismissed' | 'approved', at: Timestamp) {
   return { appealId, status, decidedAt: at.toMillis() };
@@ -103,6 +107,7 @@ export async function listAccountAppeals(
   request: AccountAppealAdminRequest,
   dependencies: AccountAppealListDependencies,
 ) {
+  requireAdminIdentity(request);
   if (!record(request.data) || !exact(request.data, ['status', 'limit', 'cursor'])
     || !['submitted', 'dismissed', 'approved'].includes(String(request.data.status))
     || !Number.isInteger(request.data.limit) || (request.data.limit as number) < 1
@@ -162,6 +167,7 @@ export async function getAccountAppeal(
   request: AccountAppealAdminRequest,
   dependencies: AccountAppealReadDependencies,
 ) {
+  requireAdminIdentity(request);
   const appealId = parseIdRequest(request.data);
   try {
     const adminUid = requireAdmin(request, await dependencies.getAccountAccess(request.authUid ?? ''));
@@ -180,6 +186,7 @@ export async function getAccountAppealEvidence(
   request: AccountAppealAdminRequest,
   dependencies: AccountAppealEvidenceDependencies,
 ) {
+  requireAdminIdentity(request);
   if (!record(request.data) || !exact(request.data, ['appealId', 'slot'])
     || typeof request.data.appealId !== 'string' || request.data.appealId.length < 1
     || !Number.isInteger(request.data.slot) || (request.data.slot as number) < 0
@@ -221,6 +228,7 @@ export async function decideAccountAppeal(
   request: AccountAppealAdminRequest,
   dependencies: AccountAppealDecisionDependencies,
 ) {
+  requireAdminIdentity(request);
   const input = parseAccountAppealDecisionRequest(request.data);
   const nowDate = dependencies.now();
   if (!(nowDate instanceof Date) || Number.isNaN(nowDate.valueOf())) {

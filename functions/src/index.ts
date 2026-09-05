@@ -42,6 +42,17 @@ import {
   type AppealCleanupDependencies,
 } from './appealCleanup.js';
 import {
+  decideAccountAppeal as decideAccountAppealData,
+  getAccountAppeal as getAccountAppealData,
+  getAccountAppealEvidence as getAccountAppealEvidenceData,
+  listAccountAppeals as listAccountAppealsData,
+  type AccountAppealDecisionDependencies,
+  type AccountAppealDecisionTransaction,
+  type AccountAppealEvidenceDependencies,
+  type AccountAppealListDependencies,
+  type AccountAppealReadDependencies,
+} from './accountAppealReview.js';
+import {
   AdminCardMasterError,
   handleAddCardMasterEntry,
   handleDisableCardMasterEntry,
@@ -718,6 +729,117 @@ export const getOwnAccountAppeal = onCall(async (request) => {
   } catch (error) {
     throwCallableError(error, 'Own account appeal read');
   }
+});
+
+const accountAppealListDependencies: AccountAppealListDependencies = {
+  getAccountAccess: getModerationAccountAccess,
+  async listAppeals(input) {
+    let query = firestore.collection('accountAppeals')
+      .where('status', '==', input.status)
+      .orderBy('submittedAt', 'desc')
+      .orderBy(FieldPath.documentId(), 'desc')
+      .limit(input.limit);
+    if (input.cursor) {
+      query = query.startAfter(Timestamp.fromMillis(input.cursor.submittedAt), input.cursor.key);
+    }
+    const snapshot = await query.get();
+    return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }));
+  },
+};
+
+const accountAppealReadDependencies: AccountAppealReadDependencies = {
+  getAccountAccess: getModerationAccountAccess,
+  async getAppeal(id) {
+    const snapshot = await firestore.collection('accountAppeals').doc(id).get();
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  },
+};
+
+const accountAppealEvidenceDependencies: AccountAppealEvidenceDependencies = {
+  ...accountAppealReadDependencies,
+  async getEvidenceMetadata(path) {
+    try {
+      const [metadata] = await getReportBucket().file(path).getMetadata();
+      return { generation: metadata.generation, contentType: metadata.contentType, size: metadata.size };
+    } catch (error) {
+      if (isStorageObjectNotFound(error)) return null;
+      throw error;
+    }
+  },
+  async downloadEvidence(path, generation) {
+    const [bytes] = await getReportBucket().file(path, { generation }).download({ validation: 'md5' });
+    return bytes;
+  },
+};
+
+function accountAppealDecisionPort(
+  transaction: FirebaseFirestore.Transaction,
+): AccountAppealDecisionTransaction {
+  const read = async (collectionName: string, id: string) => {
+    const snapshot = await transaction.get(firestore.collection(collectionName).doc(id));
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  };
+  return {
+    getAccountAccess: (uid) => read('accountAccess', uid),
+    getAppeal: (id) => read('accountAppeals', id),
+    getOperation: (id) => read('accountModerationOperations', id),
+    updateAppeal(id, patch) {
+      transaction.update(firestore.collection('accountAppeals').doc(id), patch);
+    },
+    setAccountAccess(uid, data) {
+      transaction.set(firestore.collection('accountAccess').doc(uid), data);
+    },
+    updateOperation(id, patch) {
+      transaction.update(firestore.collection('accountModerationOperations').doc(id), patch);
+    },
+    createAccountModerationAudit(id, data) {
+      transaction.create(firestore.collection('accountModerationAuditLogs').doc(id), data);
+    },
+    createAppealAudit(id, data) {
+      transaction.create(firestore.collection('accountAppealAuditLogs').doc(id), data);
+    },
+  };
+}
+
+const accountAppealDecisionDependencies: AccountAppealDecisionDependencies = {
+  now: () => new Date(),
+  async runTransaction(operation) {
+    return firestore.runTransaction(
+      (transaction) => operation(accountAppealDecisionPort(transaction)),
+    );
+  },
+};
+
+export const listAccountAppeals = onCall(async (request) => {
+  try {
+    return await listAccountAppealsData({
+      authUid: request.auth?.uid ?? null, adminClaim: request.auth?.token.admin, data: request.data,
+    }, accountAppealListDependencies);
+  } catch (error) { throwCallableError(error, 'Account appeal list'); }
+});
+
+export const getAccountAppeal = onCall(async (request) => {
+  try {
+    return await getAccountAppealData({
+      authUid: request.auth?.uid ?? null, adminClaim: request.auth?.token.admin, data: request.data,
+    }, accountAppealReadDependencies);
+  } catch (error) { throwCallableError(error, 'Account appeal detail'); }
+});
+
+export const getAccountAppealEvidence = onCall(async (request) => {
+  try {
+    return await getAccountAppealEvidenceData({
+      authUid: request.auth?.uid ?? null, adminClaim: request.auth?.token.admin, data: request.data,
+    }, accountAppealEvidenceDependencies);
+  } catch (error) { throwCallableError(error, 'Account appeal evidence'); }
+});
+
+export const decideAccountAppeal = onCall(async (request) => {
+  try {
+    return await decideAccountAppealData({
+      authUid: request.auth?.uid ?? null, adminClaim: request.auth?.token.admin, data: request.data,
+    }, accountAppealDecisionDependencies);
+  } catch (error) { throwCallableError(error, 'Account appeal decision'); }
 });
 
 export const submitAccountAppeal = onCall(async (request) => {

@@ -20,6 +20,8 @@ const {
   getOwnSellerProfile,
   getSellerContact,
   getOwnAccountAppeal,
+  getAccountAppeal,
+  getAccountAppealEvidence,
   listCardMasterArchives,
   listModerationCases,
   mergeCardMasterEntries,
@@ -28,6 +30,8 @@ const {
   sendDailyDigest,
   submitModerationReport,
   submitAccountAppeal,
+  listAccountAppeals,
+  decideAccountAppeal,
   decideModerationCase,
   suspendModerationTarget,
   restoreModerationTarget,
@@ -59,6 +63,8 @@ describe('notification Function deployment contract', () => {
       'getModerationEvidence',
       'getOwnSellerProfile',
       'getOwnAccountAppeal',
+      'getAccountAppeal',
+      'getAccountAppealEvidence',
       'getSellerContact',
       'listCardMasterArchives',
       'listModerationCases',
@@ -69,6 +75,8 @@ describe('notification Function deployment contract', () => {
       'suspendModerationTarget',
       'submitModerationReport',
       'submitAccountAppeal',
+      'listAccountAppeals',
+      'decideAccountAppeal',
       'updateSellerListing',
       'restoreModerationTarget',
       'republishSuspendedListing',
@@ -92,6 +100,25 @@ describe('notification Function deployment contract', () => {
     expect(cleanupExpiredAppealDrafts.__endpoint.scheduleTrigger?.schedule).toBe('*/5 * * * *');
     expect(cleanupExpiredAppealDrafts.__endpoint.scheduleTrigger?.timeZone).toBe('Asia/Taipei');
     expect(cleanupExpiredAppealDrafts.__endpoint.timeoutSeconds).toBe(540);
+  });
+
+  it('exposes admin appeal review only as callable handlers with exact claim checks', async () => {
+    const calls = [
+      [listAccountAppeals, { status: 'submitted', limit: 20, cursor: null }],
+      [getAccountAppeal, { appealId: 'appeal-1' }],
+      [getAccountAppealEvidence, { appealId: 'appeal-1', slot: 0 }],
+      [decideAccountAppeal, {
+        appealId: 'appeal-1', requestId: '550e8400-e29b-41d4-a716-446655440000',
+        decision: 'dismissed', rationale: '人工複核完成。',
+      }],
+    ] as const;
+    for (const [callable, data] of calls) {
+      expect(callable.__endpoint.callableTrigger).toEqual({});
+      expect(callable.__endpoint.httpsTrigger).toBeUndefined();
+      await expect(callable.run({
+        auth: { uid: 'admin-1', token: { admin: 'true' } }, data,
+      } as never)).rejects.toMatchObject({ code: 'permission-denied' });
+    }
   });
 
   it('exposes moderation review operations only as callable handlers', () => {
