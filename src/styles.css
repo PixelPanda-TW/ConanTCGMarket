@@ -931,6 +931,11 @@ h1 {
   font-size: .875rem;
 }
 
+.listing-card--held {
+  border-color: hsl(var(--destructive) / .28);
+  background: hsl(var(--destructive) / .035);
+}
+
 .moderation-case-page button { min-height: 44px; }
 .moderation-case-page button:focus-visible,
 .moderation-case-page a:focus-visible,

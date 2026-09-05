@@ -4,6 +4,7 @@ export function summarizeDashboard(
 ) {
   return {
     activeCount: listings.filter((listing) => listing.status === 'active').length,
+    heldCount: listings.filter((listing) => listing.status === 'suspended').length,
     soldQuantity: sales.reduce((total, sale) => total + sale.quantity, 0),
     revenue: sales.reduce((total, sale) => total + sale.quantity * sale.soldUnitPrice, 0),
   };

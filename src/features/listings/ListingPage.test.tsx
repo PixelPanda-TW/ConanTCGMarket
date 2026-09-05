@@ -16,6 +16,7 @@ const repositories = vi.hoisted(() => ({
   listCards: vi.fn(),
   removeNotificationCardName: vi.fn(),
   removeNotificationSeller: vi.fn(),
+  republishSuspendedListing: vi.fn(),
 }));
 const authState = vi.hoisted(() => ({
   current: {
@@ -129,7 +130,7 @@ describe('ListingPage card-name subscriptions', () => {
     authState.current.accountAccessState = { state: 'active', access: null };
     authState.current.isActiveAccount = true;
     view.rerender(<ListingPage id="listing-1" />);
-    expect(screen.getByRole('link', { name: '檢舉商品' })).toBeTruthy();
+    expect(await screen.findByRole('link', { name: '檢舉商品' })).toBeTruthy();
   });
 
   it('hides report navigation from owners, sold Listings, and unavailable accounts', async () => {
@@ -189,7 +190,63 @@ describe('ListingPage card-name subscriptions', () => {
     authState.current.accountAccessState = { state: 'signed-out' };
     authState.current.isActiveAccount = false;
     view.rerender(<ListingPage id="listing-1" />);
-    expect(screen.getByRole('heading', { name: '找不到商品' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '找不到商品' })).toBeTruthy();
+  });
+
+  it('shows a held Listing only to its owner and gates every mutation by active access', async () => {
+    const held = {
+      ...listing, status: 'suspended' as const, suspensionActionId: 'a'.repeat(64),
+      suspendedAt: new Date('2026-09-04T06:00:00Z'),
+    };
+    repositories.getListing.mockResolvedValue(held);
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'suspended', access: {} };
+    const view = render(<ListingPage id="listing-1" />);
+    expect(await screen.findByText('因帳號停權暫停顯示')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: '管理此商品' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '重新上架商品' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /查看聯絡方式|訂閱/u })).toBeNull();
+
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    view.rerender(<ListingPage id="listing-1" />);
+    expect(screen.getByRole('link', { name: '管理此商品' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重新上架商品' })).toBeTruthy();
+
+    authState.current.user = { uid: 'buyer-1' };
+    view.rerender(<ListingPage id="listing-1" />);
+    expect(await screen.findByRole('heading', { name: '找不到商品' })).toBeTruthy();
+  });
+
+  it('republishes a held Listing once, waits for trusted reload, and sanitizes retry errors', async () => {
+    const held = {
+      ...listing, status: 'suspended' as const, suspensionActionId: 'a'.repeat(64),
+      suspendedAt: new Date('2026-09-04T06:00:00Z'),
+    };
+    repositories.getListing.mockResolvedValueOnce(held).mockResolvedValueOnce(listing);
+    authState.current.user = { uid: 'seller-1' };
+    authState.current.accountAccessState = { state: 'active', access: null };
+    authState.current.isActiveAccount = true;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let resolveRepublish!: (value: unknown) => void;
+    repositories.republishSuspendedListing
+      .mockRejectedValueOnce(new Error('private operation'))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveRepublish = resolve; }));
+    render(<ListingPage id="listing-1" />);
+    const action = await screen.findByRole('button', { name: '重新上架商品' });
+    fireEvent.click(action);
+    expect((await screen.findByRole('alert')).textContent).toContain('無法重新上架商品');
+    expect(document.body.textContent).not.toContain('private operation');
+    fireEvent.click(screen.getByRole('button', { name: '重新上架商品' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新上架處理中' }));
+    expect(repositories.republishSuspendedListing).toHaveBeenCalledTimes(2);
+    expect(repositories.republishSuspendedListing).toHaveBeenLastCalledWith({
+      listingId: 'listing-1', suspensionActionId: 'a'.repeat(64),
+    });
+    expect(screen.getByText('因帳號停權暫停顯示')).toBeTruthy();
+    resolveRepublish({ listingId: 'listing-1', status: 'active', updatedAt: new Date() });
+    expect(await screen.findByText('商品已重新上架。')).toBeTruthy();
+    expect(repositories.getListing).toHaveBeenCalledTimes(2);
   });
 
   it.each([

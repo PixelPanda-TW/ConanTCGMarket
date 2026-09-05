@@ -135,6 +135,7 @@ export function DashboardPage() {
           <>
             <div className="dashboard-summary">
               <p>販售中：{summary.activeCount}</p>
+              <p>停權保留：{summary.heldCount}</p>
               <p>已售張數：{summary.soldQuantity}</p>
               <p>成交金額：NT${summary.revenue.toLocaleString('zh-TW')}</p>
             </div>
@@ -168,6 +169,28 @@ export function DashboardPage() {
                         </button>
                       </>
                     )}
+                  </div>
+                </article>
+              ))}
+            </section>
+            <section className="dashboard-section" aria-labelledby="dashboard-held-heading">
+              <h2 id="dashboard-held-heading">因停權隱藏</h2>
+              {listings.filter((listing) => listing.status === 'suspended').length === 0 ? (
+                <p>目前沒有因停權隱藏的商品。</p>
+              ) : listings.filter((listing) => listing.status === 'suspended').map((listing) => (
+                <article className="listing-card listing-card--held" key={listing.id}>
+                  <img
+                    className="card-photo"
+                    src={listing.imageUrls[0]}
+                    alt={`${listing.cardName ?? listing.characterName ?? '卡片'} 實卡照片`}
+                  />
+                  <div className="listing-details">
+                    <ListingMetadata listing={listing} cards={cards} compact />
+                    <p>NT${listing.listingPrice} / 剩餘 {listing.remainingQuantity}</p>
+                    <p className="moderation-eligibility">此商品目前不會顯示在市集。</p>
+                    <a href={`#/listing/${listing.id}`}>
+                      {isActiveAccount ? '查看與管理' : '僅供查看'}
+                    </a>
                   </div>
                 </article>
               ))}

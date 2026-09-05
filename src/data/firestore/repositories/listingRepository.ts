@@ -77,6 +77,7 @@ function isExactListingWire(value: unknown): value is Record<string, unknown> {
   ];
   const optional = new Set([
     'cardType', 'cardName', 'characterName', 'rarity', 'sleeveFee', 'myShipFee', 'note',
+    'suspensionActionId', 'suspendedAt',
   ]);
   const keys = Object.keys(value);
   return required.every((field) => keys.includes(field))
@@ -87,7 +88,9 @@ function isExactListingWire(value: unknown): value is Record<string, unknown> {
 function readListingResponse(value: unknown): Listing {
   if (!isExactListingWire(value)
     || typeof value.createdAt !== 'number' || !Number.isSafeInteger(value.createdAt)
-    || typeof value.updatedAt !== 'number' || !Number.isSafeInteger(value.updatedAt)) {
+    || typeof value.updatedAt !== 'number' || !Number.isSafeInteger(value.updatedAt)
+    || ('suspendedAt' in value
+      && (typeof value.suspendedAt !== 'number' || !Number.isSafeInteger(value.suspendedAt)))) {
     throw new Error('Server returned an invalid listing response.');
   }
   const listing = {
@@ -98,6 +101,7 @@ function readListingResponse(value: unknown): Listing {
       : {}),
     createdAt: new Date(value.createdAt),
     updatedAt: new Date(value.updatedAt),
+    ...('suspendedAt' in value ? { suspendedAt: new Date(value.suspendedAt as number) } : {}),
   } as unknown as Listing;
   try {
     validateListing(listing, true);

@@ -165,6 +165,9 @@ export function ListingEditPage({ id }: { id: string }) {
         <a href={`#/listing/${id}`}>返回商品</a>
         <h1>編輯商品</h1>
         <ListingMetadata listing={editable} cards={cards} />
+        {editable.status === 'suspended' && (
+          <p className="moderation-eligibility">此商品目前因帳號停權而隱藏。</p>
+        )}
         <form className="profile-form listing-form" onSubmit={submit}>
           <ListingForm
             price={editable.listingPrice}

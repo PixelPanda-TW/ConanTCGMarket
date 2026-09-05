@@ -125,6 +125,25 @@ describe('ListingEditPage', () => {
     expect(repositories.updateListing.mock.calls[0][0]).not.toHaveProperty('characterName');
   });
 
+  it('lets a restored owner edit or delete a held Listing without changing its hold identity', async () => {
+    const held: Listing = {
+      ...listing, status: 'suspended', suspensionActionId: 'a'.repeat(64),
+      suspendedAt: new Date('2026-09-04T06:00:00Z'),
+    };
+    repositories.getListing.mockResolvedValue(held);
+    repositories.updateListing.mockResolvedValue({ ...held, listingPrice: 600 });
+    render(<ListingEditPage id="listing-event" />);
+    expect(await screen.findByText('此商品目前因帳號停權而隱藏。')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('價格'), { target: { value: '600' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await waitFor(() => expect(repositories.updateListing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'suspended', suspensionActionId: 'a'.repeat(64), listingPrice: 600,
+      }),
+    ));
+    expect(screen.getByRole('button', { name: '刪除商品' })).toBeTruthy();
+  });
+
   it('shows a sold-out Listing to its owner without mutation controls', async () => {
     repositories.getListing.mockResolvedValue({
       ...listing, remainingQuantity: 0, status: 'sold_out',

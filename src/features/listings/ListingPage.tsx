@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Card, Listing, PublicSellerProfile, SellerContact } from '../../domain/models';
-import { getListing, getPublicSellerProfile, getSellerContact, listCards } from '../../data/firestore/repositories';
+import {
+  getListing,
+  getPublicSellerProfile,
+  getSellerContact,
+  listCards,
+  republishSuspendedListing,
+} from '../../data/firestore/repositories';
 import { isKnownSubscriptionCardName } from '../../domain/cardNameSubscription';
 import { useAuth } from '../auth/AuthProvider';
 import { PageShell } from '../../components/PageShell';
@@ -21,7 +27,14 @@ export function ListingPage({ id }: { id: string }) {
     message?: string;
   } | null>(null);
   const contactRequestGeneration = useRef(0);
+  const republishPendingRef = useRef(false);
+  const [republishPending, setRepublishPending] = useState(false);
+  const [republishError, setRepublishError] = useState(false);
+  const [republishSucceeded, setRepublishSucceeded] = useState(false);
   const contactScope = `${id}:${user?.uid ?? 'signed-out'}:${accountAccessState.state}`;
+  const actionScope = contactScope;
+  const actionScopeRef = useRef(actionScope);
+  actionScopeRef.current = actionScope;
 
   useEffect(() => {
     let isCurrent = true;
@@ -49,12 +62,19 @@ export function ListingPage({ id }: { id: string }) {
     return () => {
       isCurrent = false;
     };
-  }, [id]);
+  }, [id, user?.uid]);
 
   useEffect(() => {
     contactRequestGeneration.current += 1;
     setContactState(null);
   }, [accountAccessState.state, id, user?.uid]);
+
+  useEffect(() => {
+    republishPendingRef.current = false;
+    setRepublishPending(false);
+    setRepublishError(false);
+    setRepublishSucceeded(false);
+  }, [actionScope]);
 
   async function revealContact() {
     if (!isActiveAccount || !user || contactState?.status === 'loading') return;
@@ -79,6 +99,37 @@ export function ListingPage({ id }: { id: string }) {
     }
   }
 
+  async function republish() {
+    if (!listing || listing.status !== 'suspended' || !listing.suspensionActionId
+      || !isActiveAccount || user?.uid !== listing.sellerId || republishPendingRef.current
+      || !window.confirm('確定要重新上架這筆商品嗎？請先確認價格與內容仍然正確。')) return;
+    const scope = actionScope;
+    republishPendingRef.current = true;
+    setRepublishPending(true);
+    setRepublishError(false);
+    setRepublishSucceeded(false);
+    try {
+      await republishSuspendedListing({
+        listingId: listing.id,
+        suspensionActionId: listing.suspensionActionId,
+      });
+      if (actionScopeRef.current !== scope) return;
+      const refreshed = await getListing(id);
+      if (actionScopeRef.current !== scope) return;
+      if (!refreshed || refreshed.id !== listing.id || refreshed.sellerId !== listing.sellerId
+        || refreshed.status !== 'active') throw new Error();
+      setListing(refreshed);
+      setRepublishSucceeded(true);
+    } catch {
+      if (actionScopeRef.current === scope) setRepublishError(true);
+    } finally {
+      if (actionScopeRef.current === scope) {
+        republishPendingRef.current = false;
+        setRepublishPending(false);
+      }
+    }
+  }
+
   if (listing === undefined) {
     return <PageShell width="listing" backToMarketplace><p>商品載入中</p></PageShell>;
   }
@@ -91,6 +142,8 @@ export function ListingPage({ id }: { id: string }) {
     );
   }
   const isSoldOut = listing.status === 'sold_out';
+  const isHeld = listing.status === 'suspended';
+  const isActiveListing = listing.status === 'active';
   const metadata = resolveListingMetadata(listing, cards ?? []);
   const hasResolvedCardName = metadata.resolution !== 'ambiguous'
     && metadata.resolution !== 'missing';
@@ -110,7 +163,7 @@ export function ListingPage({ id }: { id: string }) {
           <p className="eyebrow">商品詳情</p>
           <h1>商品詳情</h1>
           <ListingMetadata listing={listing} cards={cards} />
-          {!isSoldOut && hasResolvedCardName && (
+          {isActiveListing && hasResolvedCardName && (
             <CardNameSubscriptionControl
               cardName={metadata.cardName}
               isKnownCardName={isKnownCardName}
@@ -129,7 +182,9 @@ export function ListingPage({ id }: { id: string }) {
               NT${listing.listingPrice.toLocaleString('zh-TW')}<span>／張</span>
             </p>
             <p className="listing-stock">
-              {isSoldOut ? '已售罄' : `剩餘 ${listing.remainingQuantity} 張`}
+              {isSoldOut
+                ? '已售罄'
+                : isHeld ? '因帳號停權暫停顯示' : `剩餘 ${listing.remainingQuantity} 張`}
             </p>
             <div className="listing-tags">
               {listing.hasSleeve && (
@@ -146,7 +201,7 @@ export function ListingPage({ id }: { id: string }) {
             <hr />
             <p className="seller-label">賣家</p>
             <p className="seller-name">{seller?.displayName ?? '賣家'}</p>
-            {!isSoldOut && seller !== undefined && (
+            {isActiveListing && seller !== undefined && (
               <SellerSubscriptionControl
                 sellerId={listing.sellerId}
                 sellerName={seller?.displayName ?? '賣家'}
@@ -154,6 +209,8 @@ export function ListingPage({ id }: { id: string }) {
             )}
             {isSoldOut ? (
               <p className="contact-access-state" role="status">此商品已售罄，僅供賣家查看。</p>
+            ) : isHeld ? (
+              <p className="contact-access-state" role="status">此商品目前只供賣家本人查看。</p>
             ) : contact ? (
               contact.href ? (
                 <a
@@ -200,7 +257,7 @@ export function ListingPage({ id }: { id: string }) {
               </>
             )}
             {listing.note && <p className="listing-note">{listing.note}</p>}
-            {!isSoldOut && !isOwner && (!user || isActiveAccount) && (
+            {isActiveListing && !isOwner && (!user || isActiveAccount) && (
               <a className="report-listing-link" href={`#/listing/${id}/report`}>
                 檢舉商品
               </a>
@@ -208,6 +265,16 @@ export function ListingPage({ id }: { id: string }) {
             {!isSoldOut && isActiveAccount && user?.uid === listing.sellerId && (
               <a className="edit-listing-link" href={`#/listing/${id}/edit`}>管理此商品</a>
             )}
+            {isHeld && isActiveAccount && isOwner && (
+              <button
+                type="button"
+                className="contact-reveal-button"
+                disabled={republishPending}
+                onClick={() => void republish()}
+              >{republishPending ? '重新上架處理中' : '重新上架商品'}</button>
+            )}
+            {republishError && <p className="field-error" role="alert">無法重新上架商品，請稍後再試。</p>}
+            {republishSucceeded && <p role="status">商品已重新上架。</p>}
           </aside>
         </div>
       </article>

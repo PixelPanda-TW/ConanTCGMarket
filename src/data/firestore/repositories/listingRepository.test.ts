@@ -204,6 +204,26 @@ describe('listing repository', () => {
     await expect(updateListing(listing)).rejects.toThrow('invalid listing response');
   });
 
+  it('preserves the exact suspension hold fields in a trusted edit response', async () => {
+    const listing = {
+      id: 'listing-held', sellerId: 'seller-1', cardId: '2200', cardType: 'case' as const,
+      cardName: '封鎖現場', rarity: 'SR', imageUrls: ['https://example.com/card.jpg'],
+      listingPrice: 500, originalQuantity: 1, remainingQuantity: 1,
+      hasSleeve: false, supportsMyShip: false, status: 'suspended' as const,
+      suspensionActionId: 'a'.repeat(64), suspendedAt: new Date('2026-09-04T06:00:00Z'),
+      createdAt: new Date('2026-08-17T00:00:00Z'), updatedAt: new Date('2026-08-18T00:00:00Z'),
+    };
+    functions.callableByName.get('updateSellerListing')!.mockResolvedValue({ data: {
+      ...listing,
+      createdAt: listing.createdAt.valueOf(),
+      suspendedAt: listing.suspendedAt.valueOf(),
+      updatedAt: 1_788_624_000_000,
+    } });
+    await expect(updateListing(listing)).resolves.toEqual({
+      ...listing, updatedAt: new Date(1_788_624_000_000),
+    });
+  });
+
   it('deletes by version and returns only strict stored image URLs', async () => {
     const callable = functions.callableByName.get('deleteUnsoldListing')!;
     callable.mockResolvedValue({ data: { imageUrls: ['https://example.com/card.jpg'] } });

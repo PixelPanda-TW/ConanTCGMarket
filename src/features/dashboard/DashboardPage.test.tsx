@@ -30,6 +30,13 @@ const listing: Listing = {
   imageUrls: ['https://example.com/case.jpg'], listingPrice: 500, originalQuantity: 1, remainingQuantity: 1,
   hasSleeve: false, supportsMyShip: false, status: 'active', createdAt: new Date(), updatedAt: new Date(),
 };
+const heldListing: Listing = {
+  ...listing,
+  id: 'held-listing',
+  status: 'suspended',
+  suspensionActionId: 'a'.repeat(64),
+  suspendedAt: new Date('2026-09-04T06:00:00Z'),
+};
 
 afterEach(cleanup);
 
@@ -99,6 +106,31 @@ describe('DashboardPage', () => {
     expect(await screen.findByText('Case 卡（情境卡）')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '封鎖現場' })).toBeTruthy();
     expect(screen.getByText('SR · ID 2200')).toBeTruthy();
+  });
+
+  it.each([
+    ['active', true],
+    ['suspended', false],
+  ])('separates held Listings for an %s owner without changing active totals', async (_label, active) => {
+    if (!active) {
+      authState.current.accountAccessState = {
+        state: 'suspended', access: {
+          uid: 'seller-1', status: 'suspended', confirmedViolationCount: 2,
+          suspensionReason: 'Reason', suspendedAt: new Date(), suspendedBy: 'admin-1',
+          suspensionActionId: 'a'.repeat(64), updatedAt: new Date(),
+        },
+      };
+      authState.current.isActiveAccount = false;
+    }
+    repositories.listSellerListings.mockResolvedValue([listing, heldListing]);
+    render(<DashboardPage />);
+    expect(await screen.findByText('販售中：1')).toBeTruthy();
+    expect(screen.getByText('停權保留：1')).toBeTruthy();
+    const section = screen.getByRole('region', { name: '因停權隱藏' });
+    expect(section.textContent).toContain('封鎖現場');
+    expect(section.querySelector('a')?.getAttribute('href')).toBe('#/listing/held-listing');
+    expect(section.textContent).toContain(active ? '查看與管理' : '僅供查看');
+    expect(screen.queryByRole('button', { name: '登記成交' }) !== null).toBe(active);
   });
 
   it('resolves cardId-only legacy metadata from Card Master for active and sold-out listings', async () => {
