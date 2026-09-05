@@ -84,3 +84,51 @@ export async function deleteReportEvidence(
   const path = reportEvidencePath(uid, reportId, slot);
   await deleteObject(ref(storage, path));
 }
+
+const APPEAL_ACTION_PATTERN = /^[0-9a-f]{64}$/u;
+const APPEAL_DRAFT_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+function accountAppealEvidencePath(
+  uid: string, actionId: string, draftId: string, slot: number,
+): string {
+  if (auth.currentUser?.uid !== uid || uid.length < 1 || uid.length > 128
+    || uid !== uid.trim() || uid.includes('/') || !APPEAL_ACTION_PATTERN.test(actionId)
+    || !APPEAL_DRAFT_PATTERN.test(draftId) || !Number.isInteger(slot) || slot < 0 || slot > 2) {
+    throw new Error('Account appeal evidence path is invalid.');
+  }
+  return `account-appeal-evidence/${uid}/${actionId}/${draftId}/${slot}`;
+}
+
+export async function uploadAccountAppealEvidence(
+  uid: string, actionId: string, draftId: string, slot: 0 | 1 | 2, file: File,
+): Promise<{ slot: 0 | 1 | 2; generation: string; contentType: 'image/jpeg' | 'image/png' | 'image/webp'; size: number }> {
+  const path = accountAppealEvidencePath(uid, actionId, draftId, slot);
+  if (!(file instanceof File) || !reportEvidenceTypes.has(file.type)
+    || file.size < 1 || file.size > MAX_REPORT_EVIDENCE_BYTES) {
+    throw new Error('Account appeal evidence must be a JPEG, PNG, or WebP image up to 5 MiB.');
+  }
+  try {
+    const result = await uploadBytes(ref(storage, path), file, { contentType: file.type });
+    const generation = String(result.metadata.generation ?? '');
+    const contentType = result.metadata.contentType;
+    const size = Number(result.metadata.size);
+    if (!/^[1-9][0-9]{0,30}$/u.test(generation)
+      || !reportEvidenceTypes.has(contentType ?? '') || size !== file.size) {
+      throw new Error('invalid metadata');
+    }
+    return { slot, generation, contentType: contentType as 'image/jpeg' | 'image/png' | 'image/webp', size };
+  } catch {
+    throw new Error('無法上傳申訴證據，請稍後再試。');
+  }
+}
+
+export async function deleteAccountAppealEvidence(
+  uid: string, actionId: string, draftId: string, slot: 0 | 1 | 2,
+): Promise<void> {
+  const path = accountAppealEvidencePath(uid, actionId, draftId, slot);
+  try {
+    await deleteObject(ref(storage, path));
+  } catch {
+    throw new Error('無法移除申訴證據，請稍後再試。');
+  }
+}

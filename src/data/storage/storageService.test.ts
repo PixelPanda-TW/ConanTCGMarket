@@ -14,7 +14,12 @@ const firebaseApp = vi.hoisted(() => ({
 vi.mock('firebase/storage', () => storageSdk);
 vi.mock('../../lib/firebase/app', () => firebaseApp);
 
-import { deleteReportEvidence, uploadReportEvidence } from './storageService';
+import {
+  deleteAccountAppealEvidence,
+  deleteReportEvidence,
+  uploadAccountAppealEvidence,
+  uploadReportEvidence,
+} from './storageService';
 
 function image(type = 'image/png', size = 100): File {
   return new File([new Uint8Array(size)], 'evidence.png', { type });
@@ -105,5 +110,37 @@ describe('report evidence Storage operations', () => {
     await expect(deleteReportEvidence('buyer-1', 'bad/report', 0)).rejects.toThrow();
     expect(storageSdk.ref).not.toHaveBeenCalled();
     expect(storageSdk.deleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('account appeal evidence Storage operations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    firebaseApp.auth.currentUser = { uid: 'buyer-1' };
+    storageSdk.uploadBytes.mockResolvedValue({
+      metadata: { generation: '123', contentType: 'image/png', size: 100 },
+    });
+    storageSdk.deleteObject.mockResolvedValue(undefined);
+  });
+
+  it('uploads and returns only exact metadata for the canonical private draft path', async () => {
+    const action = 'a'.repeat(64);
+    const draft = '550e8400-e29b-41d4-a716-446655440000';
+    await expect(uploadAccountAppealEvidence('buyer-1', action, draft, 0, image()))
+      .resolves.toEqual({ slot: 0, generation: '123', contentType: 'image/png', size: 100 });
+    expect(storageSdk.ref).toHaveBeenCalledWith(
+      firebaseApp.storage, `account-appeal-evidence/buyer-1/${action}/${draft}/0`,
+    );
+  });
+
+  it('deletes only the exact owner/action/draft slot and rejects unsafe input', async () => {
+    const action = 'a'.repeat(64);
+    const draft = '550e8400-e29b-41d4-a716-446655440000';
+    await deleteAccountAppealEvidence('buyer-1', action, draft, 2);
+    expect(storageSdk.deleteObject).toHaveBeenCalledWith(expect.objectContaining({
+      path: `account-appeal-evidence/buyer-1/${action}/${draft}/2`,
+    }));
+    await expect(uploadAccountAppealEvidence('other', action, draft, 0, image())).rejects.toThrow();
+    await expect(uploadAccountAppealEvidence('buyer-1', 'bad', draft, 0, image())).rejects.toThrow();
   });
 });

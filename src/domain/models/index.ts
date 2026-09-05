@@ -8,3 +8,4 @@ export * from './cardMasterArchive';
 export * from './moderationReport';
 export * from './moderationCase';
 export * from './accountModeration';
+export * from './accountAppeal';
