@@ -90,6 +90,13 @@ export interface SuspendModerationTargetRequest {
   reason: string;
 }
 
+export interface RestoreModerationTargetRequest {
+  reportId: string;
+  suspensionActionId: string;
+  requestId: string;
+  reason: string;
+}
+
 export interface AccountModerationCallableRequest {
   authUid: string | null;
   adminClaim: unknown;
@@ -145,6 +152,23 @@ export interface AccountModerationOperationResult {
   status: AccountModerationOperationStatus;
   targetUid: string;
   hiddenListingCount: number;
+}
+
+export interface AccountRestorationTransaction {
+  getAccountAccess(uid: string): Promise<unknown | null>;
+  getCase(id: string): Promise<unknown | null>;
+  getReport(id: string): Promise<unknown | null>;
+  getOperation(id: string): Promise<unknown | null>;
+  setAccountAccess(uid: string, data: Record<string, unknown>): void;
+  updateOperation(id: string, patch: Record<string, unknown>): void;
+  createAudit(id: string, data: Record<string, unknown>): void;
+}
+
+export interface AccountRestorationDependencies {
+  now(): Date;
+  runTransaction<T>(
+    operation: (transaction: AccountRestorationTransaction) => Promise<T>,
+  ): Promise<T>;
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -277,6 +301,19 @@ export function parseSuspendModerationTargetRequest(
   return value as unknown as SuspendModerationTargetRequest;
 }
 
+export function parseRestoreModerationTargetRequest(
+  value: unknown,
+): RestoreModerationTargetRequest {
+  if (!isRecord(value)
+    || !exact(value, ['reportId', 'suspensionActionId', 'requestId', 'reason'])
+    || !identifier(value.reportId)
+    || typeof value.suspensionActionId !== 'string'
+    || !keyPattern.test(value.suspensionActionId)
+    || !isAccountModerationRequestId(value.requestId)
+    || !reason(value.reason)) return invalid();
+  return value as unknown as RestoreModerationTargetRequest;
+}
+
 interface ActiveStoredAccountAccess {
   status: 'active';
   confirmedViolationCount: number;
@@ -357,6 +394,16 @@ function readConfirmedPair(
 
 function suspensionActionId(adminUid: string, requestId: string): string {
   return createHash('sha256').update(`suspension:${adminUid}:${requestId}`, 'utf8').digest('hex');
+}
+
+function restorationRequestKey(
+  adminUid: string,
+  requestId: string,
+  actionId: string,
+): string {
+  return createHash('sha256')
+    .update(`restoration:${adminUid}:${requestId}:${actionId}`, 'utf8')
+    .digest('hex');
 }
 
 function operationResult(operation: AccountModerationOperation): AccountModerationOperationResult {
@@ -595,4 +642,99 @@ export async function drainAccountModerationOperation(
     throw new AccountModerationError('unavailable', '目前無法完成商品隱藏。');
   }
   return result;
+}
+
+export async function restoreModerationTarget(
+  request: AccountModerationCallableRequest,
+  dependencies: AccountRestorationDependencies,
+): Promise<AccountModerationOperationResult> {
+  const input = parseRestoreModerationTargetRequest(request.data);
+  const adminUid = requirePrincipal(request);
+  const restoreKey = restorationRequestKey(
+    adminUid,
+    input.requestId,
+    input.suspensionActionId,
+  );
+  const nowDate = dependencies.now();
+  if (!(nowDate instanceof Date) || Number.isNaN(nowDate.valueOf())) {
+    throw new AccountModerationError('unavailable', '目前無法恢復帳號。');
+  }
+  const now = Timestamp.fromDate(nowDate);
+  try {
+    return await dependencies.runTransaction(async (transaction) => {
+      const [adminAccessValue, caseValue, reportValue, operationValue] = await Promise.all([
+        transaction.getAccountAccess(adminUid),
+        transaction.getCase(input.reportId),
+        transaction.getReport(input.reportId),
+        transaction.getOperation(input.suspensionActionId),
+      ]);
+      requireActiveAdminAccess(adminAccessValue);
+      const pair = readConfirmedPair(input.reportId, caseValue, reportValue);
+      const targetUid = pair.report.targetSellerId;
+      if (targetUid === adminUid) {
+        throw new AccountModerationError('permission-denied', '管理員不能恢復自己的帳號。');
+      }
+      const operation = readAccountModerationOperation(operationValue);
+      if (operation.actionId !== input.suspensionActionId
+        || operation.requestKey !== input.suspensionActionId
+        || operation.targetUid !== targetUid
+        || operation.sourceReportId !== input.reportId) return malformed();
+      const targetValue = await transaction.getAccountAccess(targetUid);
+      if (targetValue === null) return malformed();
+      const targetAccess = readAccountAccess(targetValue);
+
+      if (operation.status === 'restored') {
+        if (operation.restoredBy !== adminUid
+          || operation.restorationReason !== input.reason
+          || operation.restorationRequestKey !== restoreKey
+          || targetAccess.status !== 'active'
+          || targetAccess.confirmedViolationCount < operation.confirmedViolationCount) {
+          return malformed();
+        }
+        return operationResult(operation);
+      }
+      if (operation.status !== 'suspended') return malformed();
+      assertReconciliationAccount(operation, targetAccess);
+      if (pair.moderationCase.resultingConfirmedViolationCount
+        > targetAccess.confirmedViolationCount) return malformed();
+
+      const restored: RestoredAccountModerationOperation = {
+        ...operation,
+        status: 'restored',
+        restoredAt: now,
+        restoredBy: adminUid,
+        restorationReason: input.reason,
+        restorationRequestKey: restoreKey,
+        updatedAt: now,
+      };
+      const eventId = `${operation.actionId}_restored`;
+      transaction.setAccountAccess(targetUid, {
+        status: 'active',
+        confirmedViolationCount: targetAccess.confirmedViolationCount,
+        updatedAt: now,
+      });
+      transaction.updateOperation(operation.actionId, {
+        status: 'restored',
+        restoredAt: now,
+        restoredBy: adminUid,
+        restorationReason: input.reason,
+        restorationRequestKey: restoreKey,
+        updatedAt: now,
+      });
+      transaction.createAudit(eventId, {
+        eventId,
+        type: 'restored',
+        targetUid,
+        suspensionActionId: operation.actionId,
+        sourceReportId: operation.sourceReportId,
+        actorUid: adminUid,
+        reason: input.reason,
+        at: now,
+      });
+      return operationResult(restored);
+    });
+  } catch (error) {
+    if (error instanceof AccountModerationError) throw error;
+    throw new AccountModerationError('unavailable', '目前無法恢復帳號。');
+  }
 }

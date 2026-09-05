@@ -5,6 +5,7 @@ import {
   ACCOUNT_MODERATION_OPERATION_STATUSES,
   isAccountModerationRequestId,
   parseSuspendModerationTargetRequest,
+  parseRestoreModerationTargetRequest,
   reconcileAccountModerationOperation,
   drainAccountModerationOperation,
   ACCOUNT_MODERATION_HIDE_PAGE_SIZE,
@@ -12,10 +13,13 @@ import {
   readAccountModerationAuditEvent,
   readAccountModerationOperation,
   suspendModerationTarget,
+  restoreModerationTarget,
   type AccountSuspensionDependencies,
   type AccountSuspensionTransaction,
   type AccountModerationReconciliationDependencies,
   type AccountModerationReconciliationTransaction,
+  type AccountRestorationDependencies,
+  type AccountRestorationTransaction,
 } from './accountModeration.js';
 
 const CREATED_AT = Timestamp.fromDate(new Date('2026-09-05T00:00:00.000Z'));
@@ -499,5 +503,177 @@ describe('reconcile account suspension Listings', () => {
       status: 'hiding', hiddenListingCount: 100,
     });
     expect(stillHiding).toHaveBeenCalledTimes(ACCOUNT_MODERATION_MAX_DRAIN_PAGES);
+  });
+});
+
+interface RestorationState {
+  access: Record<string, unknown | null>;
+  moderationCase: unknown | null;
+  report: unknown | null;
+  operation: unknown | null;
+  operationWrite?: { id: string; patch: Record<string, unknown> };
+  accessWrite?: { uid: string; data: Record<string, unknown> };
+  auditWrite?: { id: string; data: Record<string, unknown> };
+}
+
+function completedOperation(overrides: Record<string, unknown> = {}) {
+  return {
+    ...hidingOperation({ hiddenListingCount: 2 }), status: 'suspended',
+    completedAt: LATER_AT, updatedAt: LATER_AT, ...overrides,
+  };
+}
+
+function restorationHarness(overrides: Partial<RestorationState> = {}) {
+  const state: RestorationState = {
+    access: {
+      'admin-2': null,
+      'seller-1': {
+        status: 'suspended', confirmedViolationCount: 3, suspensionReason: '重複違規',
+        suspendedAt: CREATED_AT, suspendedBy: 'admin-1', suspensionActionId: requestKey,
+        updatedAt: CREATED_AT,
+      },
+    },
+    moderationCase: confirmedCase(), report: submittedReport(),
+    operation: completedOperation(), ...overrides,
+  };
+  const transaction: AccountRestorationTransaction = {
+    getAccountAccess: vi.fn(async (uid) => state.access[uid] ?? null),
+    getCase: vi.fn(async () => state.moderationCase),
+    getReport: vi.fn(async () => state.report),
+    getOperation: vi.fn(async () => state.operation),
+    setAccountAccess: vi.fn((uid, data) => { state.accessWrite = { uid, data }; }),
+    updateOperation: vi.fn((id, patch) => { state.operationWrite = { id, patch }; }),
+    createAudit: vi.fn((id, data) => { state.auditWrite = { id, data }; }),
+  };
+  const dependencies: AccountRestorationDependencies = {
+    now: () => NOW,
+    runTransaction: async (operation) => operation(transaction),
+  };
+  return { state, transaction, dependencies };
+}
+
+const restorationRequest = {
+  authUid: 'admin-2', adminClaim: true,
+  data: {
+    reportId: 'report-1', suspensionActionId: requestKey,
+    requestId: REQUEST_ID, reason: '已完成審查，恢復帳號',
+  },
+};
+
+describe('restore moderated account', () => {
+  it('parses only the exact canonical restoration request', () => {
+    expect(parseRestoreModerationTargetRequest(restorationRequest.data))
+      .toEqual(restorationRequest.data);
+    for (const data of [
+      { ...restorationRequest.data, email: 'private@example.test' },
+      { ...restorationRequest.data, requestId: 'bad' },
+      { ...restorationRequest.data, suspensionActionId: 'short' },
+      { ...restorationRequest.data, reason: ' 原因' },
+    ]) {
+      expect(() => parseRestoreModerationTargetRequest(data)).toThrowError(
+        expect.objectContaining({ code: 'invalid-argument' }),
+      );
+    }
+  });
+
+  it('atomically restores only account access and appends an immutable audit', async () => {
+    const { state, dependencies } = restorationHarness();
+    const result = await restoreModerationTarget(restorationRequest, dependencies);
+    expect(result).toEqual({
+      actionId: requestKey, status: 'restored', targetUid: 'seller-1', hiddenListingCount: 2,
+    });
+    expect(state.accessWrite).toEqual({ uid: 'seller-1', data: {
+      status: 'active', confirmedViolationCount: 3, updatedAt: Timestamp.fromDate(NOW),
+    } });
+    const restorationRequestKey = expect.stringMatching(/^[0-9a-f]{64}$/u);
+    expect(state.operationWrite).toEqual({ id: requestKey, patch: {
+      status: 'restored', restoredAt: Timestamp.fromDate(NOW), restoredBy: 'admin-2',
+      restorationReason: '已完成審查，恢復帳號', restorationRequestKey,
+      updatedAt: Timestamp.fromDate(NOW),
+    } });
+    expect(state.auditWrite).toEqual({ id: `${requestKey}_restored`, data: {
+      eventId: `${requestKey}_restored`, type: 'restored', targetUid: 'seller-1',
+      suspensionActionId: requestKey, sourceReportId: 'report-1', actorUid: 'admin-2',
+      reason: '已完成審查，恢復帳號', at: Timestamp.fromDate(NOW),
+    } });
+    expect(JSON.stringify({
+      result, accessWrite: state.accessWrite,
+      operationWrite: state.operationWrite, auditWrite: state.auditWrite,
+    })).not.toMatch(/email|contact|evidence|description/iu);
+  });
+
+  it('returns an identical restoration retry without a second write', async () => {
+    const first = restorationHarness();
+    const result = await restoreModerationTarget(restorationRequest, first.dependencies);
+    const restoredOperation = {
+      ...completedOperation(), ...first.state.operationWrite!.patch,
+    };
+    const retry = restorationHarness({
+      operation: restoredOperation,
+      access: {
+        'admin-2': null,
+        'seller-1': first.state.accessWrite!.data,
+      },
+    });
+    await expect(restoreModerationTarget(restorationRequest, retry.dependencies))
+      .resolves.toEqual(result);
+    expect(retry.state.accessWrite).toBeUndefined();
+    expect(retry.state.operationWrite).toBeUndefined();
+    expect(retry.state.auditWrite).toBeUndefined();
+  });
+
+  it.each([
+    ['hiding operation', { operation: hidingOperation() }],
+    ['stale action', { operation: completedOperation({ actionId: 'b'.repeat(64) }) }],
+    ['wrong account action', { access: {
+      'admin-2': null,
+      'seller-1': {
+        status: 'suspended', confirmedViolationCount: 3, suspensionReason: '重複違規',
+        suspendedAt: CREATED_AT, suspendedBy: 'admin-1', suspensionActionId: 'b'.repeat(64),
+        updatedAt: CREATED_AT,
+      },
+    } }],
+    ['active target before restoration', { access: {
+      'admin-2': null,
+      'seller-1': { status: 'active', confirmedViolationCount: 3, updatedAt: CREATED_AT },
+    } }],
+    ['mismatched case', { moderationCase: confirmedCase({ targetSellerId: 'seller-2' }) }],
+    ['malformed account', { access: {
+      'admin-2': null,
+      'seller-1': { status: 'suspended', confirmedViolationCount: 3, extra: true },
+    } }],
+  ])('rejects %s without restoring or changing history', async (_label, override) => {
+    const { state, dependencies } = restorationHarness(override as Partial<RestorationState>);
+    await expect(restoreModerationTarget(restorationRequest, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+    expect(state.accessWrite).toBeUndefined();
+    expect(state.operationWrite).toBeUndefined();
+    expect(state.auditWrite).toBeUndefined();
+  });
+
+  it('rejects a conflicting retry and self-restoration', async () => {
+    const first = restorationHarness();
+    await restoreModerationTarget(restorationRequest, first.dependencies);
+    const retry = restorationHarness({
+      operation: { ...completedOperation(), ...first.state.operationWrite!.patch },
+      access: { 'admin-2': null, 'seller-1': first.state.accessWrite!.data },
+    });
+    await expect(restoreModerationTarget({
+      ...restorationRequest,
+      data: { ...restorationRequest.data, reason: '不同原因' },
+    }, retry.dependencies)).rejects.toMatchObject({ code: 'failed-precondition' });
+
+    const self = restorationHarness({
+      access: {
+        'seller-1': {
+          status: 'suspended', confirmedViolationCount: 3, suspensionReason: '重複違規',
+          suspendedAt: CREATED_AT, suspendedBy: 'admin-1', suspensionActionId: requestKey,
+          updatedAt: CREATED_AT,
+        },
+      },
+    });
+    await expect(restoreModerationTarget({
+      ...restorationRequest, authUid: 'seller-1',
+    }, self.dependencies)).rejects.toMatchObject({ code: 'permission-denied' });
   });
 });
