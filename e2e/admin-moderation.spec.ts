@@ -88,7 +88,7 @@ test('signed-out, ordinary, suspended, and malformed admins cannot inspect moder
   await seedScenario({ accountAccess: [{
     uid: suspended.uid, status: 'suspended', confirmedViolationCount: 2,
     suspensionReason: 'E2E suspension', suspendedAt: fixed,
-    suspendedBy: 'admin-other', updatedAt: fixed,
+    suspendedBy: 'admin-other', suspensionActionId: 'a'.repeat(64), updatedAt: fixed,
   }] });
   await page.goto('#/admin/moderation');
   await expect(page.getByRole('status')).toContainText('帳號目前已停權');
@@ -179,9 +179,7 @@ test('active admin reviews evidence, dismisses and confirms durably without dire
   await page.getByLabel(/裁決理由/u).fill('第二筆證據確認違規');
   await page.getByRole('button', { name: '確認違規裁決' }).click();
   await expect(page.getByRole('status')).toContainText('違規已確認，累計 2 次。');
-  await expect(page.getByText('此帳號符合人工停權條件；停權操作將在後續批次提供。'))
-    .toBeVisible();
-  await expect(page.getByRole('button', { name: /停權/u })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '停權帳號' })).toBeVisible();
 
   await page.getByRole('link', { name: '返回檢舉案件' }).click();
   await page.getByRole('tab', { name: '待審查' }).click();

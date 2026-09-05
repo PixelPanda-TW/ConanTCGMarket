@@ -412,7 +412,7 @@ export const getSellerContact = onCall(async (request) => {
   }
 });
 
-function storedListingMutation(patch: ListingMutation): DocumentData {
+function storedListingMutation(patch: ListingMutation | Record<string, unknown>): DocumentData {
   return Object.fromEntries(Object.entries(patch).map(([key, value]) => [
     key,
     value === null ? FieldValue.delete() : value instanceof Date ? Timestamp.fromDate(value) : value,
@@ -785,10 +785,16 @@ function accountReconciliationPort(
         .orderBy(FieldPath.documentId(), 'asc')
         .limit(limit);
       const snapshot = await transaction.get(query);
-      return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }));
+      return snapshot.docs.map((document) => ({
+        id: document.id,
+        data: firestoreDataWithDates(document.data()),
+      }));
     },
     updateListing(id, patch) {
-      transaction.update(firestore.collection('listings').doc(id), patch);
+      transaction.update(
+        firestore.collection('listings').doc(id),
+        storedListingMutation(patch),
+      );
     },
     updateOperation(id, patch) {
       transaction.update(firestore.collection('accountModerationOperations').doc(id), patch);
@@ -848,7 +854,7 @@ function listingRepublishPort(
     },
     async getListing(id) {
       const snapshot = await transaction.get(firestore.collection('listings').doc(id));
-      return snapshot.exists ? snapshot.data() ?? null : null;
+      return snapshot.exists ? firestoreDataWithDates(snapshot.data()) : null;
     },
     async getAudit(id) {
       const snapshot = await transaction.get(
@@ -859,9 +865,7 @@ function listingRepublishPort(
     updateListing(id, patch) {
       transaction.update(
         firestore.collection('listings').doc(id),
-        Object.fromEntries(Object.entries(patch).map(([key, value]) => [
-          key, value === null ? FieldValue.delete() : value,
-        ])),
+        storedListingMutation(patch),
       );
     },
     createAudit(id, data) {

@@ -44,6 +44,7 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
         suspensionReason: 'Confirmed reason',
         suspendedAt: fixedDate,
         suspendedBy: 'admin-1',
+        suspensionActionId: 'a'.repeat(64),
         updatedAt: fixedDate,
       }],
       sellerProfiles: [{
@@ -134,6 +135,7 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
       suspensionReason: 'Confirmed reason',
       suspendedAt: Timestamp.fromDate(fixedDate),
       suspendedBy: 'admin-1',
+      suspensionActionId: 'a'.repeat(64),
       updatedAt: Timestamp.fromDate(fixedDate),
     });
     const listing = await readDocument('listings', 'e2e-listing');
@@ -226,6 +228,62 @@ test('seed writes exact document IDs and timestamp-backed bodies', async () => {
       openedAt: Timestamp.fromDate(fixedDate), rationale: '確認違規', decidedBy: 'admin-1',
       decidedAt: Timestamp.fromDate(fixedDate), resultingConfirmedViolationCount: 2,
     });
+  } finally {
+    await resetEmulators();
+  }
+});
+
+test('seeds exact account moderation state and only permits bounded reads', async () => {
+  const createdAt = new Date('2026-09-04T00:00:00.000Z');
+  const completedAt = new Date('2026-09-04T00:01:00.000Z');
+  const actionId = 'b'.repeat(64);
+  await resetEmulators();
+  try {
+    await seedScenario({
+      accountModerationOperations: [{
+        actionId, status: 'suspended', targetUid: 'seller-1', sourceReportId: 'report-1',
+        requestedBy: 'admin-1', reason: '確認違規停權', requestKey: actionId,
+        confirmedViolationCount: 2, hiddenListingCount: 1, createdAt,
+        updatedAt: completedAt, completedAt,
+      }],
+      accountModerationAuditLogs: [{
+        eventId: `${actionId}_completed`, type: 'suspension_completed', targetUid: 'seller-1',
+        suspensionActionId: actionId, sourceReportId: 'report-1', actorUid: 'admin-1',
+        at: completedAt, hiddenListingCount: 1,
+      }],
+      listings: [{
+        id: 'held-1', sellerId: 'seller-1', cardId: '0501', cardType: 'character',
+        cardName: '諸伏高明', characterName: '諸伏高明', rarity: 'D',
+        imageUrls: ['http://example.test/card.png'], listingPrice: 500,
+        originalQuantity: 1, remainingQuantity: 1, hasSleeve: false,
+        supportsMyShip: false, status: 'suspended', suspensionActionId: actionId,
+        suspendedAt: completedAt, createdAt, updatedAt: completedAt,
+      }],
+    });
+
+    expect(await readDocument('accountModerationOperations', actionId)).toEqual({
+      actionId, status: 'suspended', targetUid: 'seller-1', sourceReportId: 'report-1',
+      requestedBy: 'admin-1', reason: '確認違規停權', requestKey: actionId,
+      confirmedViolationCount: 2, hiddenListingCount: 1,
+      createdAt: Timestamp.fromDate(createdAt), updatedAt: Timestamp.fromDate(completedAt),
+      completedAt: Timestamp.fromDate(completedAt),
+    });
+    expect(await readDocument('accountModerationAuditLogs', `${actionId}_completed`))
+      .toMatchObject({ eventId: `${actionId}_completed`, hiddenListingCount: 1 });
+    expect(await readDocument('listings', 'held-1')).toMatchObject({
+      status: 'suspended', suspensionActionId: actionId,
+      suspendedAt: Timestamp.fromDate(completedAt),
+    });
+    await expect(listDocuments('accountModerationAuditLogs', 0))
+      .rejects.toThrow('Unsafe bounded document list');
+    await expect(listDocuments('accountModerationAuditLogs', 101))
+      .rejects.toThrow('Unsafe bounded document list');
+    await expect(seedScenario({ accountModerationOperations: [{
+      actionId, status: 'hiding', targetUid: 'seller-1', sourceReportId: 'report-1',
+      requestedBy: 'admin-1', reason: 'reason', requestKey: actionId,
+      confirmedViolationCount: 2, hiddenListingCount: 0, createdAt, updatedAt: createdAt,
+      extra: true,
+    } as never] })).rejects.toThrow('Unsafe account moderation seed');
   } finally {
     await resetEmulators();
   }

@@ -132,7 +132,7 @@ test('report UI denies invalid files, owners, sold Listings, and suspended accou
   await seedScenario({ accountAccess: [{
     uid: buyer.uid, status: 'suspended', confirmedViolationCount: 1,
     suspensionReason: 'E2E confirmed report violation', suspendedAt: new Date(),
-    suspendedBy: 'admin-e2e', updatedAt: new Date(),
+    suspendedBy: 'admin-e2e', suspensionActionId: 'a'.repeat(64), updatedAt: new Date(),
   }] });
   await page.goto('#/listing/report-valid/report');
   await expect(page.getByRole('heading', { name: '無法檢舉商品' })).toBeVisible();

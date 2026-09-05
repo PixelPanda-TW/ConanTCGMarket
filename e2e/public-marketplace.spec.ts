@@ -117,6 +117,23 @@ test('never exposes sold-out Listings', async ({ page }) => {
   await expect(listings.getByText('ID 1096', { exact: true })).toHaveCount(0);
 });
 
+test('never exposes suspension-held Listings or their direct route', async ({ page }) => {
+  const suspendedAt = new Date('2026-09-04T00:00:00.000Z');
+  await seedScenario({
+    cards: testCards,
+    sellerProfiles: [sellerProfile('held-seller', '停權賣家')],
+    listings: [activeListing('held-seller', 'https://example.test/held.png', {
+      id: 'public-held-listing', status: 'suspended', suspensionActionId: 'd'.repeat(64),
+      suspendedAt, updatedAt: suspendedAt,
+    })],
+  });
+  await page.goto('./');
+  await acknowledgeNotice(page);
+  await expect(page.getByRole('link', { name: /諸伏高明/u })).toHaveCount(0);
+  await page.goto('#/listing/public-held-listing');
+  await expect(page.getByRole('heading', { name: '找不到商品' })).toBeVisible();
+});
+
 test('validates and clears independent ID search', async ({ page }) => {
   await seedPublicListing();
   await page.goto('./');

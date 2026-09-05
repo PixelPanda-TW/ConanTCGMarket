@@ -278,7 +278,7 @@ test('denies direct owner writes and non-owner or suspended lifecycle calls', as
   await seedScenario({ accountAccess: [{
     uid: owner.uid, status: 'suspended', confirmedViolationCount: 1,
     suspensionReason: 'E2E confirmed violation', suspendedAt: new Date(),
-    suspendedBy: 'admin-e2e', updatedAt: new Date(),
+    suspendedBy: 'admin-e2e', suspensionActionId: 'a'.repeat(64), updatedAt: new Date(),
   }] });
   const suspended = await callEmulatorFunctionWithToken(token, 'recordListingSale', {
     listingId, quantity: 1, soldUnitPrice: 500,

@@ -50,7 +50,49 @@ export interface ScenarioSeed {
   moderationReports?: readonly ModerationReportSeed[];
   moderationCases?: readonly ModerationCaseSeed[];
   moderationReportLimits?: readonly ModerationReportLimitSeed[];
+  accountModerationOperations?: readonly AccountModerationOperationSeed[];
+  accountModerationAuditLogs?: readonly AccountModerationAuditSeed[];
 }
+
+interface AccountModerationOperationSeedBase {
+  actionId: string;
+  targetUid: string;
+  sourceReportId: string;
+  requestedBy: string;
+  reason: string;
+  requestKey: string;
+  confirmedViolationCount: number;
+  hiddenListingCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type AccountModerationOperationSeed =
+  | (AccountModerationOperationSeedBase & { status: 'hiding' })
+  | (AccountModerationOperationSeedBase & { status: 'suspended'; completedAt: Date })
+  | (AccountModerationOperationSeedBase & {
+    status: 'restored'; completedAt: Date; restoredAt: Date; restoredBy: string;
+    restorationReason: string; restorationRequestKey: string;
+  });
+
+interface AccountModerationAuditSeedBase {
+  eventId: string;
+  targetUid: string;
+  suspensionActionId: string;
+  sourceReportId: string;
+  actorUid: string;
+  at: Date;
+}
+
+export type AccountModerationAuditSeed =
+  | (AccountModerationAuditSeedBase & {
+    type: 'suspension_requested'; reason: string; confirmedViolationCount: number;
+  })
+  | (AccountModerationAuditSeedBase & {
+    type: 'suspension_completed'; hiddenListingCount: number;
+  })
+  | (AccountModerationAuditSeedBase & { type: 'restored'; reason: string })
+  | (AccountModerationAuditSeedBase & { type: 'listing_republished'; listingId: string });
 
 interface ModerationCaseSeedBase {
   id: string;
@@ -203,6 +245,29 @@ function adminBucket() {
   return getStorage(getEmulatorAdminApp()).bucket(E2E_BUCKET);
 }
 
+function assertExactSeed(value: object, fields: readonly string[]): void {
+  const keys = Object.keys(value);
+  if (keys.length !== fields.length || !fields.every((field) => keys.includes(field))) {
+    throw new Error('Unsafe account moderation seed.');
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key.endsWith('At') && (!(item instanceof Date) || Number.isNaN(item.valueOf()))) {
+      throw new Error('Unsafe account moderation seed.');
+    }
+  }
+  for (const key of ['actionId', 'eventId', 'targetUid', 'sourceReportId', 'requestedBy',
+    'requestKey', 'suspensionActionId', 'actorUid', 'restoredBy', 'restorationRequestKey',
+    'listingId']) {
+    if (key in value) {
+      const item = (value as Record<string, unknown>)[key];
+      if (typeof item !== 'string' || item.length < 1 || item.length > 200
+        || item !== item.trim() || !/^[A-Za-z0-9_-]+$/u.test(item)) {
+        throw new Error('Unsafe account moderation seed.');
+      }
+    }
+  }
+}
+
 async function requireOk(method: string, url: string): Promise<void> {
   const response = await fetch(url, { method });
   if (!response.ok) {
@@ -236,6 +301,7 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
           suspensionReason: access.suspensionReason,
           suspendedAt: Timestamp.fromDate(access.suspendedAt),
           suspendedBy: access.suspendedBy,
+          suspensionActionId: access.suspensionActionId,
           updatedAt: Timestamp.fromDate(access.updatedAt),
         }
       : {
@@ -283,6 +349,10 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
       ...(listing.myShipFee === undefined ? {} : { myShipFee: listing.myShipFee }),
       ...(listing.note === undefined ? {} : { note: listing.note }),
       status: listing.status,
+      ...(listing.status === 'suspended' ? {
+        suspensionActionId: listing.suspensionActionId,
+        suspendedAt: Timestamp.fromDate(listing.suspendedAt),
+      } : {}),
       createdAt: Timestamp.fromDate(listing.createdAt),
       updatedAt: Timestamp.fromDate(listing.updatedAt),
     });
@@ -401,6 +471,45 @@ export async function seedScenario(seed: ScenarioSeed): Promise<void> {
       updatedAt: Timestamp.fromDate(limit.updatedAt),
     });
   }
+  for (const operation of seed.accountModerationOperations ?? []) {
+    assertExactSeed(operation, operation.status === 'hiding'
+      ? ['actionId', 'status', 'targetUid', 'sourceReportId', 'requestedBy', 'reason', 'requestKey',
+        'confirmedViolationCount', 'hiddenListingCount', 'createdAt', 'updatedAt']
+      : operation.status === 'suspended'
+        ? ['actionId', 'status', 'targetUid', 'sourceReportId', 'requestedBy', 'reason', 'requestKey',
+          'confirmedViolationCount', 'hiddenListingCount', 'createdAt', 'updatedAt', 'completedAt']
+        : ['actionId', 'status', 'targetUid', 'sourceReportId', 'requestedBy', 'reason', 'requestKey',
+          'confirmedViolationCount', 'hiddenListingCount', 'createdAt', 'updatedAt', 'completedAt',
+          'restoredAt', 'restoredBy', 'restorationReason', 'restorationRequestKey']);
+    batch.set(firestore.doc(`accountModerationOperations/${operation.actionId}`), {
+      ...operation,
+      createdAt: Timestamp.fromDate(operation.createdAt),
+      updatedAt: Timestamp.fromDate(operation.updatedAt),
+      ...(operation.status === 'hiding' ? {} : {
+        completedAt: Timestamp.fromDate(operation.completedAt),
+      }),
+      ...(operation.status === 'restored' ? {
+        restoredAt: Timestamp.fromDate(operation.restoredAt),
+      } : {}),
+    });
+  }
+  for (const audit of seed.accountModerationAuditLogs ?? []) {
+    assertExactSeed(audit, audit.type === 'suspension_requested'
+      ? ['eventId', 'type', 'targetUid', 'suspensionActionId', 'sourceReportId', 'actorUid', 'at',
+        'reason', 'confirmedViolationCount']
+      : audit.type === 'suspension_completed'
+        ? ['eventId', 'type', 'targetUid', 'suspensionActionId', 'sourceReportId', 'actorUid', 'at',
+          'hiddenListingCount']
+        : audit.type === 'restored'
+          ? ['eventId', 'type', 'targetUid', 'suspensionActionId', 'sourceReportId', 'actorUid', 'at',
+            'reason']
+          : ['eventId', 'type', 'targetUid', 'suspensionActionId', 'sourceReportId', 'actorUid', 'at',
+            'listingId']);
+    batch.set(firestore.doc(`accountModerationAuditLogs/${audit.eventId}`), {
+      ...audit,
+      at: Timestamp.fromDate(audit.at),
+    });
+  }
 
   await batch.commit();
 }
@@ -463,9 +572,14 @@ export async function readDocument(
 
 export async function listDocuments(
   collectionName: string,
+  maximum = 100,
 ): Promise<Array<{ id: string; data: Record<string, unknown> }>> {
   assertSafeEmulatorEnvironment();
-  const snapshot = await adminFirestore().collection(collectionName).get();
+  if (!/^[A-Za-z][A-Za-z0-9]*$/u.test(collectionName)
+    || !Number.isSafeInteger(maximum) || maximum < 1 || maximum > 100) {
+    throw new Error('Unsafe bounded document list.');
+  }
+  const snapshot = await adminFirestore().collection(collectionName).limit(maximum).get();
   return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }));
 }
 
@@ -577,6 +691,18 @@ export async function callEmulatorFunctionWithToken(
     },
   );
   return responseResult(response);
+}
+
+export async function invokeAccountModerationReconciler(): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!getApps().some(({ name }) => name === '[DEFAULT]')) {
+    initializeApp({ projectId: E2E_PROJECT_ID, storageBucket: E2E_BUCKET });
+  }
+  const deployed = await import('../../functions/lib/index.js');
+  await deployed.reconcileAccountModerationOperations.run({
+    scheduleTime: new Date().toISOString(),
+  });
+  return { status: 200, body: { invoked: true } };
 }
 
 function firestoreValue(value: unknown): Record<string, unknown> {

@@ -209,6 +209,99 @@ test('mobile moderation queue, evidence detail, and decision dialog do not overf
   await expectNoHorizontalScroll(page);
 });
 
+test('mobile account restoration dialog and immutable history do not overflow', async ({ page }) => {
+  const admin = await signInMobile(page, 'account-admin');
+  await setEmulatorAdminClaim(admin.uid, true);
+  await page.reload();
+  const actionId = 'e'.repeat(64);
+  const targetUid = 'mobile-account-target';
+  await seedScenario({
+    accountAccess: [{
+      uid: targetUid, status: 'suspended', confirmedViolationCount: 2,
+      suspensionReason: '行動版停權測試', suspendedAt: seededAt,
+      suspendedBy: admin.uid, suspensionActionId: actionId, updatedAt: seededAt,
+    }],
+    moderationReports: [{
+      id: 'mobile-account-case', status: 'submitted', requestKey: 'f'.repeat(64),
+      reporterId: 'mobile-reporter', targetSellerId: targetUid,
+      listingSnapshot: {
+        listingId: 'mobile-account-listing', cardType: 'character', cardName: '諸伏高明',
+        cardId: '0501', rarity: 'D', listingPrice: 500, createdAt: seededAt,
+      },
+      createdAt: seededAt, expiresAt: new Date('2026-08-28T00:00:00Z'), category: 'other',
+      description: '帳號停權行動版案件', evidence: [], submittedAt: seededAt,
+    }],
+    moderationCases: [{
+      id: 'mobile-account-case', status: 'confirmed', reportId: 'mobile-account-case',
+      targetSellerId: targetUid, openedAt: seededAt, rationale: '確認兩次違規',
+      decidedBy: admin.uid, decidedAt: seededAt, resultingConfirmedViolationCount: 2,
+    }],
+    accountModerationOperations: [{
+      actionId, status: 'suspended', targetUid, sourceReportId: 'mobile-account-case',
+      requestedBy: admin.uid, reason: '行動版停權測試', requestKey: actionId,
+      confirmedViolationCount: 2, hiddenListingCount: 1, createdAt: seededAt,
+      updatedAt: seededAt, completedAt: seededAt,
+    }],
+    accountModerationAuditLogs: [{
+      eventId: `${actionId}_completed`, type: 'suspension_completed', targetUid,
+      suspensionActionId: actionId, sourceReportId: 'mobile-account-case', actorUid: admin.uid,
+      at: seededAt, hiddenListingCount: 1,
+    }],
+  });
+  await page.goto('#/admin/moderation/mobile-account-case');
+  await expect(page.getByRole('list', { name: '帳號管理歷史' })).toContainText('停權完成');
+  await expectNoHorizontalScroll(page);
+  await page.getByRole('button', { name: '恢復帳號' }).tap();
+  const dialog = page.getByRole('dialog', { name: '恢復帳號' });
+  await expect(dialog).toBeVisible();
+  await expectEditable(dialog.getByLabel('處理理由'));
+  await expect(dialog.getByRole('button', { name: '確認恢復' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+});
+
+test('mobile held section and republish confirmation remain reachable', async ({ page }) => {
+  const seller = await signInMobile(page, 'held-seller');
+  const actionId = '1'.repeat(64);
+  await seedScenario({
+    cards: testCards,
+    accountAccess: [{
+      uid: seller.uid, status: 'active', confirmedViolationCount: 2, updatedAt: seededAt,
+    }],
+    sellerProfiles: [sellerProfile(seller.uid, 'Mobile Held Seller')],
+    listings: [activeListing(seller.uid, 'data:image/png;base64,iVBORw0KGgo=', {
+      id: 'mobile-held-listing', status: 'suspended', suspensionActionId: actionId,
+      suspendedAt: seededAt, updatedAt: seededAt,
+    })],
+    accountModerationOperations: [{
+      actionId, status: 'restored', targetUid: seller.uid, sourceReportId: 'mobile-report',
+      requestedBy: 'mobile-admin', reason: '先前停權', requestKey: actionId,
+      confirmedViolationCount: 2, hiddenListingCount: 1, createdAt: seededAt,
+      updatedAt: seededAt, completedAt: seededAt, restoredAt: seededAt,
+      restoredBy: 'mobile-admin', restorationReason: '人工恢復',
+      restorationRequestKey: '2'.repeat(64),
+    }],
+    accountModerationAuditLogs: [{
+      eventId: `${actionId}_restored`, type: 'restored', targetUid: seller.uid,
+      suspensionActionId: actionId, sourceReportId: 'mobile-report', actorUid: 'mobile-admin',
+      at: seededAt, reason: '人工恢復',
+    }],
+  });
+  await page.goto('#/dashboard');
+  const heldSection = page.getByRole('region', { name: '因停權隱藏' });
+  await expect(heldSection).toContainText('諸伏高明');
+  await expectNoHorizontalScroll(page);
+  await heldSection.getByRole('link', { name: '查看與管理' }).tap();
+  await expect(page.getByRole('button', { name: '重新上架商品' })).toBeVisible();
+  let confirmation = '';
+  page.once('dialog', async (dialog) => {
+    confirmation = dialog.message();
+    await dialog.dismiss();
+  });
+  await page.getByRole('button', { name: '重新上架商品' }).tap();
+  await expect.poll(() => confirmation).toContain('確定要重新上架');
+  await expectNoHorizontalScroll(page);
+});
+
 test('mobile Profile form', async ({ page }) => {
   const identity = await signInMobile(page, 'profile');
   await page.goto('#/profile');

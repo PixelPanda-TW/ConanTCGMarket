@@ -97,7 +97,7 @@ test('a suspended account cannot trigger or recover seller contact', async ({ pa
     accountAccess: [{
       uid: identity.uid, status: 'suspended', confirmedViolationCount: 1,
       suspensionReason: 'Contact access suspended', suspendedAt: new Date(),
-      suspendedBy: 'admin-e2e', updatedAt: new Date(),
+      suspendedBy: 'admin-e2e', suspensionActionId: 'a'.repeat(64), updatedAt: new Date(),
     }],
   });
   await page.goto('#/listing/suspended-contact-listing');

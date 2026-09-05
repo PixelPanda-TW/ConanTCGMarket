@@ -173,7 +173,7 @@ test('never offers seller mutation to the owner, a sold-out view, or a suspended
   await seedScenario({ accountAccess: [{
     uid: identity.uid, status: 'suspended', confirmedViolationCount: 1,
     suspensionReason: 'E2E suspension', suspendedAt: seededAt,
-    suspendedBy: 'admin-1', updatedAt: seededAt,
+    suspendedBy: 'admin-1', suspensionActionId: 'a'.repeat(64), updatedAt: seededAt,
   }] });
   await page.goto('#/listing/suspended-view');
   await expect(page.getByText('帳號停權期間無法管理賣家通知。')).toBeVisible();
