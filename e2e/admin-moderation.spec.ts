@@ -73,14 +73,14 @@ test('signed-out, ordinary, suspended, and malformed admins cannot inspect moder
     page.getByText('無權限查看檢舉案件', { exact: true }),
   );
   await expect(page.getByRole('alert')).toHaveText('無權限查看檢舉案件');
+  await page.goto('./');
+  await acknowledgeWelcome(page);
+  await page.getByRole('button', { name: '登出' }).click();
   const ordinaryToken = await getEmulatorUserIdToken(ordinary.uid);
   expect((await callEmulatorFunctionWithToken(ordinaryToken, 'listModerationCases', {
     status: 'all', limit: 20, cursor: null,
   })).status).toBe(403);
 
-  await page.goto('./');
-  await acknowledgeWelcome(page);
-  await page.getByRole('button', { name: '登出' }).click();
   const suspended = await signInWithMockGoogle(page, {
     email: 'moderation-suspended@example.test', displayName: 'Suspended Admin',
   });
@@ -92,13 +92,12 @@ test('signed-out, ordinary, suspended, and malformed admins cannot inspect moder
   }] });
   await page.goto('#/admin/moderation');
   await expect(page.getByRole('status')).toContainText('帳號目前已停權');
+  await page.goto('./');
+  await page.getByRole('button', { name: '登出' }).click();
   const suspendedToken = await getEmulatorUserIdToken(suspended.uid);
   expect((await callEmulatorFunctionWithToken(suspendedToken, 'getModerationCase', {
     reportId: 'denied-report',
   })).status).toBe(403);
-
-  await page.goto('./');
-  await page.getByRole('button', { name: '登出' }).click();
   const malformed = await signInWithMockGoogle(page, {
     email: 'moderation-malformed@example.test', displayName: 'Malformed Admin',
   });
