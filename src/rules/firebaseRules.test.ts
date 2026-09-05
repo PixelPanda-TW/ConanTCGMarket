@@ -53,7 +53,7 @@ const suspendedAccountAccess = {
   suspensionReason: 'Confirmed marketplace policy violation.',
   suspendedAt: new Date(),
   suspendedBy: 'admin-1',
-  suspensionActionId: 'a'.repeat(64),
+  suspensionActionId: 'c'.repeat(64),
   updatedAt: new Date(),
 };
 
@@ -156,6 +156,12 @@ beforeAll(async () => {
       actionId: 'a'.repeat(64), status: 'suspended', targetUid: 'seller-a',
       sourceReportId: 'report-submitted', requestedBy: 'admin-user', reason: 'Reason',
       requestKey: 'a'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 1,
+      createdAt: new Date(), updatedAt: new Date(), completedAt: new Date(),
+    });
+    await setDoc(doc(context.firestore(), 'accountModerationOperations', 'c'.repeat(64)), {
+      actionId: 'c'.repeat(64), status: 'suspended', targetUid: 'suspended-user',
+      sourceReportId: 'report-submitted', requestedBy: 'admin-user', reason: 'Reason',
+      requestKey: 'c'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 0,
       createdAt: new Date(), updatedAt: new Date(), completedAt: new Date(),
     });
     await setDoc(doc(context.firestore(), 'accountModerationAuditLogs', 'event-1'), {
@@ -327,6 +333,43 @@ describe('Firebase rules', () => {
     await assertFails(uploadBytes(object, new Blob(['replacement'], { type: 'image/png' })));
     await assertFails(deleteObject(object));
     await assertFails(getBytes(object));
+  });
+
+  it('allows only the exact suspended owner to manage appeal draft evidence and never read it', async () => {
+    const actionId = 'c'.repeat(64);
+    const draftId = '123e4567-e89b-42d3-a456-426614174000';
+    const owner = environment.authenticatedContext('suspended-user').storage();
+    const objectPath = `account-appeal-evidence/suspended-user/${actionId}/${draftId}/0`;
+    const object = ref(owner, objectPath);
+    await assertSucceeds(uploadBytes(object, new Blob(['appeal'], { type: 'image/png' })));
+    await assertFails(getBytes(object));
+    await assertSucceeds(uploadBytes(object, new Blob(['replacement'], { type: 'image/webp' })));
+    await assertFails(getBytes(ref(
+      environment.authenticatedContext('admin-user', { admin: true }).storage(), objectPath,
+    )));
+    await assertSucceeds(deleteObject(object));
+  });
+
+  it.each([
+    ['anonymous', null, 'suspended-user', 'c', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/png', 1],
+    ['active account', 'active-user', 'active-user', 'a', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/png', 1],
+    ['other user', 'active-user', 'suspended-user', 'c', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/png', 1],
+    ['wrong action', 'suspended-user', 'suspended-user', 'b', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/png', 1],
+    ['bad draft', 'suspended-user', 'suspended-user', 'c', 'bad', '0', 'image/png', 1],
+    ['bad slot', 'suspended-user', 'suspended-user', 'c', '123e4567-e89b-42d3-a456-426614174000', '3', 'image/png', 1],
+    ['bad MIME', 'suspended-user', 'suspended-user', 'c', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/gif', 1],
+    ['empty', 'suspended-user', 'suspended-user', 'c', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/png', 0],
+    ['oversized', 'suspended-user', 'suspended-user', 'c', '123e4567-e89b-42d3-a456-426614174000', '0', 'image/png', 5 * 1024 * 1024 + 1],
+  ])('denies invalid appeal evidence write: %s', async (
+    _label, authUid, pathUid, actionCharacter, draftId, slot, contentType, size,
+  ) => {
+    const storage = authUid
+      ? environment.authenticatedContext(authUid).storage()
+      : environment.unauthenticatedContext().storage();
+    await assertFails(uploadBytes(ref(
+      storage,
+      `account-appeal-evidence/${pathUid}/${String(actionCharacter).repeat(64)}/${draftId}/${slot}`,
+    ), new Blob([new Uint8Array(size)], { type: contentType })));
   });
 
   it.each(['missing-user', 'active-user'])(

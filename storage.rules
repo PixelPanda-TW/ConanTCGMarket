@@ -60,5 +60,49 @@ service firebase.storage {
         && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
       allow delete: if canWriteReportEvidence(uid, reportId, slot);
     }
+
+    function appealAccountPath(uid) {
+      return /databases/(default)/documents/accountAccess/$(uid);
+    }
+
+    function appealOperationPath(actionId) {
+      return /databases/(default)/documents/accountModerationOperations/$(actionId);
+    }
+
+    function isExactSuspendedAppealOwner(uid, actionId) {
+      return request.auth != null
+        && request.auth.uid == uid
+        && firestore.exists(appealAccountPath(uid))
+        && firestore.get(appealAccountPath(uid)).data.keys().hasOnly([
+          'status', 'confirmedViolationCount', 'suspensionReason', 'suspendedAt',
+          'suspendedBy', 'suspensionActionId', 'updatedAt'
+        ])
+        && firestore.get(appealAccountPath(uid)).data.keys().hasAll([
+          'status', 'confirmedViolationCount', 'suspensionReason', 'suspendedAt',
+          'suspendedBy', 'suspensionActionId', 'updatedAt'
+        ])
+        && firestore.get(appealAccountPath(uid)).data.status == 'suspended'
+        && firestore.get(appealAccountPath(uid)).data.suspensionActionId == actionId
+        && firestore.exists(appealOperationPath(actionId))
+        && firestore.get(appealOperationPath(actionId)).data.status == 'suspended'
+        && firestore.get(appealOperationPath(actionId)).data.actionId == actionId
+        && firestore.get(appealOperationPath(actionId)).data.targetUid == uid;
+    }
+
+    function canWriteAppealDraft(uid, actionId, draftId, slot) {
+      return actionId.matches('^[0-9a-f]{64}$')
+        && draftId.matches('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
+        && slot.matches('^[0-2]$')
+        && isExactSuspendedAppealOwner(uid, actionId);
+    }
+
+    match /account-appeal-evidence/{uid}/{actionId}/{draftId}/{slot} {
+      allow read: if false;
+      allow create, update: if canWriteAppealDraft(uid, actionId, draftId, slot)
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+      allow delete: if canWriteAppealDraft(uid, actionId, draftId, slot);
+    }
   }
 }
