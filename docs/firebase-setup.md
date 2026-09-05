@@ -315,6 +315,72 @@ remain compatible. Preserve submitted reports and evidence; deletion, manual
 cleanup, data restoration, or a Rules relaxation requires separate explicit
 approval.
 
+## Private admin moderation review and release
+
+The admin review surface is private and callable-only. Access requires an
+authenticated **active account** and an **exact `admin === true` custom claim**;
+truthy strings, stale claims paired with suspended access, malformed access
+records, non-admin users, and signed-out users fail closed. The browser routes
+`#/admin/moderation` and `#/admin/moderation/:reportId` provide the
+private queue, case detail, and generation-pinned evidence. `moderationCases` and
+`moderationReports` remain unreadable and unwritable through the browser SDK,
+including for admins, and evidence remains unreadable through the Storage SDK.
+
+The trusted surface consists of `listModerationCases`, `getModerationCase`,
+`getModerationEvidence`, and `decideModerationCase`. Queue reads are filtered,
+bounded, and deterministically paginated. Detail reads return only the approved
+report, decision, safe Listing snapshot, evidence summaries, and target-account
+summary. Evidence is fetched one object at a time only after explicit admin
+action; the Function verifies the report's recorded generation, content type,
+and size before returning bytes. The browser uses a short-lived Blob URL and
+revokes it when replaced, closed, or unmounted. No signed URL or Storage path is
+returned.
+
+Dismissal and confirmation require a trimmed 1–1,000-character rationale.
+Terminal **decisions are immutable and idempotent**: an exact retry returns the
+stored result, while a conflicting or concurrent decision fails closed. For
+confirmation, **confirmed decisions atomically increment** the target account's
+`confirmedViolationCount` in the same transaction that closes the case, exactly
+once. A count of two or more is only suspension eligibility. This batch
+does not automatically suspend an account, disable Auth, revoke tokens, hide
+Listings, or expose suspension controls. Dismissal never writes account access.
+The workflow sends **no moderator email**, reporter or seller notification,
+Discord message, or push notification, and requires **no migration** because the
+report workflow is not production-live.
+
+### Admin moderation release, verification, monitoring, and rollback
+
+Repository readiness does not authorize release. After separate operator
+approval, use the fixed order **Functions → indexes → Rules → frontend**. Deploy
+the callable and atomic case-creation support first, wait for the
+`moderationCases` composite index in `firestore.indexes.json` to become ready, then
+deploy the private Rules, and only then publish the admin routes. These are
+separate production actions; approval of one does not imply approval of the
+next.
+
+Non-invasive verification may inspect only the deployed Functions manifest,
+index readiness, Rules release, frontend asset version, and aggregate sanitized
+metrics. It must not send email or mutate production data merely as a probe:
+
+- It **must not read a production report**.
+- It **must not download production evidence**.
+- It **must not decide a production case**.
+- It **must not change a production violation count**.
+
+Do not log descriptions, rationales, reporter IDs, evidence bytes, or account
+details.
+
+After an authorized release, monitor bounded queue/detail/evidence/decision
+error and latency rates, confirmation and dismissal counts, transaction
+conflicts, malformed report/case-pair failures, evidence metadata mismatches,
+response sizes, and permission denials. Stop the rollout on unexplained access,
+pair-integrity, or count errors. For rollback, remove the frontend routes first
+while retaining the private Rules. Preserve all reports, cases, evidence, and
+confirmed counts. Roll back Functions only to a version that still creates a
+case with every newly submitted report; never delete a case or decrement a
+count as rollback. Any production release, rollback, repair, evidence access,
+or data mutation requires separate explicit approval.
+
 ## Notification Functions deployment
 
 Production Cloud Functions require the Firebase Blaze plan. Before setting any

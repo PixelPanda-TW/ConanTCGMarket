@@ -318,6 +318,25 @@ remain deferred to later recovery batches. No production report, evidence upload
 email, cleanup invocation, migration, deployment, or data mutation is authorized
 by this milestone.
 
+## Recovery Batch 9: Admin Moderation Review
+
+Status: **Moderation review is repository-ready, not production-live**. Every
+new submitted report atomically opens one private case. An active exact-claim
+admin can use the guarded queue and detail routes, explicitly retrieve one
+generation-verified evidence object, and dismiss or confirm a case with an
+immutable rationale. Confirmation atomically increments the target account's
+confirmed-violation count exactly once; the threshold is advisory and does not
+suspend the account or hide Listings.
+
+Firestore and Storage remain browser-private even for admins. Callable, Rules,
+unit, Emulator, Chromium, and mobile WebKit coverage verify the full review
+path, denials, pagination, reload, malformed pairs, retry/concurrency behavior,
+and count integrity. Production Functions, indexes, Rules, frontend release,
+report/evidence access, moderation decisions, count changes, notification, and
+data mutation remain separately authorized operations. Manual suspension and
+restoration, Listing hide/republish, audit events, and appeals remain deferred
+to later recovery batches.
+
 ## Milestone 11: MVP Acceptance and Launch Cleanup
 
 Status: Seller subscriptions are repository-ready, not production-live. Active

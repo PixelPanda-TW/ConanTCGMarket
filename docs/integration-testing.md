@@ -158,6 +158,7 @@ matrix where a denied action has no user-visible UI.
 | `e2e/listing-lifecycle.spec.ts` | Sell prerequisites and validation, Listing/image creation and trigger event, owner edit/image replacement, inventory protection, and cancel/confirm deletion. |
 | `e2e/subscriptions.spec.ts` | Exact-name and seller subscriptions, consent/cancel, persistence/removal, owner/sold/suspended gates, pre-follow exclusion, dual card-and-seller match deduplication, substring coverage, and daily-email preference. |
 | `e2e/report-tickets.spec.ts` | Guest guidance; active reporter draft/submission; zero and three evidence images; reload receipt; ownership, account, Listing, MIME, size, read, count, rate-limit, conflicting-retry, and post-submit denial paths. |
+| `e2e/admin-moderation.spec.ts` | Active exact-claim admin queue/detail/evidence/decision lifecycle; denial states; filters, pagination, reload, immutable/idempotent and concurrent decisions, atomic violation counts, eligibility without suspension, malformed pairs, and direct Rules denial. |
 | `e2e/sales-authorization.spec.ts` | Partial/sold-out sales and Dashboard totals, sale cancellation, cross-seller protection, and signed-out private-route guidance. |
 | `e2e/mvp-journey.spec.ts` | Login → Profile → Listing → public search → subscription → sale → public sold-out removal. |
 | `e2e/mobile-forms.spec.ts` | iPhone welcome/filter/navigation interaction and every Profile, Listing, edit, sale, subscription, and notification form. |
@@ -209,6 +210,39 @@ Do not source a production `.env`, ADC
 project, or Firebase project into an Emulator run. These tests prove repository
 behavior only; Scheduler delivery, deployed indexes, IAM, quotas, and production
 observability require a separately approved non-invasive release verification.
+
+Admin moderation E2E maps the **ten admin-moderation acceptance criteria** to
+observable boundaries:
+
+1. A newly submitted report atomically creates its matching open case; an
+   incompatible pre-existing case aborts the submission.
+2. Only an active account with exact boolean admin claim can list, inspect,
+   retrieve evidence, or decide; signed-out, non-admin, suspended, unavailable,
+   and malformed account states do not load private data.
+3. The queue filters all/open/dismissed/confirmed cases and paginates in a
+   bounded deterministic order using safe summaries only.
+4. Detail returns the immutable report and approved account/case fields while
+   excluding contact, email, arbitrary fields, hashes, and Storage paths.
+5. Evidence retrieval verifies immutable metadata, returns exactly one object,
+   and the UI replaces and revokes its non-persistent Blob URL.
+6. Dismissal records one rationale-backed terminal decision without changing
+   account access or violation count.
+7. Confirmation closes the case and atomically increments missing, active, or
+   suspended account state exactly once; malformed state causes no writes.
+8. Exact retries are idempotent, conflicting or concurrent decisions fail
+   closed, and the UI displays only trusted returned or reloaded state.
+9. Two confirmed violations display manual-suspension eligibility but do not
+   suspend Auth, hide Listings, or expose a suspension action.
+10. Reload, mobile layout, direct Firestore/Storage denial, error retry, and the
+    full queue → detail → evidence → decision path run only in the fixed demo
+    Emulator project.
+
+This suite performs **no production report read, evidence download, decision, violation-count change, email, or data mutation**.
+Emulator success proves
+repository behavior, not deployed index readiness, IAM, quotas, production
+latency, or operational monitoring. Those require a separately approved,
+non-invasive verification that inspects only versions and aggregate sanitized
+signals.
 
 ## Reliability and evidence
 

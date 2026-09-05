@@ -725,4 +725,38 @@ describe('notification Function deployment contract', () => {
       'Moderation reports are repository-ready, not production-live',
     );
   });
+
+  it('documents admin moderation privacy, decision, and release operations', async () => {
+    const [setupGuide, integrationGuide, milestones] = await Promise.all([
+      readFile(new URL('../../docs/firebase-setup.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/integration-testing.md', import.meta.url), 'utf8'),
+      readFile(new URL('../../docs/milestones.md', import.meta.url), 'utf8'),
+    ]);
+
+    for (const phrase of [
+      'exact `admin === true` custom claim',
+      'private queue, case detail, and generation-pinned evidence',
+      'decisions are immutable and idempotent',
+      'confirmed decisions atomically increment',
+      'does not automatically suspend',
+      'no moderator email',
+      'no migration',
+      'Functions → indexes → Rules → frontend',
+      'must not read a production report',
+      'must not download production evidence',
+      'must not decide a production case',
+      'must not change a production violation count',
+      'rollback',
+      'monitor',
+    ]) {
+      expect(setupGuide).toContain(phrase);
+    }
+    expect(integrationGuide).toContain('ten admin-moderation acceptance criteria');
+    expect(integrationGuide).toContain(
+      'no production report read, evidence download, decision, violation-count change, email, or data mutation',
+    );
+    expect(milestones).toContain(
+      'Moderation review is repository-ready, not production-live',
+    );
+  });
 });

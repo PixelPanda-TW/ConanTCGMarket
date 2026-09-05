@@ -121,6 +121,38 @@ test('documents the private moderation report lifecycle and production safety co
   assert.match(milestones, /Moderation reports are repository-ready, not production-live/iu);
 });
 
+test('documents the private admin moderation workflow and production safety contract', async () => {
+  const [setupGuide, integrationGuide, milestones] = await Promise.all([
+    readFile(new URL('docs/firebase-setup.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/integration-testing.md', rootUrl), 'utf8'),
+    readFile(new URL('docs/milestones.md', rootUrl), 'utf8'),
+  ]);
+
+  assert.match(setupGuide, /active account[\s\S]+exact `admin === true` custom claim/iu);
+  assert.match(setupGuide, /private queue, case detail, and generation-pinned evidence/iu);
+  assert.match(setupGuide, /decisions are immutable and idempotent/iu);
+  assert.match(setupGuide, /confirmed decisions atomically increment/iu);
+  assert.match(setupGuide, /does not automatically suspend/iu);
+  assert.match(setupGuide, /no moderator email/iu);
+  assert.match(setupGuide, /no migration/iu);
+  assert.match(setupGuide, /Functions → indexes → Rules → frontend/u);
+  assert.match(setupGuide, /must not read a production report/iu);
+  assert.match(setupGuide, /must not download production evidence/iu);
+  assert.match(setupGuide, /must not decide a production case/iu);
+  assert.match(setupGuide, /must not change a production violation count/iu);
+  assert.match(setupGuide, /monitor/iu);
+  assert.match(setupGuide, /rollback/iu);
+  assert.match(integrationGuide, /ten admin-moderation acceptance criteria/iu);
+  assert.match(
+    integrationGuide,
+    /no production report read, evidence download, decision, violation-count change, email, or data mutation/iu,
+  );
+  assert.match(
+    milestones,
+    /Moderation review is repository-ready, not production-live/iu,
+  );
+});
+
 function expectNoImplicitApply(source) {
   assert.doesNotMatch(root.scripts['migrate:sale-snapshots'], /--apply/u);
   assert.doesNotMatch(source, /apply:\s*true/u);
