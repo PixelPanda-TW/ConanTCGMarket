@@ -27,6 +27,7 @@ const openDetail: ModerationCaseDetail = {
   openedAt: new Date('2026-09-04T04:00:00Z'),
   evidence: [],
   account: { status: 'active', confirmedViolationCount: 1, suspensionEligible: false },
+  accountModeration: { operation: null, history: [] },
 };
 const confirmedDetail: ModerationCaseDetail = {
   ...openDetail,

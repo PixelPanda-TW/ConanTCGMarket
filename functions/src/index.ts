@@ -639,6 +639,19 @@ const moderationCaseDetailDependencies: ModerationCaseDetailDependencies = {
     const snapshot = await firestore.collection('moderationReports').doc(id).get();
     return snapshot.exists ? snapshot.data() ?? null : null;
   },
+  async getAccountModerationOperation(id) {
+    const snapshot = await firestore.collection('accountModerationOperations').doc(id).get();
+    return snapshot.exists ? snapshot.data() ?? null : null;
+  },
+  async listAccountModerationAudit(targetUid, limit) {
+    const snapshot = await firestore.collection('accountModerationAuditLogs')
+      .where('targetUid', '==', targetUid)
+      .orderBy('at', 'desc')
+      .orderBy(FieldPath.documentId(), 'desc')
+      .limit(limit)
+      .get();
+    return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }));
+  },
 };
 
 const moderationEvidenceDependencies: ModerationEvidenceDependencies = {

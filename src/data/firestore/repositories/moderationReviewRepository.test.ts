@@ -32,6 +32,7 @@ const detail = {
   submittedAt: 1_788_278_400_000,
   evidence: [{ slot: 0, contentType: 'image/png', size: 3 }],
   account: { status: 'active', confirmedViolationCount: 1, suspensionEligible: false },
+  accountModeration: { operation: null, history: [] },
 };
 
 describe('moderation review repository', () => {
@@ -98,6 +99,44 @@ describe('moderation review repository', () => {
     expect(result.listingSnapshot.createdAt).toEqual(new Date(snapshot.createdAt));
     expect(functions.callableByName.get('getModerationCase'))
       .toHaveBeenCalledWith({ reportId: 'report-2' });
+  });
+
+  it('converts bounded account moderation operation and audit dates', async () => {
+    const data = {
+      ...detail,
+      account: {
+        status: 'suspended', confirmedViolationCount: 2, suspensionEligible: true,
+        suspensionReason: '重複違規', suspendedAt: 1_788_278_401_000,
+        suspendedBy: 'admin-1', suspensionActionId: 'action-1',
+      },
+      accountModeration: {
+        operation: {
+          actionId: 'action-1', status: 'suspended', targetUid: 'seller-1',
+          sourceReportId: 'report-2', requestedBy: 'admin-1', reason: '重複違規',
+          confirmedViolationCount: 2, hiddenListingCount: 3,
+          createdAt: 1_788_278_400_000, updatedAt: 1_788_278_402_000,
+          completedAt: 1_788_278_402_000,
+        },
+        history: [{
+          eventId: 'event-2', type: 'suspension_completed', targetUid: 'seller-1',
+          suspensionActionId: 'action-1', sourceReportId: 'report-2', actorUid: 'admin-1',
+          at: 1_788_278_402_000, hiddenListingCount: 3,
+        }, {
+          eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+          suspensionActionId: 'action-1', sourceReportId: 'report-2', actorUid: 'admin-1',
+          at: 1_788_278_400_000, reason: '重複違規', confirmedViolationCount: 2,
+        }],
+      },
+    };
+    functions.callableByName.get('getModerationCase')!.mockResolvedValue({ data });
+    const result = await getModerationCase('report-2');
+    expect(result.account.status === 'suspended' && result.account.suspendedAt)
+      .toEqual(new Date(1_788_278_401_000));
+    expect(result.accountModeration.operation?.updatedAt)
+      .toEqual(new Date(1_788_278_402_000));
+    expect(result.accountModeration.history.map(({ at }) => at)).toEqual([
+      new Date(1_788_278_402_000), new Date(1_788_278_400_000),
+    ]);
   });
 
   it.each([

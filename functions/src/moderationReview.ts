@@ -4,6 +4,12 @@ import {
   type ReportListingSnapshot,
   type SubmittedModerationReport,
 } from './reportTickets.js';
+import {
+  readAccountModerationAuditEvent,
+  readAccountModerationOperation,
+  type AccountModerationAuditEvent,
+  type AccountModerationOperation,
+} from './accountModeration.js';
 
 export const MODERATION_CASE_STATUSES = ['open', 'dismissed', 'confirmed'] as const;
 export const MODERATION_DECISIONS = ['dismissed', 'confirmed'] as const;
@@ -93,6 +99,11 @@ export interface ModerationCaseDetailDependencies {
   getAccountAccess(uid: string): Promise<unknown | null>;
   getCase(id: string): Promise<unknown | null>;
   getReport(id: string): Promise<unknown | null>;
+  getAccountModerationOperation(id: string): Promise<unknown | null>;
+  listAccountModerationAudit(
+    targetUid: string,
+    limit: number,
+  ): Promise<ModerationCaseListRecord[]>;
 }
 
 export interface ModerationEvidenceDependencies extends ModerationCaseDetailDependencies {
@@ -242,18 +253,28 @@ function isCanonicalActiveAccess(value: unknown): boolean {
     && isTimestampLike(value.updatedAt);
 }
 
-function accountSummary(value: unknown | null): {
-  status: 'active' | 'suspended';
+type AccountSummary = {
+  status: 'active';
   confirmedViolationCount: number;
   suspensionEligible: boolean;
-} {
+} | {
+  status: 'suspended';
+  confirmedViolationCount: number;
+  suspensionEligible: boolean;
+  suspensionReason: string;
+  suspendedAt: number;
+  suspendedBy: string;
+  suspensionActionId: string;
+};
+
+function accountSummary(value: unknown | null): AccountSummary {
   if (value === null) {
     return { status: 'active', confirmedViolationCount: 0, suspensionEligible: false };
   }
   if (!isRecord(value)) return malformed();
   const activeFields = ['status', 'confirmedViolationCount', 'updatedAt'];
   const suspendedFields = [
-    ...activeFields, 'suspensionReason', 'suspendedAt', 'suspendedBy',
+    ...activeFields, 'suspensionReason', 'suspendedAt', 'suspendedBy', 'suspensionActionId',
   ];
   const expected = value.status === 'active' ? activeFields
     : value.status === 'suspended' ? suspendedFields : [];
@@ -268,12 +289,24 @@ function accountSummary(value: unknown | null): {
       || value.suspensionReason !== value.suspensionReason.trim()
       || typeof value.suspendedBy !== 'string' || value.suspendedBy.length < 1
       || value.suspendedBy.length > 128 || value.suspendedBy !== value.suspendedBy.trim()
+      || typeof value.suspensionActionId !== 'string'
+      || value.suspensionActionId.length < 1 || value.suspensionActionId.length > 200
+      || value.suspensionActionId !== value.suspensionActionId.trim()
       || !isTimestampLike(value.suspendedAt))) return malformed();
   const count = value.confirmedViolationCount as number;
-  return {
-    status: value.status as 'active' | 'suspended',
+  if (value.status === 'active') return {
+    status: 'active',
     confirmedViolationCount: count,
     suspensionEligible: count >= 2,
+  };
+  const suspendedAt = value.suspendedAt instanceof Timestamp
+    ? value.suspendedAt.toMillis() : (value.suspendedAt as Date).valueOf();
+  return {
+    status: 'suspended', confirmedViolationCount: count, suspensionEligible: count >= 2,
+    suspensionReason: value.suspensionReason as string,
+    suspendedAt,
+    suspendedBy: value.suspendedBy as string,
+    suspensionActionId: value.suspensionActionId as string,
   };
 }
 
@@ -409,7 +442,11 @@ function evidenceSummaries(reportId: string, report: SubmittedModerationReport) 
 function detailWire(
   moderationCase: ModerationCase,
   report: SubmittedModerationReport,
-  account: ReturnType<typeof accountSummary>,
+  account: AccountSummary,
+  accountModeration: {
+    operation: ReturnType<typeof operationSummaryWire> | null;
+    history: ReturnType<typeof auditEventWire>[];
+  },
 ) {
   const common = {
     reportId: moderationCase.reportId,
@@ -423,6 +460,7 @@ function detailWire(
     openedAt: moderationCase.openedAt.toMillis(),
     evidence: evidenceSummaries(moderationCase.reportId, report),
     account,
+    accountModeration,
   };
   if (moderationCase.status === 'open') return common;
   const decided = {
@@ -441,6 +479,94 @@ function detailWire(
   };
 }
 
+function operationSummaryWire(operation: AccountModerationOperation) {
+  const common = {
+    actionId: operation.actionId,
+    status: operation.status,
+    targetUid: operation.targetUid,
+    sourceReportId: operation.sourceReportId,
+    requestedBy: operation.requestedBy,
+    reason: operation.reason,
+    confirmedViolationCount: operation.confirmedViolationCount,
+    hiddenListingCount: operation.hiddenListingCount,
+    createdAt: operation.createdAt.toMillis(),
+    updatedAt: operation.updatedAt.toMillis(),
+  };
+  if (operation.status === 'hiding') return common;
+  if (operation.status === 'suspended') {
+    return { ...common, completedAt: operation.completedAt.toMillis() };
+  }
+  return {
+    ...common,
+    completedAt: operation.completedAt.toMillis(),
+    restoredAt: operation.restoredAt.toMillis(),
+    restoredBy: operation.restoredBy,
+    restorationReason: operation.restorationReason,
+  };
+}
+
+function auditEventWire(event: AccountModerationAuditEvent) {
+  const common = {
+    eventId: event.eventId,
+    type: event.type,
+    targetUid: event.targetUid,
+    suspensionActionId: event.suspensionActionId,
+    sourceReportId: event.sourceReportId,
+    actorUid: event.actorUid,
+    at: event.at.toMillis(),
+  };
+  if (event.type === 'suspension_requested') {
+    return {
+      ...common, reason: event.reason, confirmedViolationCount: event.confirmedViolationCount,
+    };
+  }
+  if (event.type === 'suspension_completed') {
+    return { ...common, hiddenListingCount: event.hiddenListingCount };
+  }
+  if (event.type === 'restored') return { ...common, reason: event.reason };
+  return { ...common, listingId: event.listingId };
+}
+
+async function readAccountModerationHistory(
+  targetUid: string,
+  account: AccountSummary,
+  dependencies: ModerationCaseDetailDependencies,
+) {
+  const records = await dependencies.listAccountModerationAudit(targetUid, 20);
+  if (!Array.isArray(records) || records.length > 20) return malformed();
+  const history: AccountModerationAuditEvent[] = [];
+  for (const record of records) {
+    let event: AccountModerationAuditEvent;
+    try {
+      event = readAccountModerationAuditEvent(record.data);
+    } catch {
+      return malformed();
+    }
+    if (record.id !== event.eventId || event.targetUid !== targetUid) return malformed();
+    const previous = history.at(-1);
+    if (previous && (previous.at.toMillis() < event.at.toMillis()
+      || (previous.at.toMillis() === event.at.toMillis()
+        && previous.eventId.localeCompare(event.eventId) <= 0))) return malformed();
+    history.push(event);
+  }
+  const actionId = account.status === 'suspended'
+    ? account.suspensionActionId : history[0]?.suspensionActionId;
+  if (!actionId) return { operation: null, history: [] };
+  const rawOperation = await dependencies.getAccountModerationOperation(actionId);
+  let operation: AccountModerationOperation;
+  try {
+    operation = readAccountModerationOperation(rawOperation);
+  } catch {
+    return malformed();
+  }
+  if (operation.actionId !== actionId || operation.targetUid !== targetUid) return malformed();
+  if (account.status === 'suspended') {
+    if (operation.status === 'restored'
+      || !history.some((event) => event.suspensionActionId === actionId)) return malformed();
+  } else if (operation.status !== 'restored') return malformed();
+  return { operation: operationSummaryWire(operation), history: history.map(auditEventWire) };
+}
+
 export async function getModerationCase(
   request: ModerationAdminCallableRequest,
   dependencies: ModerationCaseDetailDependencies,
@@ -457,7 +583,11 @@ export async function getModerationCase(
       { id: input.reportId, data: reportData },
     );
     const targetAccess = await dependencies.getAccountAccess(pair.report.targetSellerId);
-    return detailWire(pair.moderationCase, pair.report, accountSummary(targetAccess));
+    const account = accountSummary(targetAccess);
+    const accountModeration = await readAccountModerationHistory(
+      pair.report.targetSellerId, account, dependencies,
+    );
+    return detailWire(pair.moderationCase, pair.report, account, accountModeration);
   } catch (error) {
     if (error instanceof ModerationReviewError) throw error;
     throw new ModerationReviewError('unavailable', '目前無法載入審查案件。');

@@ -156,6 +156,24 @@ describe('domain model validation', () => {
       openedAt: new Date('2026-09-04T00:00:00.000Z'),
       evidence: [{ slot: 0, contentType: 'image/png', size: 100 }],
       account: { status: 'active', confirmedViolationCount: 2, suspensionEligible: true },
+      accountModeration: {
+        operation: {
+          actionId: 'action-1', status: 'restored', targetUid: 'seller-1',
+          sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '重複違規',
+          confirmedViolationCount: 2, hiddenListingCount: 3,
+          createdAt: new Date('2026-09-04T01:00:00.000Z'),
+          completedAt: new Date('2026-09-04T01:01:00.000Z'),
+          restoredAt: new Date('2026-09-04T01:02:00.000Z'),
+          updatedAt: new Date('2026-09-04T01:02:00.000Z'),
+          restoredBy: 'admin-1', restorationReason: '申訴成立',
+        },
+        history: [{
+          eventId: 'event-1', type: 'restored', targetUid: 'seller-1',
+          suspensionActionId: 'action-1', sourceReportId: 'report-1',
+          actorUid: 'admin-1', at: new Date('2026-09-04T01:02:00.000Z'),
+          reason: '申訴成立',
+        }],
+      },
       rationale: '證據與刊登內容一致證明違規', decidedBy: 'admin-1',
       decidedAt: new Date('2026-09-04T01:00:00.000Z'),
       resultingConfirmedViolationCount: 1,
@@ -185,7 +203,39 @@ describe('domain model validation', () => {
       reporterId: 'buyer-1', targetSellerId: 'seller-1', listingSnapshot: moderationSnapshot,
       submittedAt: new Date(), openedAt: new Date(), evidence: [],
       account: { status: 'active', confirmedViolationCount: 0, suspensionEligible: false },
+      accountModeration: { operation: null, history: [] },
       rationale: '無法證實', decidedBy: 'admin-1', decidedAt: new Date(), ...override,
+    })).toThrow();
+  });
+
+  it('rejects moderation history that is over-broad, mismatched, or out of order', () => {
+    const base = {
+      reportId: 'report-1', status: 'open', category: 'other', description: '說明',
+      reporterId: 'buyer-1', targetSellerId: 'seller-1', listingSnapshot: moderationSnapshot,
+      submittedAt: new Date(), openedAt: new Date(), evidence: [],
+      account: { status: 'active', confirmedViolationCount: 2, suspensionEligible: true },
+      accountModeration: { operation: null, history: [] },
+    } as const;
+    const event = {
+      eventId: 'event-1', type: 'restored', targetUid: 'seller-1',
+      suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-1',
+      at: new Date('2026-09-04T02:00:00.000Z'), reason: '申訴成立',
+    } as const;
+    expect(() => validateModerationCaseDetail({
+      ...base, accountModeration: { operation: null, history: [{ ...event, email: 'private' }] },
+    })).toThrow();
+    expect(() => validateModerationCaseDetail({
+      ...base, accountModeration: { operation: null, history: [{ ...event, targetUid: 'other' }] },
+    })).toThrow();
+    expect(() => validateModerationCaseDetail({
+      ...base,
+      accountModeration: {
+        operation: null,
+        history: [
+          { ...event, eventId: 'older', at: new Date('2026-09-04T01:00:00.000Z') },
+          event,
+        ],
+      },
     })).toThrow();
   });
 

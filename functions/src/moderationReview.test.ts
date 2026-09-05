@@ -193,7 +193,8 @@ describe('list moderation cases', () => {
     ['string claim', { authUid: 'admin-1', adminClaim: 'true' }, 'permission-denied'],
     ['suspended admin', { authUid: 'admin-1', adminClaim: true }, 'permission-denied', {
       status: 'suspended', confirmedViolationCount: 2, suspensionReason: 'reason',
-      suspendedAt: OPENED_AT, suspendedBy: 'admin-2', updatedAt: OPENED_AT,
+      suspendedAt: OPENED_AT, suspendedBy: 'admin-2', suspensionActionId: 'action-admin',
+      updatedAt: OPENED_AT,
     }],
     ['malformed admin', { authUid: 'admin-1', adminClaim: true }, 'permission-denied', {
       status: 'active', confirmedViolationCount: 0, updatedAt: OPENED_AT, extra: true,
@@ -257,6 +258,8 @@ function detailHarness(overrides: Partial<ModerationCaseDetailDependencies> = {}
     })),
     getCase: vi.fn(async () => moderationCase),
     getReport: vi.fn(async () => report),
+    getAccountModerationOperation: vi.fn(async () => null),
+    listAccountModerationAudit: vi.fn(async () => []),
     ...overrides,
   };
   return { report, moderationCase, dependencies };
@@ -281,6 +284,7 @@ describe('get moderation case detail', () => {
         { slot: 2, contentType: 'image/webp', size: 200 },
       ],
       account: { status: 'active', confirmedViolationCount: 0, suspensionEligible: false },
+      accountModeration: { operation: null, history: [] },
     });
     expect(JSON.stringify(result)).not.toMatch(/reportEvidence|generation|md5|contact|email/iu);
     expect(dependencies.getCase).toHaveBeenCalledWith('report-1');
@@ -298,13 +302,136 @@ describe('get moderation case detail', () => {
       getCase: vi.fn(async () => confirmedCase),
       getAccountAccess: vi.fn(async (uid) => (uid === 'admin-1' ? null : {
         status: 'suspended', confirmedViolationCount: 3, suspensionReason: '重複違規',
-        suspendedAt: OPENED_AT, suspendedBy: 'admin-2', updatedAt: LATER_AT,
+        suspendedAt: OPENED_AT, suspendedBy: 'admin-2', suspensionActionId: 'action-1',
+        updatedAt: LATER_AT,
       })),
+      getAccountModerationOperation: vi.fn(async () => ({
+        actionId: 'action-1', status: 'suspended', targetUid: 'seller-1',
+        sourceReportId: 'report-1', requestedBy: 'admin-2', reason: '重複違規',
+        requestKey: 'a'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 4,
+        createdAt: OPENED_AT, completedAt: LATER_AT, updatedAt: LATER_AT,
+      })),
+      listAccountModerationAudit: vi.fn(async () => [{ id: 'event-2', data: {
+        eventId: 'event-2', type: 'suspension_completed', targetUid: 'seller-1',
+        suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-2',
+        at: LATER_AT, hiddenListingCount: 4,
+      } }, { id: 'event-1', data: {
+        eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+        suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-2',
+        at: OPENED_AT, reason: '重複違規', confirmedViolationCount: 2,
+      } }]),
     });
-    await expect(getModerationCase(adminDetailRequest, dependencies)).resolves.toMatchObject({
+    const result = await getModerationCase(adminDetailRequest, dependencies);
+    expect(result).toMatchObject({
       status: 'confirmed', rationale: '確認違規', decidedBy: 'admin-1',
       decidedAt: LATER_AT.toMillis(), resultingConfirmedViolationCount: 3,
-      account: { status: 'suspended', confirmedViolationCount: 3, suspensionEligible: true },
+      account: {
+        status: 'suspended', confirmedViolationCount: 3, suspensionEligible: true,
+        suspensionActionId: 'action-1', suspendedAt: OPENED_AT.toMillis(),
+      },
+      accountModeration: {
+        operation: {
+          actionId: 'action-1', status: 'suspended', hiddenListingCount: 4,
+          createdAt: OPENED_AT.toMillis(), completedAt: LATER_AT.toMillis(),
+        },
+        history: [
+          { eventId: 'event-2', type: 'suspension_completed', at: LATER_AT.toMillis() },
+          { eventId: 'event-1', type: 'suspension_requested', at: OPENED_AT.toMillis() },
+        ],
+      },
+    });
+    expect(dependencies.listAccountModerationAudit).toHaveBeenCalledWith('seller-1', 20);
+    expect(dependencies.getAccountModerationOperation).toHaveBeenCalledWith('action-1');
+    expect(JSON.stringify(result)).not.toMatch(/requestKey|restorationRequestKey/iu);
+  });
+
+  it.each([
+    ['over-broad audit', [{ id: 'event-1', data: {
+      eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+      suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-1',
+      at: OPENED_AT, reason: '重複違規', confirmedViolationCount: 2, email: 'private',
+    } }]],
+    ['mismatched target', [{ id: 'event-1', data: {
+      eventId: 'event-1', type: 'suspension_requested', targetUid: 'other',
+      suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-1',
+      at: OPENED_AT, reason: '重複違規', confirmedViolationCount: 2,
+    } }]],
+    ['oldest first', [{ id: 'event-1', data: {
+      eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+      suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-1',
+      at: OPENED_AT, reason: '重複違規', confirmedViolationCount: 2,
+    } }, { id: 'event-2', data: {
+      eventId: 'event-2', type: 'suspension_completed', targetUid: 'seller-1',
+      suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-1',
+      at: LATER_AT, hiddenListingCount: 1,
+    } }]],
+  ])('fails closed for %s account moderation history', async (_label, audit) => {
+    const { dependencies } = detailHarness({
+      getAccountAccess: vi.fn(async (uid) => (uid === 'admin-1' ? null : {
+        status: 'suspended', confirmedViolationCount: 2, suspensionReason: '重複違規',
+        suspendedAt: OPENED_AT, suspendedBy: 'admin-1', suspensionActionId: 'action-1',
+        updatedAt: LATER_AT,
+      })),
+      listAccountModerationAudit: vi.fn(async () => audit),
+      getAccountModerationOperation: vi.fn(async () => ({
+        actionId: 'action-1', status: 'suspended', targetUid: 'seller-1',
+        sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '重複違規',
+        requestKey: 'a'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 1,
+        createdAt: OPENED_AT, completedAt: LATER_AT, updatedAt: LATER_AT,
+      })),
+    });
+    await expect(getModerationCase(adminDetailRequest, dependencies))
+      .rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
+  it.each([
+    ['in-progress suspension', {
+      account: {
+        status: 'suspended', confirmedViolationCount: 2, suspensionReason: '重複違規',
+        suspendedAt: OPENED_AT, suspendedBy: 'admin-1', suspensionActionId: 'action-1',
+        updatedAt: OPENED_AT,
+      },
+      operation: {
+        actionId: 'action-1', status: 'hiding', targetUid: 'seller-1',
+        sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '重複違規',
+        requestKey: 'a'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 0,
+        createdAt: OPENED_AT, updatedAt: OPENED_AT,
+      },
+      audit: {
+        eventId: 'event-1', type: 'suspension_requested', targetUid: 'seller-1',
+        suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-1',
+        at: OPENED_AT, reason: '重複違規', confirmedViolationCount: 2,
+      },
+    }],
+    ['restored account', {
+      account: { status: 'active', confirmedViolationCount: 2, updatedAt: LATER_AT },
+      operation: {
+        actionId: 'action-1', status: 'restored', targetUid: 'seller-1',
+        sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '重複違規',
+        requestKey: 'a'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 1,
+        createdAt: OPENED_AT, completedAt: OPENED_AT, restoredAt: LATER_AT,
+        restoredBy: 'admin-2', restorationReason: '申訴成立',
+        restorationRequestKey: 'b'.repeat(64), updatedAt: LATER_AT,
+      },
+      audit: {
+        eventId: 'event-3', type: 'restored', targetUid: 'seller-1',
+        suspensionActionId: 'action-1', sourceReportId: 'report-1', actorUid: 'admin-2',
+        at: LATER_AT, reason: '申訴成立',
+      },
+    }],
+  ])('returns strict account history for %s', async (_label, fixture) => {
+    const { dependencies } = detailHarness({
+      getAccountAccess: vi.fn(async (uid) => (uid === 'admin-1' ? null : fixture.account)),
+      getAccountModerationOperation: vi.fn(async () => fixture.operation),
+      listAccountModerationAudit: vi.fn(async () => [{
+        id: fixture.audit.eventId, data: fixture.audit,
+      }]),
+    });
+    await expect(getModerationCase(adminDetailRequest, dependencies)).resolves.toMatchObject({
+      accountModeration: {
+        operation: { actionId: 'action-1', status: fixture.operation.status },
+        history: [{ eventId: fixture.audit.eventId, type: fixture.audit.type }],
+      },
     });
   });
 
@@ -366,6 +493,8 @@ function evidenceHarness(overrides: Partial<ModerationEvidenceDependencies> = {}
       status: 'open', reportId: 'report-1', targetSellerId: 'seller-1', openedAt: OPENED_AT,
     })),
     getReport: vi.fn(async () => report),
+    getAccountModerationOperation: vi.fn(async () => null),
+    listAccountModerationAudit: vi.fn(async () => []),
     getEvidenceMetadata: vi.fn(async () => ({
       contentType: 'image/png', size: String(bytes.length), generation: '123',
       md5Hash: 'private-hash', downloadTokens: 'must-not-return',
@@ -522,7 +651,8 @@ describe('decide moderation case', () => {
   it('increments a suspended account while preserving every suspension field', async () => {
     const access = {
       status: 'suspended', confirmedViolationCount: 2, suspensionReason: '重複違規',
-      suspendedAt: OPENED_AT, suspendedBy: 'admin-2', updatedAt: OPENED_AT,
+      suspendedAt: OPENED_AT, suspendedBy: 'admin-2', suspensionActionId: 'action-1',
+      updatedAt: OPENED_AT,
     };
     const { state, dependencies } = decisionHarness({ targetAccess: access });
     await expect(decideModerationCase(confirmationRequest, dependencies)).resolves.toMatchObject({

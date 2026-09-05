@@ -1,4 +1,10 @@
 import type { ModerationReportCategory } from './moderationReport';
+import {
+  validateAccountModerationAuditEvent,
+  validateAccountModerationOperationSummary,
+  type AccountModerationAuditEvent,
+  type AccountModerationOperationSummary,
+} from './accountModeration';
 
 export const MODERATION_CASE_STATUSES = ['open', 'dismissed', 'confirmed'] as const;
 export const MODERATION_CASE_FILTERS = ['all', ...MODERATION_CASE_STATUSES] as const;
@@ -51,10 +57,24 @@ export interface ModerationEvidenceSummary {
   size: number;
 }
 
-export interface ModerationAccountSummary {
-  status: 'active' | 'suspended';
+interface ModerationAccountSummaryBase {
   confirmedViolationCount: number;
   suspensionEligible: boolean;
+}
+
+export type ModerationAccountSummary =
+  | (ModerationAccountSummaryBase & { status: 'active' })
+  | (ModerationAccountSummaryBase & {
+    status: 'suspended';
+    suspensionReason: string;
+    suspendedAt: Date;
+    suspendedBy: string;
+    suspensionActionId: string;
+  });
+
+export interface ModerationAccountHistory {
+  operation: AccountModerationOperationSummary | null;
+  history: AccountModerationAuditEvent[];
 }
 
 interface ModerationCaseDetailBase {
@@ -68,6 +88,7 @@ interface ModerationCaseDetailBase {
   openedAt: Date;
   evidence: ModerationEvidenceSummary[];
   account: ModerationAccountSummary;
+  accountModeration: ModerationAccountHistory;
 }
 
 export type ModerationCaseDetail =
@@ -204,21 +225,72 @@ function validateEvidence(value: unknown, previousSlot: number): number {
 }
 
 function validateAccount(value: unknown): asserts value is ModerationAccountSummary {
-  if (!isRecord(value) || !exact(value, [
-    'status', 'confirmedViolationCount', 'suspensionEligible',
-  ]) || (value.status !== 'active' && value.status !== 'suspended')
+  if (!isRecord(value) || (value.status !== 'active' && value.status !== 'suspended')) {
+    fail('Moderation account summary is invalid.');
+  }
+  const fields = value.status === 'active'
+    ? ['status', 'confirmedViolationCount', 'suspensionEligible']
+    : [
+      'status', 'confirmedViolationCount', 'suspensionEligible', 'suspensionReason',
+      'suspendedAt', 'suspendedBy', 'suspensionActionId',
+    ];
+  if (!exact(value, fields)
     || !Number.isInteger(value.confirmedViolationCount)
     || (value.confirmedViolationCount as number) < 0
     || typeof value.suspensionEligible !== 'boolean'
     || value.suspensionEligible !== ((value.confirmedViolationCount as number) >= 2)) {
     fail('Moderation account summary is invalid.');
   }
+  if (value.status === 'suspended'
+    && (typeof value.suspensionReason !== 'string' || value.suspensionReason.length < 1
+      || value.suspensionReason.length > 1000
+      || value.suspensionReason !== value.suspensionReason.trim()
+      || !validDate(value.suspendedAt) || !validId(value.suspendedBy, 128)
+      || !validId(value.suspensionActionId))) {
+    fail('Moderation account summary is invalid.');
+  }
+}
+
+function validateAccountModeration(
+  value: unknown,
+  account: ModerationAccountSummary,
+  targetSellerId: string,
+): void {
+  if (!isRecord(value) || !exact(value, ['operation', 'history'])
+    || !Array.isArray(value.history) || value.history.length > 20) {
+    fail('Moderation account history is invalid.');
+  }
+  if (value.operation !== null) validateAccountModerationOperationSummary(value.operation);
+  let previous: AccountModerationAuditEvent | null = null;
+  for (const item of value.history) {
+    validateAccountModerationAuditEvent(item);
+    if (item.targetUid !== targetSellerId
+      || (previous && (previous.at.valueOf() < item.at.valueOf()
+        || (previous.at.valueOf() === item.at.valueOf()
+          && previous.eventId.localeCompare(item.eventId) <= 0)))) {
+      fail('Moderation account history is invalid.');
+    }
+    previous = item;
+  }
+  const operation = value.operation as AccountModerationOperationSummary | null;
+  if (operation !== null && operation.targetUid !== targetSellerId) {
+    fail('Moderation account history is invalid.');
+  }
+  if (account.status === 'suspended') {
+    if (operation === null || operation.actionId !== account.suspensionActionId
+      || operation.status === 'restored'
+      || !value.history.some((item) => (
+        (item as AccountModerationAuditEvent).suspensionActionId === account.suspensionActionId
+      ))) fail('Moderation account history is invalid.');
+  } else if (operation !== null && operation.status !== 'restored') {
+    fail('Moderation account history is invalid.');
+  }
 }
 
 function detailFields(status: unknown): string[] {
   const common = [
     'reportId', 'status', 'category', 'description', 'reporterId', 'targetSellerId',
-    'listingSnapshot', 'submittedAt', 'openedAt', 'evidence', 'account',
+    'listingSnapshot', 'submittedAt', 'openedAt', 'evidence', 'account', 'accountModeration',
   ];
   if (status === 'open') return common;
   if (status === 'dismissed') return [...common, 'rationale', 'decidedBy', 'decidedAt'];
@@ -242,6 +314,7 @@ export function validateModerationCaseDetail(value: unknown): void {
   let previousSlot = -1;
   for (const item of value.evidence) previousSlot = validateEvidence(item, previousSlot);
   validateAccount(value.account);
+  validateAccountModeration(value.accountModeration, value.account, value.targetSellerId as string);
   if (value.status !== 'open') {
     if (typeof value.rationale !== 'string' || value.rationale.length < 1
       || value.rationale.length > 1000 || value.rationale !== value.rationale.trim()

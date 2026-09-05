@@ -98,11 +98,40 @@ function readCasePage(value: unknown, requestedLimit: number): ModerationCasePag
 function readCaseDetail(value: unknown): ModerationCaseDetail {
   try {
     if (!isRecord(value)) throw new Error();
+    if (!isRecord(value.account) || !isRecord(value.accountModeration)
+      || !Array.isArray(value.accountModeration.history)) throw new Error();
+    const account = {
+      ...value.account,
+      ...('suspendedAt' in value.account
+        ? { suspendedAt: readWireDate(value.account.suspendedAt) } : {}),
+    };
+    const operationValue = value.accountModeration.operation;
+    const operation = operationValue === null ? null : (() => {
+      if (!isRecord(operationValue)) throw new Error();
+      return {
+        ...operationValue,
+        createdAt: readWireDate(operationValue.createdAt),
+        updatedAt: readWireDate(operationValue.updatedAt),
+        ...('completedAt' in operationValue
+          ? { completedAt: readWireDate(operationValue.completedAt) } : {}),
+        ...('restoredAt' in operationValue
+          ? { restoredAt: readWireDate(operationValue.restoredAt) } : {}),
+      };
+    })();
     const detail: unknown = {
       ...value,
       listingSnapshot: readWireSnapshot(value.listingSnapshot),
       submittedAt: readWireDate(value.submittedAt),
       openedAt: readWireDate(value.openedAt),
+      account,
+      accountModeration: {
+        ...value.accountModeration,
+        operation,
+        history: value.accountModeration.history.map((item) => {
+          if (!isRecord(item)) throw new Error();
+          return { ...item, at: readWireDate(item.at) };
+        }),
+      },
       ...('decidedAt' in value ? { decidedAt: readWireDate(value.decidedAt) } : {}),
     };
     validateModerationCaseDetail(detail);
