@@ -1,10 +1,11 @@
 import { Timestamp } from 'firebase-admin/firestore';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   AccountAppealError,
   parseAccountAppealDecisionRequest,
   parseAccountAppealSubmissionRequest,
   readStoredAccountAppeal,
+  submitAccountAppeal,
 } from './accountAppeals.js';
 
 const uuid = '123e4567-e89b-42d3-a456-426614174000';
@@ -47,5 +48,105 @@ describe('account appeal contracts', () => {
     expect(readStoredAccountAppeal(value).status).toBe('submitted');
     expect(() => readStoredAccountAppeal({ ...value, email: 'secret@example.com' }))
       .toThrow(AccountAppealError);
+  });
+});
+
+function submissionHarness() {
+  const now = new Date('2026-09-05T01:00:00Z');
+  const state = {
+    access: {
+      status: 'suspended', confirmedViolationCount: 2, suspensionReason: '停權原因',
+      suspendedAt: Timestamp.fromMillis(1), suspendedBy: 'admin-1',
+      suspensionActionId: 'action-1', updatedAt: Timestamp.fromMillis(1),
+    } as unknown,
+    operation: {
+      actionId: 'action-1', status: 'suspended', targetUid: 'seller-1',
+      sourceReportId: 'report-1', requestedBy: 'admin-1', reason: '停權原因',
+      requestKey: 'b'.repeat(64), confirmedViolationCount: 2, hiddenListingCount: 1,
+      createdAt: Timestamp.fromMillis(1), updatedAt: Timestamp.fromMillis(2),
+      completedAt: Timestamp.fromMillis(2),
+    } as unknown,
+    appeal: null as unknown,
+    pointer: null as unknown,
+    limit: null as unknown,
+  };
+  const transaction = {
+    getAccountAccess: vi.fn(async () => state.access),
+    getOperation: vi.fn(async () => state.operation),
+    getAppeal: vi.fn(async () => state.appeal),
+    getRequestPointer: vi.fn(async () => state.pointer),
+    getDailyLimit: vi.fn(async () => state.limit),
+    createAppeal: vi.fn((_id: string, value: unknown) => { state.appeal = value; }),
+    createRequestPointer: vi.fn((_id: string, value: unknown) => { state.pointer = value; }),
+    setDailyLimit: vi.fn((_id: string, value: unknown) => { state.limit = value; }),
+    createAudit: vi.fn(),
+  };
+  const dependencies = {
+    now: () => now,
+    getEvidenceMetadata: vi.fn(async () => ({
+      generation: '123', contentType: 'image/png', size: 1024,
+    })),
+    runTransaction: async <T>(operation: (tx: typeof transaction) => Promise<T>) => operation(transaction),
+  };
+  const data = {
+    suspensionActionId: 'action-1', requestId: uuid, draftId: uuid, statement,
+    evidence: [{ slot: 0, generation: '123', contentType: 'image/png', size: 1024 }],
+  };
+  return { state, transaction, dependencies, data };
+}
+
+describe('submitAccountAppeal', () => {
+  it('atomically creates one appeal, pointer, daily limit, and immutable audit', async () => {
+    const fixture = submissionHarness();
+    const result = await submitAccountAppeal(
+      { authUid: 'seller-1', data: fixture.data }, fixture.dependencies,
+    );
+    expect(result).toMatchObject({ status: 'submitted', targetUid: 'seller-1' });
+    expect(fixture.dependencies.getEvidenceMetadata).toHaveBeenCalledWith(
+      `account-appeal-evidence/seller-1/action-1/${uuid}/0`,
+    );
+    expect(fixture.transaction.createAppeal).toHaveBeenCalledTimes(1);
+    expect(fixture.transaction.createAudit).toHaveBeenCalledTimes(1);
+    expect(fixture.transaction.setDailyLimit).toHaveBeenCalledWith(
+      'seller-1_2026-09-05', expect.objectContaining({ count: 1 }),
+    );
+  });
+
+  it('returns the same appeal on an exact retry without additional writes', async () => {
+    const fixture = submissionHarness();
+    const request = { authUid: 'seller-1', data: fixture.data };
+    const first = await submitAccountAppeal(request, fixture.dependencies);
+    vi.mocked(fixture.transaction.createAppeal).mockClear();
+    vi.mocked(fixture.transaction.createAudit).mockClear();
+    const second = await submitAccountAppeal(request, fixture.dependencies);
+    expect(second).toEqual(first);
+    expect(fixture.transaction.createAppeal).not.toHaveBeenCalled();
+    expect(fixture.transaction.createAudit).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for wrong principals, stale actions, conflicting requests, and limits', async () => {
+    for (const mutate of [
+      (fixture: ReturnType<typeof submissionHarness>) => ({ authUid: null, data: fixture.data }),
+      (fixture: ReturnType<typeof submissionHarness>) => {
+        fixture.state.access = null; return { authUid: 'seller-1', data: fixture.data };
+      },
+      (fixture: ReturnType<typeof submissionHarness>) => {
+        fixture.state.operation = { ...(fixture.state.operation as object), status: 'restored' };
+        return { authUid: 'seller-1', data: fixture.data };
+      },
+      (fixture: ReturnType<typeof submissionHarness>) => {
+        fixture.state.appeal = { existing: true }; return { authUid: 'seller-1', data: fixture.data };
+      },
+      (fixture: ReturnType<typeof submissionHarness>) => {
+        fixture.state.limit = { targetUid: 'seller-1', utcDate: '2026-09-05', count: 5,
+          createdAt: Timestamp.fromMillis(1), updatedAt: Timestamp.fromMillis(1) };
+        return { authUid: 'seller-1', data: fixture.data };
+      },
+    ]) {
+      const fixture = submissionHarness();
+      await expect(submitAccountAppeal(mutate(fixture), fixture.dependencies))
+        .rejects.toBeInstanceOf(AccountAppealError);
+      expect(fixture.transaction.createAppeal).not.toHaveBeenCalled();
+    }
   });
 });
