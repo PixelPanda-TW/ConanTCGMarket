@@ -31,6 +31,7 @@ export function AuthStatus() {
                 {adminAccessState.state === 'admin' && (
                   <>
                     <a href="#/admin/moderation">審查檢舉</a>
+                    <a href="#/admin/appeals">審查申訴</a>
                     <a href="#/admin/cards">管理卡片資料</a>
                   </>
                 )}

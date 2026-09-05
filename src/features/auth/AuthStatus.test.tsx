@@ -73,6 +73,8 @@ describe('AuthStatus', () => {
       .toBe('#/admin/cards');
     expect(screen.getByRole('link', { name: '審查檢舉' }).getAttribute('href'))
       .toBe('#/admin/moderation');
+    expect(screen.getByRole('link', { name: '審查申訴' }).getAttribute('href'))
+      .toBe('#/admin/appeals');
 
     for (const adminAccessState of [
       { state: 'loading' as const },
@@ -83,6 +85,7 @@ describe('AuthStatus', () => {
       view.rerender(<AuthStatus />);
       expect(screen.queryByRole('link', { name: '管理卡片資料' })).toBeNull();
       expect(screen.queryByRole('link', { name: '審查檢舉' })).toBeNull();
+      expect(screen.queryByRole('link', { name: '審查申訴' })).toBeNull();
       expect(screen.getByRole('link', { name: '我的訂閱' })).toBeTruthy();
     }
   });

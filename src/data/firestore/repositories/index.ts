@@ -10,3 +10,4 @@ export * from './moderationReportRepository';
 export * from './moderationReviewRepository';
 export * from './accountModerationRepository';
 export * from './accountAppealRepository';
+export * from './accountAppealReviewRepository';

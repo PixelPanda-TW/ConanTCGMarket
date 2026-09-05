@@ -99,8 +99,13 @@ function appealDetail(appeal: ReturnType<typeof readStoredAccountAppeal>) {
   };
 }
 function appealSummary(appeal: ReturnType<typeof readStoredAccountAppeal>) {
-  const { statement: _statement, evidence: _evidence, ...detail } = appealDetail(appeal);
-  return { ...detail, evidenceCount: appeal.evidence.length };
+  const common = {
+    appealId: appeal.appealId, status: appeal.status, targetUid: appeal.targetUid,
+    suspensionActionId: appeal.suspensionActionId, evidenceCount: appeal.evidence.length,
+    submittedAt: appeal.submittedAt.toMillis(), updatedAt: appeal.updatedAt.toMillis(),
+  };
+  return appeal.status === 'submitted' ? common
+    : { ...common, decidedAt: appeal.decidedAt.toMillis() };
 }
 
 export async function listAccountAppeals(

@@ -28,6 +28,12 @@ vi.mock('./features/admin/ModerationQueuePage', () => ({
 vi.mock('./features/admin/ModerationCasePage', () => ({
   ModerationCasePage: ({ id }: { id: string }) => <h1>moderation case {id}</h1>,
 }));
+vi.mock('./features/admin/AppealQueuePage', () => ({
+  AppealQueuePage: () => <h1>appeal queue</h1>,
+}));
+vi.mock('./features/admin/AppealDetailPage', () => ({
+  AppealDetailPage: ({ id }: { id: string }) => <h1>appeal detail {id}</h1>,
+}));
 
 afterEach(() => {
   window.location.hash = '';
@@ -112,6 +118,16 @@ describe('App routes', () => {
       expect(screen.getByRole('heading', { name: 'marketplace page' })).toBeTruthy();
       view.unmount();
     }
+  });
+
+  it('renders the appeal queue and exact private detail route', () => {
+    window.location.hash = '#/admin/appeals';
+    const queue = render(<App />);
+    expect(screen.getByRole('heading', { name: 'appeal queue' })).toBeTruthy();
+    queue.unmount();
+    window.location.hash = '#/admin/appeals/appeal_ABC-123';
+    render(<App />);
+    expect(screen.getByRole('heading', { name: 'appeal detail appeal_ABC-123' })).toBeTruthy();
   });
 
 });

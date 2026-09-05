@@ -20,8 +20,7 @@ export type AccountAppealDetail =
 type SummaryBase = Omit<AppealBase, 'statement' | 'evidence'> & { evidenceCount: number };
 export type AccountAppealSummary =
   | (SummaryBase & { status: 'submitted' })
-  | (SummaryBase & { status: 'dismissed' | 'approved'; decidedAt: Date;
-      decidedBy: string; decisionRationale: string });
+  | (SummaryBase & { status: 'dismissed' | 'approved'; decidedAt: Date });
 export interface AccountAppealPage { appeals: AccountAppealSummary[];
   nextCursor: { submittedAt: Date; key: string } | null }
 
@@ -74,10 +73,13 @@ function validateCommon(value: Record<string, unknown>, summary: boolean) {
   }
   if (value.status !== 'submitted') {
     if (!date(value.decidedAt) || value.decidedAt.valueOf() < value.submittedAt.valueOf()
-      || value.updatedAt.valueOf() < value.decidedAt.valueOf() || !id(value.decidedBy, 128)
+      || value.updatedAt.valueOf() < value.decidedAt.valueOf()) {
+      throw new Error('Account appeal decision is invalid.');
+    }
+    if (!summary && (!id(value.decidedBy, 128)
       || typeof value.decisionRationale !== 'string'
       || value.decisionRationale !== value.decisionRationale.trim()
-      || value.decisionRationale.length < 1 || value.decisionRationale.length > 1000) {
+      || value.decisionRationale.length < 1 || value.decisionRationale.length > 1000)) {
       throw new Error('Account appeal decision is invalid.');
     }
   }
@@ -87,7 +89,7 @@ function fields(status: unknown, summary: boolean): string[] {
   const base = ['appealId', 'status', 'targetUid', 'suspensionActionId',
     ...(summary ? ['evidenceCount'] : ['statement', 'evidence']), 'submittedAt', 'updatedAt'];
   return status === 'submitted' ? base
-    : [...base, 'decidedAt', 'decidedBy', 'decisionRationale'];
+    : [...base, 'decidedAt', ...(summary ? [] : ['decidedBy', 'decisionRationale'])];
 }
 export function validateAccountAppealDetail(value: unknown): asserts value is AccountAppealDetail {
   if (!record(value)) throw new Error('Account appeal must be an object.');

@@ -7,6 +7,7 @@ import { ListingEditPage } from './features/listings/ListingEditPage';
 import {
   canonicalHomeHash,
   getAppRoute,
+  getAppealId,
   getModerationCaseId,
   getReportListingId,
 } from './route';
@@ -16,6 +17,8 @@ import { CardMasterAdminPage } from './features/admin/CardMasterAdminPage';
 import { ReportListingPage } from './features/reports/ReportListingPage';
 import { ModerationQueuePage } from './features/admin/ModerationQueuePage';
 import { ModerationCasePage } from './features/admin/ModerationCasePage';
+import { AppealQueuePage } from './features/admin/AppealQueuePage';
+import { AppealDetailPage } from './features/admin/AppealDetailPage';
 
 function App() {
   const [hash, setHash] = useState(() => canonicalHomeHash(window.location.hash));
@@ -36,6 +39,8 @@ function App() {
   const route = getAppRoute(hash);
   const moderationCaseId = getModerationCaseId(hash);
   if (moderationCaseId) return <ModerationCasePage id={moderationCaseId} />;
+  const appealId = getAppealId(hash);
+  if (appealId) return <AppealDetailPage id={appealId} />;
   const reportListingId = getReportListingId(hash);
   if (reportListingId) return <ReportListingPage id={reportListingId} />;
   const listingEditMatch = hash.match(/^#\/listing\/([^/]+)\/edit$/);
@@ -52,6 +57,7 @@ function App() {
   if (route === 'notifications') return <NotificationSettingsPage />;
   if (route === 'admin-cards') return <CardMasterAdminPage />;
   if (route === 'admin-moderation') return <ModerationQueuePage />;
+  if (route === 'admin-appeals') return <AppealQueuePage />;
 
   return <MarketplacePage />;
 }
