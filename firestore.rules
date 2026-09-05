@@ -160,6 +160,9 @@ service cloud.firestore {
     match /accountAppealLimits/{id} {
       allow read, write: if false;
     }
+    match /accountAppealEvidenceLocks/{id} {
+      allow read, write: if false;
+    }
 
     match /listings/{id} {
       allow read: if resource.data.get('status', '') == 'active'

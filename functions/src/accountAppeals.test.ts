@@ -79,6 +79,7 @@ function submissionHarness() {
     getRequestPointer: vi.fn(async () => state.pointer),
     getDailyLimit: vi.fn(async () => state.limit),
     createAppeal: vi.fn((_id: string, value: unknown) => { state.appeal = value; }),
+    createEvidenceLock: vi.fn(),
     createRequestPointer: vi.fn((_id: string, value: unknown) => { state.pointer = value; }),
     setDailyLimit: vi.fn((_id: string, value: unknown) => { state.limit = value; }),
     createAudit: vi.fn(),
@@ -108,6 +109,9 @@ describe('submitAccountAppeal', () => {
       `account-appeal-evidence/seller-1/action-1/${uuid}/0`,
     );
     expect(fixture.transaction.createAppeal).toHaveBeenCalledTimes(1);
+    expect(fixture.transaction.createEvidenceLock).toHaveBeenCalledWith('action-1', {
+      targetUid: 'seller-1', draftId: uuid, createdAt: expect.any(Timestamp),
+    });
     expect(fixture.transaction.createAudit).toHaveBeenCalledTimes(1);
     expect(fixture.transaction.setDailyLimit).toHaveBeenCalledWith(
       'seller-1_2026-09-05', expect.objectContaining({ count: 1 }),
@@ -119,10 +123,12 @@ describe('submitAccountAppeal', () => {
     const request = { authUid: 'seller-1', data: fixture.data };
     const first = await submitAccountAppeal(request, fixture.dependencies);
     vi.mocked(fixture.transaction.createAppeal).mockClear();
+    vi.mocked(fixture.transaction.createEvidenceLock).mockClear();
     vi.mocked(fixture.transaction.createAudit).mockClear();
     const second = await submitAccountAppeal(request, fixture.dependencies);
     expect(second).toEqual(first);
     expect(fixture.transaction.createAppeal).not.toHaveBeenCalled();
+    expect(fixture.transaction.createEvidenceLock).not.toHaveBeenCalled();
     expect(fixture.transaction.createAudit).not.toHaveBeenCalled();
   });
 

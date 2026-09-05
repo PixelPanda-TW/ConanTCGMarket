@@ -652,6 +652,27 @@ export async function readAppealStorageObjectAsUser(
   return responseResult(response);
 }
 
+export async function uploadAppealStorageObjectAsUser(
+  idToken: string,
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<EmulatorHttpResult> {
+  assertSafeEmulatorEnvironment();
+  if (!/^account-appeal-evidence\/[^/]{1,128}\/[A-Za-z0-9_-]{1,200}\/[0-9a-f-]{36}\/[0-2]$/iu.test(path)) {
+    throw new Error('Unsafe account appeal evidence write path.');
+  }
+  const response = await fetch(
+    `http://${process.env.FIREBASE_STORAGE_EMULATOR_HOST}/v0/b/${encodeURIComponent(E2E_BUCKET)}/o?uploadType=media&name=${encodeURIComponent(path)}`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${idToken}`, 'content-type': contentType },
+      body: bytes,
+    },
+  );
+  return responseResult(response);
+}
+
 export interface EmulatorHttpResult {
   status: number;
   body: unknown;

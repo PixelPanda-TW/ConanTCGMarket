@@ -193,6 +193,7 @@ describe('Firebase rules', () => {
         ['accountAppealAuditLogs', 'appeal-event-1'],
         ['accountAppealRequestKeys', 'appeal-request-1'],
         ['accountAppealLimits', 'suspended-user_2099-01-01'],
+        ['accountAppealEvidenceLocks', 'appeal-action-1'],
       ]) {
         const reference = doc(db, collectionName, id);
         await assertFails(getDoc(reference));
@@ -216,7 +217,7 @@ describe('Firebase rules', () => {
     ]);
     for (const collectionName of [
       'accountAppeals', 'accountAppealAuditLogs',
-      'accountAppealRequestKeys', 'accountAppealLimits',
+      'accountAppealRequestKeys', 'accountAppealLimits', 'accountAppealEvidenceLocks',
     ]) {
       expect(rules).toMatch(new RegExp(
         `match /${collectionName}/\\{id\\} \\{\\s*allow read, write: if false;`, 'u',
@@ -378,6 +379,22 @@ describe('Firebase rules', () => {
       environment.authenticatedContext('admin-user', { admin: true }).storage(), objectPath,
     )));
     await assertSucceeds(deleteObject(object));
+  });
+
+  it('denies replacement and delete after appeal evidence is server-bound', async () => {
+    const actionId = 'c'.repeat(64);
+    const draftId = '123e4567-e89b-42d3-a456-426614174000';
+    const owner = environment.authenticatedContext('suspended-user').storage();
+    const object = ref(owner, `account-appeal-evidence/suspended-user/${actionId}/${draftId}/0`);
+    await assertSucceeds(uploadBytes(object, new Blob(['appeal'], { type: 'image/png' })));
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'accountAppealEvidenceLocks', actionId), {
+        targetUid: 'suspended-user', draftId, createdAt: new Date(),
+      });
+    });
+    await assertFails(uploadBytes(object, new Blob(['replacement'], { type: 'image/png' })));
+    await assertFails(deleteObject(object));
+    await assertFails(getBytes(object));
   });
 
   it.each([

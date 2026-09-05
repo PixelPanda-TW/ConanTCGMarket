@@ -11,6 +11,7 @@ import {
   readAppealStorageObjectAsUser,
   readDocument,
   seedScenario,
+  uploadAppealStorageObjectAsUser,
 } from './support/emulator-state';
 import { expect, test } from './support/test';
 import { acknowledgeWelcome } from './support/ui';
@@ -84,6 +85,10 @@ test('suspended seller privately appeals with three images and admin approval pr
     .toBe(403);
   expect((await readAppealStorageObjectAsUser(sellerToken, `${prefix}${evidence[0].slot}`)).status)
     .toBe(403);
+  expect((await uploadAppealStorageObjectAsUser(
+    sellerToken, `${prefix}${evidence[0].slot}`,
+    new TextEncoder().encode('replacement'), 'image/png',
+  )).status).toBe(403);
   const duplicate = await callEmulatorFunctionWithToken(sellerToken, 'submitAccountAppeal', {
     suspensionActionId: actionId,
     requestId: '550e8400-e29b-41d4-a716-446655440000',

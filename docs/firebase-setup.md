@@ -451,7 +451,9 @@ the suspension, held Listings, Sales, cases, audit history, or confirmed count.
 `accountAppeals`, request keys, rate limits, and appeal audit logs are
 server-only. The **private appeal evidence** uses an owner/action/draft/slot Storage
 path: the exact suspended owner may write the draft, but no browser identity may
-read it. Submission binds generation-checked metadata. The bounded five-minute
+read it. Submission atomically writes a server-owned evidence lock and binds
+generation-checked metadata, so the browser cannot replace or delete submitted
+evidence. The bounded five-minute
 cleanup removes only **expired unsubmitted drafts after 24 hours** and preserves
 every object referenced by a submitted appeal.
 

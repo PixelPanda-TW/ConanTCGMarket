@@ -119,6 +119,7 @@ export interface AccountAppealSubmissionTransaction {
   getRequestPointer(id: string): Promise<unknown | null>;
   getDailyLimit(id: string): Promise<unknown | null>;
   createAppeal(id: string, data: Record<string, unknown>): void;
+  createEvidenceLock(id: string, data: Record<string, unknown>): void;
   createRequestPointer(id: string, data: Record<string, unknown>): void;
   setDailyLimit(id: string, data: Record<string, unknown>): void;
   createAudit(id: string, data: Record<string, unknown>): void;
@@ -252,6 +253,9 @@ export async function submitAccountAppeal(
         evidence: input.evidence, requestKey, submittedAt: now, updatedAt: now,
       };
       transaction.createAppeal(appealId, { ...appeal });
+      transaction.createEvidenceLock(input.suspensionActionId, {
+        targetUid: uid, draftId: input.draftId, createdAt: now,
+      });
       transaction.createRequestPointer(requestKey, {
         appealId, targetUid: uid, requestIdHash, createdAt: now,
       });

@@ -655,6 +655,9 @@ function accountAppealSubmissionPort(
     createAppeal(id, data) {
       transaction.create(firestore.collection('accountAppeals').doc(id), data);
     },
+    createEvidenceLock(id, data) {
+      transaction.create(firestore.collection('accountAppealEvidenceLocks').doc(id), data);
+    },
     createRequestPointer(id, data) {
       transaction.create(firestore.collection('accountAppealRequestKeys').doc(id), data);
     },
